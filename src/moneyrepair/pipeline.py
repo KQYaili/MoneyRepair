@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from time import perf_counter
 
+import numpy as np
+
 from moneyrepair.compat import compute_compatibility_fast
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.simulate import load_dataset
@@ -193,6 +195,22 @@ def run_production_pipeline(
     image_paths = render_solution_gallery(template, active_search, solutions, vis_dir, limit=max_solutions)
     write_solution_report(solutions[:max_solutions], image_paths, report_path)
 
+    ref_info = {}
+    if reference_front is not None:
+        if isinstance(reference_front, (str, Path)):
+            ref_info["front"] = str(reference_front)
+            ref_info["front_sha256"] = _file_sha256(reference_front)
+        else:
+            ref_info["front"] = "numpy_array"
+            ref_info["front_sha256"] = hashlib.sha256(np.ascontiguousarray(reference_front).tobytes()).hexdigest()
+    if reference_back is not None:
+        if isinstance(reference_back, (str, Path)):
+            ref_info["back"] = str(reference_back)
+            ref_info["back_sha256"] = _file_sha256(reference_back)
+        else:
+            ref_info["back"] = "numpy_array"
+            ref_info["back_sha256"] = hashlib.sha256(np.ascontiguousarray(reference_back).tobytes()).hexdigest()
+
     manifest = {
         "tool": "moneyrepair",
         "version": _package_version(),
@@ -201,6 +219,7 @@ def run_production_pipeline(
             "dataset": str(dataset_path),
             "dataset_sha256": _file_sha256(dataset_path),
             "fragments_total": len(fragments),
+            "references": ref_info,
         },
         "parameters": {
             "target_coverage": target_coverage,

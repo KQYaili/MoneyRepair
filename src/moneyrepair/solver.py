@@ -4,9 +4,18 @@ from dataclasses import dataclass
 from time import monotonic
 
 import numpy as np
+import numba
 
 from moneyrepair.compat import CompatibilityMatrix, PackedCompatibilityMatrix
 from moneyrepair.types import Fragment
+
+
+@numba.njit(fastmath=True, cache=True)
+def sum_candidate_areas(areas: np.ndarray, candidates: np.ndarray) -> int:
+    total = 0
+    for idx in range(len(candidates)):
+        total += areas[candidates[idx]]
+    return total
 
 
 @dataclass(frozen=True)
@@ -25,6 +34,7 @@ def solve_covering_sets(
     time_limit_seconds: float | None = None,
     allowed_ids: set[str] | None = None,
     order_strategy: str = "area",
+    precise_bound_threshold: int = 24,
 ) -> list[CoverageSolution]:
     """Depth-first search for compatible fragment sets covering the note."""
 
@@ -102,12 +112,14 @@ def solve_covering_sets(
         if len(candidates) == 0:
             return
 
-        scalar_upper_bound = current_area + int(areas[candidates].sum())
+        scalar_upper_bound = current_area + sum_candidate_areas(areas, candidates)
         if scalar_upper_bound < target_area:
             return
 
-        # ====== Tier 2: Precise geometry check for small candidate sets ======
-        if len(candidates) < 5:
+        # ====== Tier 2: Precise geometry check for candidate sets ======
+        # Trigger precise check when candidate count is below the threshold
+        # or when the scalar bound is close to the target area (within 5% margin)
+        if len(candidates) < precise_bound_threshold or (scalar_upper_bound - target_area < target_area * 0.05):
             combined_candidates_mask = np.logical_or.reduce([fragments[int(idx)].mask for idx in candidates])
             if int((union_mask | combined_candidates_mask).sum()) < target_area:
                 return
