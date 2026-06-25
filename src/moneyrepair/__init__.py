@@ -30,7 +30,7 @@ from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragm
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.types import Fragment
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 __all__ = [
     "AuditEvent",

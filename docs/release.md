@@ -8,6 +8,9 @@ Use this before publishing the project to GitHub.
 python -m pytest -q
 python -m compileall -q src
 moneyrepair benchmark-synthetic --pieces 80 --width 480 --height 210 --coverage 0.98 --output runs/release_benchmark.json
+moneyrepair simulate-multi-note --output runs/release_pool.npz --notes 3 --pieces-per-note 6
+moneyrepair diagnose-chimeras --dataset runs/release_pool.npz --output runs/release_diag.json
+moneyrepair export-diagram --name production-pipeline --output-prefix runs/release_pipeline
 ```
 
 ## Data safety

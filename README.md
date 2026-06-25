@@ -209,6 +209,25 @@ template (so it depends on the note, not the region), or serial labels with
 `--discriminate serial`. Limits and the residual hard tail are documented in the
 [v3.0 note](docs/v3_0_chimera_discrimination.md).
 
+## Production-grade auto-locator & pose solver (v4.0)
+
+v4.0 moves from "approximate placement is given" to fully automated candidate pose estimation and JIT-accelerated DFS covering search. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
+
+Run candidate pose estimation using the Hybrid Ingestion Pipeline (combining 2x resolution pyramids and Numba JIT-compiled zero-allocation sliding-window matching):
+
+```python
+from moneyrepair.locator import locate_fragment_poses
+# Estimates Top-K candidate poses for each fragment (X, Y, rotation, side, score)
+poses = locate_fragment_poses(fragment, template_front, template_back)
+```
+
+The candidates are wrapped as virtual placed fragments and searched using the DFS coverage solver:
+
+```bash
+# Verify the JIT-accelerated solver performance and correctness
+python -m pytest tests/test_solver_performance.py
+```
+
 ## Scientific reporting & diagram export (v2.5)
 
 v2.5 turns benchmark and QA artifacts into a polished, auditable report, and exports editable Visio-style diagrams. See [docs/v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
@@ -272,5 +291,6 @@ For GitHub publishing steps, see [docs/github.md](docs/github.md).
 Version planning:
 [v1.5 experiments](docs/v1_5_experiments.md),
 [v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md),
-[v2.5 scientific reporting](docs/v2_5_scientific_reporting.md), and
-[v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md).
+[v2.5 scientific reporting](docs/v2_5_scientific_reporting.md),
+[v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md), and
+[v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) (with [algorithm deduction](docs/v4_0_algorithm_deduction.md)).

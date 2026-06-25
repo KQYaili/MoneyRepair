@@ -43,6 +43,7 @@ def run_production_pipeline(
     cell: int | None = None,
     max_overlap_pixels: int = 0,
     max_overlap_ratio: float = 0.0,
+    auto_locate: bool = False,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
@@ -85,19 +86,64 @@ def run_production_pipeline(
     )
 
     started = perf_counter()
-    matrix = compute_compatibility_fast(
-        active,
-        max_overlap_pixels=max_overlap_pixels,
-        max_overlap_ratio=max_overlap_ratio,
-        cell=cell,
-    )
+    if auto_locate:
+        import numpy as np
+        from moneyrepair.locator import locate_fragment_poses, build_pose_compatibility_matrix, _crop_foreground, _rotate_image_and_mask
+        
+        placed_fragments: list[Fragment] = []
+        h, w = template.shape[:2]
+        for fragment in active:
+            # Estimate top 3 candidate poses
+            poses = locate_fragment_poses(fragment, template, template, top_k=3)
+            
+            # Place fragment
+            for p in poses:
+                raw_crop_img, raw_crop_mask = _crop_foreground(fragment.image, fragment.mask)
+                crop_img, crop_mask = _rotate_image_and_mask(raw_crop_img, raw_crop_mask, p.angle)
+                
+                placed_mask = np.zeros((h, w), dtype=bool)
+                ch, cw = crop_mask.shape[:2]
+                placed_mask[p.ty : p.ty + ch, p.tx : p.tx + cw] = crop_mask
+                
+                placed_img = np.zeros((h, w, 3), dtype=np.uint8)
+                placed_img[p.ty : p.ty + ch, p.tx : p.tx + cw] = crop_img
+                
+                placed_fragments.append(
+                    Fragment(
+                        id=p.pose_id,
+                        mask=placed_mask,
+                        label=fragment.label,
+                        side=p.side,
+                        image=placed_img,
+                        meta={
+                            "original_id": fragment.id,
+                            "pose_id": p.pose_id,
+                            "side": p.side,
+                            "tx": p.tx,
+                            "ty": p.ty,
+                            "angle": p.angle,
+                        }
+                    )
+                )
+        
+        active_search = placed_fragments
+        matrix = build_pose_compatibility_matrix(active_search, cell=cell)
+    else:
+        active_search = active
+        matrix = compute_compatibility_fast(
+            active_search,
+            max_overlap_pixels=max_overlap_pixels,
+            max_overlap_ratio=max_overlap_ratio,
+            cell=cell,
+        )
+        
     matrix_path = output_dir / "matrix.npz"
     matrix.save(matrix_path)
     timings["build_matrix"] = perf_counter() - started
 
     started = perf_counter()
     solutions = solve_covering_sets(
-        active,
+        active_search,
         matrix,
         target_coverage=target_coverage,
         max_solutions=max_solutions,
@@ -125,7 +171,7 @@ def run_production_pipeline(
 
     vis_dir = output_dir / "vis"
     report_path = output_dir / "report.html"
-    image_paths = render_solution_gallery(template, active, solutions, vis_dir, limit=max_solutions)
+    image_paths = render_solution_gallery(template, active_search, solutions, vis_dir, limit=max_solutions)
     write_solution_report(solutions[:max_solutions], image_paths, report_path)
 
     manifest = {
@@ -146,6 +192,7 @@ def run_production_pipeline(
             "cell": cell,
             "max_overlap_pixels": max_overlap_pixels,
             "max_overlap_ratio": max_overlap_ratio,
+            "auto_locate": auto_locate,
             "thresholds": thresholds.to_dict(),
         },
         "quality": {

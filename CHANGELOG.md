@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.0
+
+Industrialized banknote reconstruction with automated pose estimation, JIT-acceleration, and flowchart diagrams:
+
+- **Auto-Locator & Candidate Pose Search** (`locator.py`): automatically estimates Top-K candidate placement poses (X, Y, rotation, side, score) for each fragment over front/back templates.
+- **Multi-Scale Pyramid & JIT-Acceleration**: downsamples crops and templates to Level 1 (0.5x) for coarse search, followed by Level 0 (1x) fine-tuning. Optimizes inner loops using `@numba.njit` with zero-allocation flat array indexing, reducing processing time per fragment to ~67ms.
+- **Compatible Pose Solving**: extends the depth-first search (DFS) engine to support virtual placed fragments and candidate-pose-level mutual exclusion (selecting one pose of fragment $i$ excludes all other poses of $i$).
+- **CLI run-pipeline integration**: adds `--auto-locate` command-line argument to run the full pipeline without given approximate placements.
+- **Process Diagram Exports**: supports generating process flowchart diagrams in native Microsoft Visio (`.vsdx`), editable vector graphic (`.svg`), and structured JSON (`.json`) formats. Added `export-diagram` command.
+
 ## 3.0.0
 
 Turn the self-confirming demo into an honest testbed, then fix the failure it
