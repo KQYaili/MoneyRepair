@@ -35,6 +35,9 @@ def solve_covering_sets(
     if not (0.0 < target_coverage <= 1.0):
         raise ValueError("target_coverage must be in (0, 1]")
 
+    if isinstance(compatibility, PackedCompatibilityMatrix):
+        compatibility = compatibility.to_dense()
+
     allowed_indices = (
         set(range(len(fragments)))
         if allowed_ids is None
@@ -86,15 +89,15 @@ def solve_covering_sets(
         solutions.sort(key=lambda item: (-item.coverage, len(item.fragment_ids), item.fragment_ids))
         del solutions[max_solutions:]
 
-    def upper_bound_area(union_mask: np.ndarray, candidates: tuple[int, ...]) -> int:
+    def upper_bound_area(union_mask: np.ndarray, candidates: np.ndarray) -> int:
         if len(candidates) == 0:
             return int(union_mask.sum())
         candidate_union = union_mask.copy()
         for index in candidates:
-            candidate_union |= fragments[index].mask
+            candidate_union |= fragments[int(index)].mask
         return int(candidate_union.sum())
 
-    def dfs(selected: tuple[int, ...], candidates: tuple[int, ...], union_mask: np.ndarray) -> None:
+    def dfs(selected: tuple[int, ...], candidates: np.ndarray, union_mask: np.ndarray) -> None:
         if timed_out() or len(solutions) >= max_solutions:
             return
 
@@ -105,23 +108,27 @@ def solve_covering_sets(
         if upper_bound_area(union_mask, candidates) < target_area:
             return
 
-        for offset, index in enumerate(candidates):
+        for offset in range(len(candidates)):
             if timed_out() or len(solutions) >= max_solutions:
                 return
+            index = int(candidates[offset])
             next_union = union_mask | fragments[index].mask
             remaining = candidates[offset + 1 :]
-            next_candidates = compatibility.compatible_indices(index, remaining)
+            # Vectorized bitset intersect using boolean indexing over the pre-unpacked matrix
+            next_candidates = remaining[compatibility.compatible[index, remaining]]
             dfs(selected + (index,), next_candidates, next_union)
 
-    starts = (compatibility.index(start_id),) if start_id else order
+    starts = [compatibility.index(start_id)] if start_id else order
     for start in starts:
         if timed_out() or len(solutions) >= max_solutions:
             break
         if start_id:
-            candidates = compatibility.compatible_indices(start, tuple(index for index in order if index != start))
+            remaining = np.array([idx for idx in order if idx != start], dtype=np.int64)
+            candidates = remaining[compatibility.compatible[start, remaining]]
         else:
             start_rank = order_rank[start]
-            candidates = compatibility.compatible_indices(start, order[start_rank + 1 :])
+            remaining = np.array(order[start_rank + 1 :], dtype=np.int64)
+            candidates = remaining[compatibility.compatible[start, remaining]]
         dfs((start,), candidates, fragments[start].mask.copy())
 
     return solutions

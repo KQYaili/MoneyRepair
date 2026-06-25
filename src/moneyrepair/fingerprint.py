@@ -159,3 +159,28 @@ def groups_from_labels(fragments: list[Fragment]) -> dict[str, int]:
             groups[fragment.id] = next_group
             next_group += 1
     return groups
+
+
+def compute_anchor_score(fragment: Fragment) -> float:
+    """Compute an anchor score for a fragment to prioritize search start.
+
+    Fragments containing serial number labels, specific key features, or large areas
+    are given higher anchor scores to prune the DFS tree early.
+    """
+    score = 0.0
+    if fragment.label:
+        score += 100.0
+    score += float(fragment.area) * 0.05
+    for tag in fragment.tags:
+        if "serial" in tag or "ocr" in tag:
+            score += 50.0
+        elif "edge" in tag:
+            score += 10.0
+        elif "corner" in tag:
+            score += 20.0
+    return score
+
+
+def prioritize_fragments_by_anchor(fragments: list[Fragment]) -> list[Fragment]:
+    """Sort a list of fragments in descending order of their anchor score."""
+    return sorted(fragments, key=compute_anchor_score, reverse=True)
