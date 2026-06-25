@@ -76,7 +76,11 @@ def run_production_pipeline(
     if auto_locate:
         from moneyrepair.locator import locate_fragment_poses
         dummy_template = np.zeros((4, 4, 3), dtype=np.uint8)
-        dummy_frag = Fragment("dummy", np.ones((2, 2), dtype=bool), np.zeros((2, 2, 3), dtype=np.uint8))
+        dummy_frag = Fragment(
+            id="dummy",
+            mask=np.ones((2, 2), dtype=bool),
+            image=np.zeros((2, 2, 3), dtype=np.uint8),
+        )
         locate_fragment_poses(dummy_frag, dummy_template, dummy_template, top_k=1, coarse_step=2)
     timings["jit_warmup"] = perf_counter() - started_warmup
 
@@ -198,7 +202,8 @@ def run_production_pipeline(
         precise_bound_threshold=precise_bound_threshold,
     )
     timings["solve"] = perf_counter() - started
-    timings["total"] = sum(value for key, value in timings.items() if key != "total")
+    timings["total"] = sum(value for key, value in timings.items() if key not in ("total", "total_without_jit_warmup"))
+    timings["total_without_jit_warmup"] = timings["total"] - timings.get("jit_warmup", 0.0)
 
     candidates_path = output_dir / "candidates.json"
     candidates_path.write_text(

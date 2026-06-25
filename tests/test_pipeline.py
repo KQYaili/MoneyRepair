@@ -25,6 +25,7 @@ def test_run_production_pipeline_writes_auditable_manifest(tmp_path):
     assert manifest["inputs"]["fragments_total"] == len(fragments)
     assert manifest["search"]["active_fragments"] >= 1
     assert "total" in manifest["timings_seconds"]
+    assert "total_without_jit_warmup" in manifest["timings_seconds"]
 
     for key in ("matrix", "candidates", "quality_report", "report", "run_manifest"):
         assert Path(manifest["outputs"][key]).exists()

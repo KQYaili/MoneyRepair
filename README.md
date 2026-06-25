@@ -256,22 +256,45 @@ template (so it depends on the note, not the region), or serial labels with
 
 ## Production-grade auto-locator & pose solver (v4.0)
 
-v4.0 moves from "approximate placement is given" to fully automated candidate pose estimation and JIT-accelerated candidate pose locator + vectorized DFS candidate filtering. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
+v4.0 shifts the system from a pipeline where approximate fragment placement is given beforehand to an industrial, end-to-end framework that automatically estimates translation, rotation, and side placement candidate poses, and solves them using JIT-accelerated algorithms. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
 
-Run candidate pose estimation using the Hybrid Ingestion Pipeline (combining 2x resolution pyramids and Numba JIT-compiled zero-allocation sliding-window matching):
+### 1. Hybrid Coarse-to-Fine Pose Locator
+Finding the optimal $X$, $Y$, rotation ($0^\circ, 90^\circ, 180^\circ, 270^\circ$), and side (front/back) configuration can be slow on large note templates. `locator.py` implements a hybrid matching pipeline:
+- **Pyramid Downsampling**: Constructs a 2x resolution pyramid (Level 1) of both reference templates and fragment crops.
+- **Numba JIT-compiled Coarse Loop**: Executes a highly optimized sliding-window matching loop at Level 1 to identify the Top-10 candidate configurations.
+- **Level 0 Fine Refinement**: Evaluates a narrow neighborhood grid at full resolution around the coarse candidates to find the optimal translation and rotation.
 
+For programmatic usage:
 ```python
 from moneyrepair.locator import locate_fragment_poses
-# Estimates Top-K candidate poses for each fragment (X, Y, rotation, side, score)
-poses = locate_fragment_poses(fragment, template_front, template_back)
+# Estimates Top-K CandidatePose objects containing tx, ty, angle, side, and score
+poses = locate_fragment_poses(fragment, template_front, template_back, top_k=3, coarse_step=8)
 ```
 
-The candidates are wrapped as virtual placed fragments and searched using the DFS coverage solver:
+### 2. Zero-Allocation Two-Tier Solver
+To handle the combinatorial explosion of searching through multiple candidate poses for up to thousands of fragments, the branch-and-bound solver introduces:
+- **Numba-Accelerated Scalar Pruning**: Replaces high-overhead NumPy fancy indexing (`areas[candidates]`) with a zero-allocation flat sum helper (`sum_candidate_areas`).
+- **Precise Bounding Threshold**: Uses `--precise-bound-threshold` (default 24) to configure when the solver switches from fast scalar area estimation to precise pixel-accurate geometry check.
+
+### 3. Integrated Production Command
+Run the complete pipeline end-to-end with automated placement search, custom reference templates, and detailed auditable logging:
 
 ```bash
-# Verify the JIT-accelerated solver performance and correctness
-python -m pytest tests/test_solver_performance.py
+moneyrepair run-pipeline \
+  --dataset data/real_fragments.npz \
+  --output-dir data/run_v4 \
+  --auto-locate \
+  --precise-bound-threshold 24 \
+  --reference-front data/rmb100_front.png \
+  --reference-back data/rmb100_back.png \
+  --coverage 0.99
 ```
+
+When `--auto-locate` is enabled:
+1. Candidate poses are generated for all active fragments.
+2. The Top-K candidate configurations are stored in `pose_candidates.json` for auditing and manual verification.
+3. Virtual placed fragments are constructed and solved using the zero-allocation DFS engine.
+4. Detailed performance metrics, including `jit_warmup` and `total_without_jit_warmup`, are logged in `run_manifest.json` along with input hashes and absolute paths.
 
 ## Current scope
 
