@@ -242,16 +242,43 @@ def _edge_svg(spec_nodes: dict[str, DiagramNode], edge: DiagramEdge) -> str:
     source = spec_nodes[edge.source]
     target = spec_nodes[edge.target]
     if edge.kind == "feedback":
+        if source.y > target.y:
+            # Source is below target, route it downwards/below
+            x0 = source.x + source.width / 2
+            y0 = source.y + source.height
+            x1 = target.x + target.width / 2
+            y1 = target.y + target.height
+            peak = max(y0, y1) + 40.0
+            path = f"M {x0:.1f} {y0:.1f} C {x0:.1f} {peak:.1f}, {x1:.1f} {peak:.1f}, {x1:.1f} {y1:.1f}"
+            line = f'<path d="{path}" fill="none" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/>'
+            label = ""
+            if edge.label:
+                label = f'<text x="{(x0 + x1) / 2:.1f}" y="{peak + 12:.1f}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#E45756">{escape(edge.label)}</text>'
+            return line + label
+        else:
+            x0 = source.x + source.width / 2
+            y0 = source.y
+            x1 = target.x + target.width / 2
+            y1 = target.y
+            peak = min(y0, y1) - 44.0
+            path = f"M {x0:.1f} {y0:.1f} C {x0:.1f} {peak:.1f}, {x1:.1f} {peak:.1f}, {x1:.1f} {y1:.1f}"
+            line = f'<path d="{path}" fill="none" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/>'
+            label = ""
+            if edge.label:
+                label = f'<text x="{(x0 + x1) / 2:.1f}" y="{peak - 4:.1f}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#E45756">{escape(edge.label)}</text>'
+            return line + label
+
+    # Standard flow edge
+    # Check if target is directly below source (aligned vertically)
+    if abs(source.x - target.x) < 40.0 and target.y > source.y:
         x0 = source.x + source.width / 2
-        y0 = source.y
+        y0 = source.y + source.height
         x1 = target.x + target.width / 2
         y1 = target.y
-        peak = min(y0, y1) - 44.0
-        path = f"M {x0:.1f} {y0:.1f} C {x0:.1f} {peak:.1f}, {x1:.1f} {peak:.1f}, {x1:.1f} {y1:.1f}"
-        line = f'<path d="{path}" fill="none" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/>'
+        line = f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>'
         label = ""
         if edge.label:
-            label = f'<text x="{(x0 + x1) / 2:.1f}" y="{peak - 4:.1f}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#E45756">{escape(edge.label)}</text>'
+            label = f'<text x="{x0 + 8:.1f}" y="{(y0 + y1) / 2:.1f}" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#41525c">{escape(edge.label)}</text>'
         return line + label
 
     x0 = source.x + source.width
