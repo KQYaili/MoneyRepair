@@ -201,6 +201,8 @@ def locate_fragment_poses(
     *,
     top_k: int = 3,
     coarse_step: int = 8,
+    score_margin: float | None = None,
+    min_score: float | None = None,
 ) -> list[CandidatePose]:
     """Find the best-fitting translations/rotations for a fragment on the template.
 
@@ -312,7 +314,15 @@ def locate_fragment_poses(
 
     # 3. De-duplicate close poses
     unique_poses: list[CandidatePose] = []
+    best_score = -1.0
     for p in sorted(refined_candidates, key=lambda x: x.score, reverse=True):
+        if min_score is not None and p.score < min_score:
+            continue
+        if best_score < 0.0:
+            best_score = p.score
+        if score_margin is not None and p.score < best_score - score_margin:
+            continue
+
         is_dup = False
         for up in unique_poses:
             if up.side == p.side and up.angle == p.angle and abs(up.tx - p.tx) <= 2 and abs(up.ty - p.ty) <= 2:
@@ -338,19 +348,80 @@ def locate_fragment_poses(
     return unique_poses
 
 
+@numba.njit(fastmath=True, cache=True)
+def numba_boundary_continuity(
+    img_a: np.ndarray,
+    mask_a: np.ndarray,
+    img_b: np.ndarray,
+    mask_b: np.ndarray,
+    max_boundary_diff: float,
+) -> bool:
+    """Check if the color transition across the touching boundary is continuous using Numba."""
+    h, w = mask_a.shape
+    total_diff = 0.0
+    count = 0
+
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            if mask_b[y, x]:
+                # Check if it has any 4-neighbor in mask_a
+                has_neighbor_in_a = False
+                for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    ny, nx = y + dy, x + dx
+                    if mask_a[ny, nx]:
+                        has_neighbor_in_a = True
+                        break
+
+                if has_neighbor_in_a:
+                    # Find the minimum color difference among all neighbors in mask_a
+                    min_diff = 1e9
+                    color_b_r = float(img_b[y, x, 0])
+                    color_b_g = float(img_b[y, x, 1])
+                    color_b_b = float(img_b[y, x, 2])
+
+                    for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        ny, nx = y + dy, x + dx
+                        if mask_a[ny, nx]:
+                            dr = color_b_r - float(img_a[ny, nx, 0])
+                            dg = color_b_g - float(img_a[ny, nx, 1])
+                            db = color_b_b - float(img_a[ny, nx, 2])
+                            diff = np.sqrt(dr*dr + dg*dg + db*db)
+                            if diff < min_diff:
+                                min_diff = diff
+
+                    if min_diff < 1e8:
+                        total_diff += min_diff
+                        count += 1
+
+    if count == 0:
+        return True
+    return (total_diff / count) <= max_boundary_diff
+
+
 def build_pose_compatibility_matrix(
     placed_fragments: list[Fragment],
     cell: int | None = None,
+    groups: dict[str, int] | None = None,
+    max_boundary_diff: float = -1.0,
 ) -> CompatibilityMatrix:
-    """Build compatibility matrix for placed fragments, enforcing mutual exclusion of poses from the same fragment."""
-    from moneyrepair.compat import compute_compatibility_fast, CompatibilityMatrix
-    
-    # 1. Compute physical overlap compatibility using the fast grid engine
-    packed = compute_compatibility_fast(placed_fragments, cell=cell)
+    """Build compatibility matrix for placed fragments, enforcing appearance clustering, mutual exclusion, and boundary continuity."""
+    from moneyrepair.compat import compute_compatibility_fast, compute_compatibility_clustered, CompatibilityMatrix
+
+    # 1. Map placed fragment IDs to original fragment appearance groups if provided
+    if groups is not None:
+        placed_groups = {}
+        for pf in placed_fragments:
+            orig_id = pf.meta.get("original_id", pf.id)
+            if orig_id in groups:
+                placed_groups[pf.id] = groups[orig_id]
+        packed = compute_compatibility_clustered(placed_fragments, placed_groups)
+    else:
+        packed = compute_compatibility_fast(placed_fragments, cell=cell)
+
     matrix = packed.to_dense()
-    
-    # 2. Enforce mutual exclusion for poses of the same physical fragment
     n = len(placed_fragments)
+
+    # 2. Enforce mutual exclusion for poses of the same physical fragment
     for i in range(n):
         orig_i = placed_fragments[i].meta.get("original_id")
         if orig_i is None:
@@ -360,5 +431,19 @@ def build_pose_compatibility_matrix(
             if orig_i == orig_j:
                 matrix.compatible[i, j] = False
                 matrix.compatible[j, i] = False
-                
+
+    # 3. Enforce adjacency / boundary color continuity constraint if active
+    if max_boundary_diff > 0.0:
+        for i in range(n):
+            for j in range(i + 1, n):
+                if matrix.compatible[i, j]:
+                    # Check boundary continuity
+                    if not numba_boundary_continuity(
+                        placed_fragments[i].image, placed_fragments[i].mask,
+                        placed_fragments[j].image, placed_fragments[j].mask,
+                        max_boundary_diff,
+                    ):
+                        matrix.compatible[i, j] = False
+                        matrix.compatible[j, i] = False
+
     return matrix

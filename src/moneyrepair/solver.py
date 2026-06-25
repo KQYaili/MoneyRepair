@@ -18,6 +18,40 @@ def sum_candidate_areas(areas: np.ndarray, candidates: np.ndarray) -> int:
     return total
 
 
+def compute_touches_matrix(fragments: list[Fragment]) -> np.ndarray:
+    """Precompute which fragments touch (are adjacent to) each other."""
+    n = len(fragments)
+    touches = np.zeros((n, n), dtype=bool)
+    bboxes = [f.bbox for f in fragments]
+
+    for i in range(n):
+        x0_i, y0_i, x1_i, y1_i = bboxes[i]
+        if x1_i <= x0_i:  # empty mask
+            continue
+        # Expand bbox by 1
+        x0_i_exp, y0_i_exp, x1_i_exp, y1_i_exp = x0_i - 1, y0_i - 1, x1_i + 1, y1_i + 1
+
+        mask_i = fragments[i].mask
+        dilated_i = mask_i.copy()
+        dilated_i[:-1] |= mask_i[1:]
+        dilated_i[1:] |= mask_i[:-1]
+        dilated_i[:, :-1] |= mask_i[:, 1:]
+        dilated_i[:, 1:] |= mask_i[:, :-1]
+
+        for j in range(i + 1, n):
+            x0_j, y0_j, x1_j, y1_j = bboxes[j]
+            if x1_j <= x0_j:
+                continue
+            # Check expanded bbox intersection
+            if not (x0_i_exp < x1_j and x1_i_exp > x0_j and y0_i_exp < y1_j and y1_i_exp > y0_j):
+                continue
+            # Check pixel level overlap
+            if np.any(dilated_i & fragments[j].mask):
+                touches[i, j] = True
+                touches[j, i] = True
+    return touches
+
+
 @dataclass(frozen=True)
 class CoverageSolution:
     fragment_ids: tuple[str, ...]
@@ -79,6 +113,7 @@ def solve_covering_sets(
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     solutions: list[CoverageSolution] = []
     seen: set[tuple[int, ...]] = set()
+    touches = compute_touches_matrix(fragments)
 
     def timed_out() -> bool:
         return deadline is not None and monotonic() >= deadline
@@ -124,7 +159,18 @@ def solve_covering_sets(
             if int((union_mask | combined_candidates_mask).sum()) < target_area:
                 return
 
-        for offset in range(len(candidates)):
+        # Prioritize candidates that physically touch any of the currently selected fragments
+        touching_mask = np.zeros(len(fragments), dtype=bool)
+        for sel_idx in selected:
+            touching_mask |= touches[sel_idx]
+
+        is_touching = touching_mask[candidates]
+        offsets = np.arange(len(candidates))
+        touching_offsets = offsets[is_touching]
+        non_touching_offsets = offsets[~is_touching]
+        reordered_offsets = np.concatenate((touching_offsets, non_touching_offsets))
+
+        for offset in reordered_offsets:
             if timed_out() or len(solutions) >= max_solutions:
                 return
             index = int(candidates[offset])

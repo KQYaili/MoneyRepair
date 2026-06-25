@@ -478,6 +478,11 @@ def _cmd_run_pipeline(args: argparse.Namespace) -> None:
         reference_front=args.reference_front,
         reference_back=args.reference_back,
         precise_bound_threshold=args.precise_bound_threshold,
+        score_margin=args.score_margin,
+        min_score=args.min_score,
+        max_boundary_diff=args.max_boundary_diff,
+        discriminate_appearance=args.discriminate_appearance,
+        discriminate_tolerance=args.discriminate_tolerance,
     )
     print(json.dumps(manifest, indent=2))
 
@@ -883,6 +888,11 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--reference-front", help="path to reference front image")
     pipeline.add_argument("--reference-back", help="path to reference back image")
     pipeline.add_argument("--precise-bound-threshold", type=int, default=24, help="candidate count threshold below which precise geometry is checked")
+    pipeline.add_argument("--score-margin", type=float, help="adaptive candidate pose score margin")
+    pipeline.add_argument("--min-score", type=float, help="minimum candidate pose score threshold")
+    pipeline.add_argument("--max-boundary-diff", type=float, default=-1.0, help="max boundary color difference threshold (disabled if negative)")
+    pipeline.add_argument("--discriminate-appearance", action="store_true", help="enable appearance clustering discrimination in pose matrix")
+    pipeline.add_argument("--discriminate-tolerance", type=float, default=0.05, help="appearance clustering tolerance")
     _add_quality_args(pipeline)
     pipeline.set_defaults(func=_cmd_run_pipeline)
 

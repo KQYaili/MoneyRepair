@@ -49,6 +49,11 @@ def run_production_pipeline(
     reference_front: str | Path | np.ndarray | None = None,
     reference_back: str | Path | np.ndarray | None = None,
     precise_bound_threshold: int = 24,
+    score_margin: float | None = None,
+    min_score: float | None = None,
+    max_boundary_diff: float = -1.0,
+    discriminate_appearance: bool = False,
+    discriminate_tolerance: float = 0.05,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
@@ -128,8 +133,13 @@ def run_production_pipeline(
         h, w = template.shape[:2]
         pose_candidates_dict = {}
         for fragment in active:
-            # Estimate top 3 candidate poses using real front/back references
-            poses = locate_fragment_poses(fragment, ref_front, ref_back, top_k=3)
+            # Estimate candidate poses using real front/back references
+            poses = locate_fragment_poses(
+                fragment, ref_front, ref_back,
+                top_k=3,
+                score_margin=score_margin,
+                min_score=min_score,
+            )
             pose_candidates_dict[fragment.id] = [
                 {
                     "pose_id": p.pose_id,
@@ -177,7 +187,18 @@ def run_production_pipeline(
         active_search = placed_fragments
         pose_candidates_path = output_dir / "pose_candidates.json"
         pose_candidates_path.write_text(json.dumps(pose_candidates_dict, indent=2), encoding="utf-8")
-        matrix = build_pose_compatibility_matrix(active_search, cell=cell)
+        # Compute appearance clusters if requested
+        groups = None
+        if discriminate_appearance:
+            from moneyrepair.fingerprint import cluster_fragments_by_appearance
+            groups = cluster_fragments_by_appearance(active, template, tolerance=discriminate_tolerance)
+
+        matrix = build_pose_compatibility_matrix(
+            active_search,
+            cell=cell,
+            groups=groups,
+            max_boundary_diff=max_boundary_diff,
+        )
     else:
         active_search = active
         matrix = compute_compatibility_fast(
@@ -274,6 +295,11 @@ def run_production_pipeline(
             "auto_locate": auto_locate,
             "thresholds": thresholds.to_dict(),
             "precise_bound_threshold": precise_bound_threshold,
+            "score_margin": score_margin,
+            "min_score": min_score,
+            "max_boundary_diff": max_boundary_diff,
+            "discriminate_appearance": discriminate_appearance,
+            "discriminate_tolerance": discriminate_tolerance,
         },
         "quality": {
             "accepted": quality_summary["accepted"],

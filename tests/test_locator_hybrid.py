@@ -174,3 +174,68 @@ def test_hybrid_locator_robustness_to_noise_and_rotation():
     assert top.score > 0.7
 
 
+def test_adaptive_top_k_filtering():
+    width, height = 360, 160
+    template_front = synthetic_banknote(width=width, height=height, seed=42)
+    template_back = synthetic_banknote(width=width, height=height, seed=100)
+    tx, ty = 80, 40
+    fw, fh = 40, 30
+    
+    mask = np.zeros((height, width), dtype=bool)
+    mask[ty : ty + fh, tx : tx + fw] = True
+    raw_img = np.where(mask[..., None], template_front, 0)
+    
+    frag = Fragment(id="test_adaptive", mask=mask, image=raw_img)
+    
+    # Locate with min_score=1.05 (should return empty list since score is in (0, 1])
+    poses_high = locate_fragment_poses(frag, template_front, template_back, min_score=1.05)
+    assert len(poses_high) == 0
+    
+    # Locate with score_margin = 0.0001 (should keep only the best candidate)
+    poses_tight = locate_fragment_poses(frag, template_front, template_back, score_margin=0.0001)
+    assert len(poses_tight) <= 1
+
+
+def test_numba_boundary_continuity():
+    from moneyrepair.locator import numba_boundary_continuity
+    # Create two adjacent masks of size 10x10
+    mask_a = np.zeros((10, 10), dtype=bool)
+    mask_a[:5, :] = True
+    mask_b = np.zeros((10, 10), dtype=bool)
+    mask_b[5:, :] = True
+    
+    # Case A: continuous colors (both all white)
+    img_a = np.ones((10, 10, 3), dtype=np.uint8) * 200
+    img_b = np.ones((10, 10, 3), dtype=np.uint8) * 200
+    assert numba_boundary_continuity(img_a, mask_a, img_b, mask_b, max_boundary_diff=10.0)
+    
+    # Case B: discontinuous colors (one white, one black)
+    img_b_dark = np.zeros((10, 10, 3), dtype=np.uint8)
+    assert not numba_boundary_continuity(img_a, mask_a, img_b_dark, mask_b, max_boundary_diff=10.0)
+
+
+def test_clustered_pose_compatibility_matrix():
+    from moneyrepair.locator import build_pose_compatibility_matrix
+    # Create placed fragments representing different physical fragments
+    mask_a = np.zeros((4, 4), dtype=bool)
+    mask_a[0, :] = True
+    mask_b = np.zeros((4, 4), dtype=bool)
+    mask_b[1, :] = True
+    
+    frag_a = Fragment(id="f0_p0", mask=mask_a, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f0"})
+    frag_b = Fragment(id="f1_p0", mask=mask_b, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f1"})
+    
+    # With groups: f0 is in group 0, f1 is in group 1 (different notes)
+    # They should be marked incompatible even though they don't overlap!
+    groups = {"f0": 0, "f1": 1}
+    matrix_clustered = build_pose_compatibility_matrix([frag_a, frag_b], groups=groups)
+    idx_a = matrix_clustered.index("f0_p0")
+    idx_b = matrix_clustered.index("f1_p0")
+    assert not matrix_clustered.compatible[idx_a, idx_b]
+    
+    # Without groups (default), they don't overlap so they are compatible
+    matrix_normal = build_pose_compatibility_matrix([frag_a, frag_b])
+    assert matrix_normal.compatible[idx_a, idx_b]
+
+
+
