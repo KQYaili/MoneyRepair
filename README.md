@@ -211,7 +211,7 @@ template (so it depends on the note, not the region), or serial labels with
 
 ## Production-grade auto-locator & pose solver (v4.0)
 
-v4.0 moves from "approximate placement is given" to fully automated candidate pose estimation and JIT-accelerated DFS covering search. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
+v4.0 moves from "approximate placement is given" to fully automated candidate pose estimation and JIT-accelerated locator + vectorized DFS candidate filtering. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
 
 Run candidate pose estimation using the Hybrid Ingestion Pipeline (combining 2x resolution pyramids and Numba JIT-compiled zero-allocation sliding-window matching):
 

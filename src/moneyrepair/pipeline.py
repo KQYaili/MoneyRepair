@@ -44,6 +44,8 @@ def run_production_pipeline(
     max_overlap_pixels: int = 0,
     max_overlap_ratio: float = 0.0,
     auto_locate: bool = False,
+    reference_front: str | Path | np.ndarray | None = None,
+    reference_back: str | Path | np.ndarray | None = None,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
@@ -90,11 +92,26 @@ def run_production_pipeline(
         import numpy as np
         from moneyrepair.locator import locate_fragment_poses, build_pose_compatibility_matrix, _crop_foreground, _rotate_image_and_mask
         
+        ref_front = template
+        ref_back = template
+        if reference_front is not None:
+            if isinstance(reference_front, (str, Path)):
+                from moneyrepair.ingest import load_rgb
+                ref_front = load_rgb(reference_front)
+            else:
+                ref_front = reference_front
+        if reference_back is not None:
+            if isinstance(reference_back, (str, Path)):
+                from moneyrepair.ingest import load_rgb
+                ref_back = load_rgb(reference_back)
+            else:
+                ref_back = reference_back
+
         placed_fragments: list[Fragment] = []
         h, w = template.shape[:2]
         for fragment in active:
-            # Estimate top 3 candidate poses
-            poses = locate_fragment_poses(fragment, template, template, top_k=3)
+            # Estimate top 3 candidate poses using real front/back references
+            poses = locate_fragment_poses(fragment, ref_front, ref_back, top_k=3)
             
             # Place fragment
             for p in poses:
@@ -106,7 +123,9 @@ def run_production_pipeline(
                 placed_mask[p.ty : p.ty + ch, p.tx : p.tx + cw] = crop_mask
                 
                 placed_img = np.zeros((h, w, 3), dtype=np.uint8)
-                placed_img[p.ty : p.ty + ch, p.tx : p.tx + cw] = crop_img
+                target_region = placed_img[p.ty : p.ty + ch, p.tx : p.tx + cw]
+                # Filter background: only copy pixels where crop_mask is True
+                target_region[crop_mask] = crop_img[crop_mask]
                 
                 placed_fragments.append(
                     Fragment(

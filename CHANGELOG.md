@@ -4,9 +4,10 @@
 
 Industrialized banknote reconstruction with automated pose estimation, JIT-acceleration, and flowchart diagrams:
 
-- **Auto-Locator & Candidate Pose Search** (`locator.py`): automatically estimates Top-K candidate placement poses (X, Y, rotation, side, score) for each fragment over front/back templates.
-- **Multi-Scale Pyramid & JIT-Acceleration**: downsamples crops and templates to Level 1 (0.5x) for coarse search, followed by Level 0 (1x) fine-tuning. Optimizes inner loops using `@numba.njit` with zero-allocation flat array indexing, reducing processing time per fragment to ~67ms.
-- **Compatible Pose Solving**: extends the depth-first search (DFS) engine to support virtual placed fragments and candidate-pose-level mutual exclusion (selecting one pose of fragment $i$ excludes all other poses of $i$).
+- **Auto-Locator & Candidate Pose Search** (`locator.py`): automatically estimates Top-K candidate placement poses (X, Y, rotation, side, score) for each fragment over front/back templates. Supports optional `--reference-front` and `--reference-back` template images.
+- **Multi-Scale Pyramid & JIT-Acceleration**: downsamples crops and templates to Level 1 (0.5x) for coarse search, followed by Level 0 (1x) fine-tuning. Optimizes inner loops using `@numba.njit` with zero-allocation flat array indexing, reducing processing time per fragment to ~67ms. Added `numba` to core dependencies in `pyproject.toml`.
+- **Two-Tier Scalar Bounding Solver** (`solver.py`): resolves memory allocation churn in recursive hot-paths by replacing copy-heavy geometric checks with $O(1)$ scalar bounding (sum of candidate areas), running precise vectorized mask unions only when candidate count is small ($< 5$).
+- **Compatible Pose Solving**: extends the depth-first search (DFS) engine to support virtual placed fragments and candidate-pose-level mutual exclusion (selecting one pose of fragment $i$ excludes all other poses of $i$). Filters background pixels in placed images using the fragment mask to prevent template contamination.
 - **CLI run-pipeline integration**: adds `--auto-locate` command-line argument to run the full pipeline without given approximate placements.
 - **Process Diagram Exports**: supports generating process flowchart diagrams in native Microsoft Visio (`.vsdx`), editable vector graphic (`.svg`), and structured JSON (`.json`) formats. Added `export-diagram` command.
 

@@ -89,14 +89,6 @@ def solve_covering_sets(
         solutions.sort(key=lambda item: (-item.coverage, len(item.fragment_ids), item.fragment_ids))
         del solutions[max_solutions:]
 
-    def upper_bound_area(union_mask: np.ndarray, candidates: np.ndarray) -> int:
-        if len(candidates) == 0:
-            return int(union_mask.sum())
-        candidate_union = union_mask.copy()
-        for index in candidates:
-            candidate_union |= fragments[int(index)].mask
-        return int(candidate_union.sum())
-
     def dfs(selected: tuple[int, ...], candidates: np.ndarray, union_mask: np.ndarray) -> None:
         if timed_out() or len(solutions) >= max_solutions:
             return
@@ -105,8 +97,20 @@ def solve_covering_sets(
         if current_area >= target_area:
             make_solution(selected, union_mask)
             return
-        if upper_bound_area(union_mask, candidates) < target_area:
+
+        # ====== Tier 1: Scalar upper bound area check (O(1) pruning) ======
+        if len(candidates) == 0:
             return
+
+        scalar_upper_bound = current_area + int(areas[candidates].sum())
+        if scalar_upper_bound < target_area:
+            return
+
+        # ====== Tier 2: Precise geometry check for small candidate sets ======
+        if len(candidates) < 5:
+            combined_candidates_mask = np.logical_or.reduce([fragments[int(idx)].mask for idx in candidates])
+            if int((union_mask | combined_candidates_mask).sum()) < target_area:
+                return
 
         for offset in range(len(candidates)):
             if timed_out() or len(solutions) >= max_solutions:

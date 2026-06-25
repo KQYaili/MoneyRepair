@@ -26,6 +26,9 @@ def test_hybrid_locator_correctness_and_performance():
     )
 
     # 3. Find candidate poses and time it (take minimum of 3 runs to isolate JIT compilation and OS noise)
+    # Warm up to trigger JIT compilation
+    locate_fragment_poses(frag, template_front, template_back, top_k=3, coarse_step=8)
+    
     elapsed_times = []
     poses = []
     for _ in range(3):
@@ -48,3 +51,57 @@ def test_hybrid_locator_correctness_and_performance():
     
     # 5. Assert performance (should be way under 120 ms now due to Level 1 downsampling and JIT)
     assert elapsed < 0.12
+
+
+def test_multiple_poses_of_same_fragment_mutual_exclusion():
+    from moneyrepair.locator import build_pose_compatibility_matrix
+    from moneyrepair.solver import solve_covering_sets
+    
+    # 1. Create two virtual placed fragments belonging to the same original_id
+    mask_a = np.zeros((4, 4), dtype=bool)
+    mask_a[0, :] = True
+    mask_b = np.zeros((4, 4), dtype=bool)
+    mask_b[1, :] = True
+    
+    frag_a = Fragment(
+        id="f0_p0",
+        mask=mask_a,
+        meta={"original_id": "f0", "pose_id": "f0_p0"}
+    )
+    frag_b = Fragment(
+        id="f0_p1",
+        mask=mask_b,
+        meta={"original_id": "f0", "pose_id": "f0_p1"}
+    )
+    
+    # Another independent fragment
+    mask_c = np.zeros((4, 4), dtype=bool)
+    mask_c[2, :] = True
+    frag_c = Fragment(
+        id="f1_p0",
+        mask=mask_c,
+        meta={"original_id": "f1", "pose_id": "f1_p0"}
+    )
+    
+    placed_fragments = [frag_a, frag_b, frag_c]
+    matrix = build_pose_compatibility_matrix(placed_fragments)
+    
+    # Assert that f0_p0 and f0_p1 are marked incompatible
+    idx_a = matrix.index("f0_p0")
+    idx_b = matrix.index("f0_p1")
+    assert not matrix.compatible[idx_a, idx_b]
+    assert not matrix.compatible[idx_b, idx_a]
+    
+    # Run solver
+    solutions = solve_covering_sets(
+        placed_fragments,
+        matrix,
+        target_coverage=0.4,
+        max_solutions=5
+    )
+    
+    # Assert that no solution contains both f0_p0 and f0_p1
+    for sol in solutions:
+        ids = set(sol.fragment_ids)
+        assert not ("f0_p0" in ids and "f0_p1" in ids)
+
