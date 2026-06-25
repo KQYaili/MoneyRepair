@@ -38,6 +38,10 @@ puzzle solving.
 - Prefer approximate affine placement plus RGB/overlap pruning over exact edge
   reconstruction for most fragments.
 - Use contour/edge matching only for ambiguous residual fragments.
+  **Correction (v3.0):** "ambiguous residual" assumes ambiguity is a small tail.
+  With many notes of one denomination it is the *main body* — overlap-only
+  pruning yields ~90% chimeras. v3.0 adds appearance/serial discrimination to the
+  matrix; see [v3.0 chimera discrimination](v3_0_chimera_discrimination.md).
 - Keep OCR optional and auditable rather than making it a hard dependency.
 - Keep Visio-style editable schematics for methods and reports, but keep
   quantitative benchmark plots in Python for reproducibility.

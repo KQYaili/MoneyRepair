@@ -24,9 +24,11 @@ from moneyrepair.compat import (
     restrict_packed_to_ids,
     write_incompatible_pairs,
 )
+from moneyrepair.diagnostics import diagnose_solutions
 from moneyrepair.diagrams import DIAGRAMS, write_diagram
 from moneyrepair.features import describe_contours, match_similar_contours
 from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
+from moneyrepair.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
@@ -35,7 +37,7 @@ from moneyrepair.reference import load_references, load_score_thresholds, score_
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
-from moneyrepair.simulate import load_dataset, make_synthetic_fragments, save_dataset
+from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
@@ -79,10 +81,27 @@ def _cmd_simulate_realistic(args: argparse.Namespace) -> None:
 
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
-    _, fragments = load_dataset(args.dataset)
+    template, fragments = load_dataset(args.dataset)
     allowed_ids = None
     if args.reference_scores and args.max_reference_rmse is not None:
         allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
+
+    if args.discriminate != "none":
+        packed = discriminative_compatibility(
+            fragments,
+            template,
+            mode=args.discriminate,
+            tolerance=args.discriminate_tolerance,
+            max_overlap_pixels=args.max_overlap_pixels,
+            max_overlap_ratio=args.max_overlap_ratio,
+        )
+        if allowed_ids is not None:
+            packed = restrict_packed_to_ids(packed, allowed_ids)
+        packed.save(args.output)
+        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        incompatible = total_pairs - packed.compatible_pair_count()
+        print(f"wrote {args.discriminate}-discriminated matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
+        return
 
     if args.pairs_out:
         count = write_incompatible_pairs(
@@ -459,6 +478,86 @@ def _cmd_run_pipeline(args: argparse.Namespace) -> None:
     print(json.dumps(manifest, indent=2))
 
 
+def _cmd_simulate_multi_note(args: argparse.Namespace) -> None:
+    template, fragments = make_multi_note_fragments(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        side=args.side,
+        appearance_spread=args.appearance_spread,
+        noise_sigma=args.noise_sigma,
+    )
+    save_dataset(args.output, template, fragments)
+    print(f"wrote {len(fragments)} fragments from {args.notes} notes to {args.output}")
+
+
+def _diagnosis_summary(diagnosis: dict) -> dict:
+    keys = ("solutions", "chimeras", "pure", "chimera_rate", "true_notes", "pure_notes_found", "exactly_recovered_notes")
+    return {key: diagnosis[key] for key in keys}
+
+
+def _cmd_diagnose_chimeras(args: argparse.Namespace) -> None:
+    template, fragments = load_dataset(args.dataset)
+
+    overlap_matrix = compute_compatibility_fast(
+        fragments,
+        max_overlap_pixels=args.max_overlap_pixels,
+        max_overlap_ratio=args.max_overlap_ratio,
+    )
+    overlap_solutions = solve_covering_sets(
+        fragments,
+        overlap_matrix,
+        target_coverage=args.coverage,
+        max_solutions=args.max_solutions,
+        time_limit_seconds=args.time_limit,
+        order_strategy=args.order_strategy,
+    )
+    overlap_diag = diagnose_solutions(overlap_solutions, fragments)
+
+    disc_matrix = discriminative_compatibility(
+        fragments,
+        template,
+        mode=args.discriminate,
+        tolerance=args.discriminate_tolerance,
+        max_overlap_pixels=args.max_overlap_pixels,
+        max_overlap_ratio=args.max_overlap_ratio,
+    )
+    disc_solutions = solve_covering_sets(
+        fragments,
+        disc_matrix,
+        target_coverage=args.coverage,
+        max_solutions=args.max_solutions,
+        time_limit_seconds=args.time_limit,
+        order_strategy=args.order_strategy,
+    )
+    disc_diag = diagnose_solutions(disc_solutions, fragments)
+
+    report = {
+        "overlap_only": _diagnosis_summary(overlap_diag),
+        "discriminative": {"mode": args.discriminate, **_diagnosis_summary(disc_diag)},
+    }
+
+    if args.vis_dir:
+        vis_root = Path(args.vis_dir)
+        overlap_images = render_solution_gallery(template, fragments, overlap_solutions, vis_root / "overlap_only", limit=args.max_solutions)
+        write_solution_report(overlap_solutions[: args.max_solutions], overlap_images, vis_root / "overlap_only" / "report.html")
+        disc_images = render_solution_gallery(template, fragments, disc_solutions, vis_root / "discriminative", limit=args.max_solutions)
+        write_solution_report(disc_solutions[: args.max_solutions], disc_images, vis_root / "discriminative" / "report.html")
+        report["vis"] = {
+            "overlap_only": str(vis_root / "overlap_only" / "report.html"),
+            "discriminative": str(vis_root / "discriminative" / "report.html"),
+        }
+
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps({**report, "detail": {"overlap_only": overlap_diag, "discriminative": disc_diag}}, indent=2), encoding="utf-8")
+
+    print(json.dumps(report, indent=2))
+
+
 def _cmd_report_figures(args: argparse.Namespace) -> None:
     sources: dict[str, str] = {}
     strategy_results = None
@@ -574,6 +673,18 @@ def build_parser() -> argparse.ArgumentParser:
     realistic.add_argument("--profile-output")
     realistic.set_defaults(func=_cmd_simulate_realistic)
 
+    multi = sub.add_parser("simulate-multi-note", help="generate fragments from N identical-denomination notes (chimera testbed)")
+    multi.add_argument("--output", required=True)
+    multi.add_argument("--notes", type=int, default=3)
+    multi.add_argument("--pieces-per-note", type=int, default=12)
+    multi.add_argument("--width", type=int, default=420)
+    multi.add_argument("--height", type=int, default=180)
+    multi.add_argument("--seed", type=int, default=7)
+    multi.add_argument("--side", default="front")
+    multi.add_argument("--appearance-spread", type=float, default=0.18)
+    multi.add_argument("--noise-sigma", type=float, default=4.0)
+    multi.set_defaults(func=_cmd_simulate_multi_note)
+
     matrix = sub.add_parser("build-matrix", help="build packed compatibility matrix")
     matrix.add_argument("--dataset", required=True)
     matrix.add_argument("--output", required=True)
@@ -584,6 +695,8 @@ def build_parser() -> argparse.ArgumentParser:
     matrix.add_argument("--engine", choices=("naive", "fast"), default="naive", help="fast uses grid pruning and writes packed bits directly")
     matrix.add_argument("--cell", type=int, help="spatial grid cell size for the fast engine; defaults to the median fragment size")
     matrix.add_argument("--pairs-out", help="also stream incompatible pairs to this CSV without a dense matrix")
+    matrix.add_argument("--discriminate", choices=("none", "appearance", "serial"), default="none", help="also require same-note discrimination (appearance fingerprint or serial label), not only non-overlap")
+    matrix.add_argument("--discriminate-tolerance", type=float, default=0.05, help="appearance clustering tolerance for --discriminate appearance")
     matrix.set_defaults(func=_cmd_build_matrix)
 
     solve = sub.add_parser("solve", help="search compatible high-coverage sets")
@@ -758,6 +871,20 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--keep-rejected", action="store_true", help="keep frames that fail the quality contract in the search")
     _add_quality_args(pipeline)
     pipeline.set_defaults(func=_cmd_run_pipeline)
+
+    diagnose = sub.add_parser("diagnose-chimeras", help="compare overlap-only vs discriminative matrices on a multi-note pool")
+    diagnose.add_argument("--dataset", required=True)
+    diagnose.add_argument("--coverage", type=float, default=0.97)
+    diagnose.add_argument("--max-solutions", type=int, default=20)
+    diagnose.add_argument("--time-limit", type=float, default=30.0)
+    diagnose.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area_degree")
+    diagnose.add_argument("--discriminate", choices=("appearance", "serial"), default="appearance")
+    diagnose.add_argument("--discriminate-tolerance", type=float, default=0.05)
+    diagnose.add_argument("--max-overlap-pixels", type=int, default=0)
+    diagnose.add_argument("--max-overlap-ratio", type=float, default=0.0)
+    diagnose.add_argument("--vis-dir", help="render overlap-only and discriminative candidates here for visual inspection")
+    diagnose.add_argument("--output", help="write the full diagnosis JSON here")
+    diagnose.set_defaults(func=_cmd_diagnose_chimeras)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)

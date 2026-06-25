@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.0
+
+Turn the self-confirming demo into an honest testbed, then fix the failure it
+exposes:
+
+- `make_multi_note_fragments` + `simulate-multi-note`: N identical-denomination
+  notes sharing one region partition, each with its own appearance and serial,
+  mixed into one pool with the true `note_id` recorded for diagnosis.
+- `diagnostics.diagnose_solutions` + `diagnose-chimeras`: count chimeras
+  (solutions mixing notes) and recovered notes. The overlap-only matrix produces
+  ~90% chimeras on a 5-note pool — the failure mode single-note simulation could
+  never show.
+- `fingerprint.py`: per-fragment appearance gain relative to the template and
+  appearance clustering — the discrimination signal the matrix was missing.
+- `compute_compatibility_clustered` + `build-matrix --discriminate
+  appearance|serial`: compatible only when same note and non-overlapping;
+  eliminates chimeras and recovers every note pure.
+- fragment `meta` now round-trips through `save_dataset`/`load_dataset`.
+- honest docs: the v3.0 note states the gap, the fix, and the residual hard tail.
+
 ## 2.5.0
 
 Polished scientific reporting:

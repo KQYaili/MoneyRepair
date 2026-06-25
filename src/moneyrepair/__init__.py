@@ -6,11 +6,18 @@ from moneyrepair.compat import (
     CompatibilityMatrix,
     PackedCompatibilityMatrix,
     compatibility_from_pair_records,
+    compute_compatibility_clustered,
     compute_compatibility_fast,
     write_incompatible_pairs,
 )
+from moneyrepair.diagnostics import diagnose_solutions, solution_purity
 from moneyrepair.diagrams import DiagramSpec, production_pipeline_spec, write_diagram
 from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_report_figure, validate_report
+from moneyrepair.fingerprint import (
+    cluster_fragments_by_appearance,
+    discriminative_compatibility,
+    fragment_appearance,
+)
 from moneyrepair.ingest import fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
@@ -19,11 +26,11 @@ from moneyrepair.reference import ReferenceScore, score_best_reference_side, sco
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import write_strategy_report
 from moneyrepair.scan import connected_components, segment_scan_to_manifest
-from moneyrepair.simulate import make_synthetic_fragments
+from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragments
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.types import Fragment
 
-__version__ = "2.5.0"
+__version__ = "3.0.0"
 
 __all__ = [
     "AuditEvent",
@@ -44,15 +51,22 @@ __all__ = [
     "__version__",
     "assemble_standard_panels",
     "assess_fragments",
+    "cluster_fragments_by_appearance",
     "compatibility_from_pair_records",
     "compare_solver_strategies",
+    "compute_compatibility_clustered",
     "compute_compatibility_fast",
     "connected_components",
+    "diagnose_solutions",
+    "discriminative_compatibility",
+    "fragment_appearance",
     "fragments_from_manifest",
     "estimate_matrix_footprint",
+    "make_multi_note_fragments",
     "make_synthetic_fragments",
     "make_realistic_synthetic_fragments",
     "production_pipeline_spec",
+    "solution_purity",
     "render_report_figure",
     "run_production_pipeline",
     "run_synthetic_benchmark",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -83,6 +84,75 @@ def make_synthetic_fragments(
     return template, fragments
 
 
+def _serial_roi(height: int, width: int) -> tuple[int, int, int, int]:
+    """Bottom-left band where a banknote serial number lives."""
+
+    return int(width * 0.06), int(height * 0.62), int(width * 0.42), int(height * 0.92)
+
+
+def make_multi_note_fragments(
+    notes: int = 3,
+    pieces_per_note: int = 12,
+    width: int = 420,
+    height: int = 180,
+    seed: int = 7,
+    side: str = "front",
+    appearance_spread: float = 0.18,
+    noise_sigma: float = 4.0,
+) -> tuple[np.ndarray, list[Fragment]]:
+    """Generate fragments from ``notes`` distinct banknotes of one denomination.
+
+    Every note is the same template with its own per-channel appearance gain
+    (wear / yellowing / ink density) and a serial number; each note is cut into
+    non-overlapping Voronoi pieces. All pieces share the single note coordinate
+    frame and are mixed into one pool, with the true ``note_id`` recorded in
+    ``meta`` for diagnosis only.
+
+    This is the honest testbed: pieces from different notes that cover disjoint
+    regions do not overlap, so an overlap-only compatibility matrix will happily
+    let the search stitch them into a high-coverage chimera. Single-note
+    simulation could never surface that failure mode.
+    """
+
+    if notes < 1:
+        raise ValueError("notes must be >= 1")
+    template = synthetic_banknote(width=width, height=height, seed=seed)
+    rng = np.random.default_rng(seed + 5_000)
+    x0, y0, x1, y1 = _serial_roi(height, width)
+    fragments: list[Fragment] = []
+
+    # One shared region partition for every note: same denomination, same cut
+    # positions. Pieces then differ only by which physical note they came from,
+    # so the only way to tell a chimera from a true note is appearance/serial,
+    # never shape or position. This is the "2000 identical notes" core.
+    labels = _voronoi_partition(height=height, width=width, pieces=pieces_per_note, seed=seed + 1)
+
+    for note_index in range(notes):
+        gain = 1.0 + rng.uniform(-appearance_spread, appearance_spread, size=3)
+        serial = f"SN{note_index:08d}"
+        note_id = f"note-{note_index:03d}"
+        toned = np.clip(template.astype(np.float32) * gain, 0, 255)
+        toned = np.clip(toned + rng.normal(0, noise_sigma, toned.shape), 0, 255).astype(np.uint8)
+
+        for piece in range(pieces_per_note):
+            mask = labels == piece
+            if not np.any(mask):
+                continue
+            image = np.where(mask[..., None], toned, 0)
+            carries_serial = bool(mask[y0:y1, x0:x1].sum() >= 12)
+            fragments.append(
+                Fragment(
+                    id=f"n{note_index:03d}f{piece:03d}",
+                    label=serial if carries_serial else None,
+                    side=side,
+                    mask=mask,
+                    image=image,
+                    meta={"note_id": note_id, "serial": serial, "gain": [round(float(value), 4) for value in gain]},
+                )
+            )
+    return template, fragments
+
+
 def save_dataset(path: str | Path, template: np.ndarray, fragments: list[Fragment]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +168,7 @@ def save_dataset(path: str | Path, template: np.ndarray, fragments: list[Fragmen
     ids = np.array([fragment.id for fragment in fragments])
     labels = np.array([fragment.label or "" for fragment in fragments])
     sides = np.array([fragment.side for fragment in fragments])
+    metas = np.array([json.dumps(fragment.meta) for fragment in fragments])
     np.savez_compressed(
         path,
         template=template,
@@ -107,6 +178,7 @@ def save_dataset(path: str | Path, template: np.ndarray, fragments: list[Fragmen
         ids=ids,
         labels=labels,
         sides=sides,
+        metas=metas,
     )
 
 
@@ -119,6 +191,7 @@ def load_dataset(path: str | Path) -> tuple[np.ndarray, list[Fragment]]:
     ids = [str(value) for value in data["ids"]]
     labels = [str(value) or None for value in data["labels"]]
     sides = [str(value) for value in data["sides"]]
+    metas = [json.loads(str(value)) for value in data["metas"]] if "metas" in data.files else [{} for _ in ids]
     fragments = [
         Fragment(
             id=ids[index],
@@ -126,6 +199,7 @@ def load_dataset(path: str | Path) -> tuple[np.ndarray, list[Fragment]]:
             side=sides[index],
             mask=masks[index],
             image=images[index] if images is not None and has_images[index] else np.where(masks[index][..., None], template, 0),
+            meta=metas[index],
         )
         for index in range(len(ids))
     ]

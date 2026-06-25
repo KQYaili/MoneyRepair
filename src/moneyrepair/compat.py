@@ -285,6 +285,48 @@ def compute_compatibility_fast(
     return matrix
 
 
+def compute_compatibility_clustered(
+    fragments: list[Fragment],
+    groups: dict[str, int],
+    max_overlap_pixels: int = 0,
+    max_overlap_ratio: float = 0.0,
+) -> PackedCompatibilityMatrix:
+    """Compatibility that requires both same group and no pixel overlap.
+
+    ``groups`` maps fragment id to a discrimination group (one per note, from a
+    serial label or an appearance cluster). Only fragments in the same group and
+    not overlapping are marked compatible, so the search can no longer stitch
+    pieces from different notes into a chimera. Work scales with the per-group
+    pair count, not ``n^2``.
+    """
+
+    ids = tuple(fragment.id for fragment in fragments)
+    matrix = PackedCompatibilityMatrix.filled(ids, value=False)
+    bboxes = [fragment.bbox for fragment in fragments]
+    areas = [max(fragment.area, 1) for fragment in fragments]
+
+    members: dict[object, list[int]] = {}
+    for index, fragment in enumerate(fragments):
+        members.setdefault(groups.get(fragment.id), []).append(index)
+
+    for group, group_members in members.items():
+        if group is None:
+            continue
+        count = len(group_members)
+        for a in range(count):
+            i = group_members[a]
+            for b in range(a + 1, count):
+                j = group_members[b]
+                overlap = _pair_overlap_pixels(fragments[i], fragments[j], bboxes[i], bboxes[j])
+                if overlap <= max_overlap_pixels:
+                    matrix.set_pair_compatible(i, j, True)
+                    continue
+                ratio = overlap / float(min(areas[i], areas[j]))
+                if ratio <= max_overlap_ratio:
+                    matrix.set_pair_compatible(i, j, True)
+    return matrix
+
+
 def write_incompatible_pairs(
     path: str | Path,
     fragments: list[Fragment],

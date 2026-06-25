@@ -180,6 +180,35 @@ prunes, searches with the `area_degree` strategy, renders candidates, and writes
 moneyrepair run-pipeline --dataset data/real_fragments.npz --output-dir data/run_0001 --coverage 0.99 --max-solutions 10
 ```
 
+## Honest multi-note testbed (v3.0)
+
+Single-note simulation made every test pass while hiding the hard case. v3.0
+adds the **chimera testbed** and the discrimination fix. See
+[docs/v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md).
+
+Build a pool of N identical-denomination notes (one shared layout, per-note
+appearance and serial, true `note_id` recorded for diagnosis), then run the
+existing solver on an overlap-only matrix vs an appearance-discriminated one:
+
+```bash
+moneyrepair simulate-multi-note --output runs/pool.npz --notes 5 --pieces-per-note 10
+moneyrepair diagnose-chimeras --dataset runs/pool.npz --vis-dir runs/diag --output runs/diag.json
+```
+
+`diagnose-chimeras` reports how many candidate solutions are chimeras (mixing
+fragments from different notes). Overlap-only pruning produces ~90% chimeras;
+adding discrimination drops it to zero and recovers every note:
+
+```bash
+moneyrepair build-matrix --dataset runs/pool.npz --discriminate appearance --output runs/matrix.npz
+moneyrepair solve --dataset runs/pool.npz --matrix runs/matrix.npz --coverage 0.97 --output runs/solutions.json
+```
+
+Discrimination uses a per-fragment appearance fingerprint measured against the
+template (so it depends on the note, not the region), or serial labels with
+`--discriminate serial`. Limits and the residual hard tail are documented in the
+[v3.0 note](docs/v3_0_chimera_discrimination.md).
+
 ## Scientific reporting (v2.5)
 
 v2.5 turns benchmark and QA artifacts into a polished, auditable report. See
@@ -225,5 +254,6 @@ For GitHub publishing steps, see [docs/github.md](docs/github.md).
 
 Version planning:
 [v1.5 experiments](docs/v1_5_experiments.md),
-[v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md), and
-[v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
+[v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md),
+[v2.5 scientific reporting](docs/v2_5_scientific_reporting.md), and
+[v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md).
