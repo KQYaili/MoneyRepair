@@ -48,6 +48,7 @@ def run_production_pipeline(
     auto_locate: bool = False,
     reference_front: str | Path | np.ndarray | None = None,
     reference_back: str | Path | np.ndarray | None = None,
+    precise_bound_threshold: int = 24,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
@@ -67,6 +68,17 @@ def run_production_pipeline(
     started = perf_counter()
     template, fragments = load_dataset(dataset_path)
     timings["load"] = perf_counter() - started
+
+    # ====== JIT Warm-up ======
+    started_warmup = perf_counter()
+    from moneyrepair.solver import sum_candidate_areas
+    sum_candidate_areas(np.zeros(1, dtype=np.int64), np.zeros(1, dtype=np.int64))
+    if auto_locate:
+        from moneyrepair.locator import locate_fragment_poses
+        dummy_template = np.zeros((4, 4, 3), dtype=np.uint8)
+        dummy_frag = Fragment("dummy", np.ones((2, 2), dtype=bool), np.zeros((2, 2, 3), dtype=np.uint8))
+        locate_fragment_poses(dummy_frag, dummy_template, dummy_template, top_k=1, coarse_step=2)
+    timings["jit_warmup"] = perf_counter() - started_warmup
 
     started = perf_counter()
     quality_reports = assess_fragments(fragments, thresholds=thresholds, reference=template)
@@ -91,7 +103,6 @@ def run_production_pipeline(
 
     started = perf_counter()
     if auto_locate:
-        import numpy as np
         from moneyrepair.locator import locate_fragment_poses, build_pose_compatibility_matrix, _crop_foreground, _rotate_image_and_mask
         
         ref_front = template
@@ -111,9 +122,21 @@ def run_production_pipeline(
 
         placed_fragments: list[Fragment] = []
         h, w = template.shape[:2]
+        pose_candidates_dict = {}
         for fragment in active:
             # Estimate top 3 candidate poses using real front/back references
             poses = locate_fragment_poses(fragment, ref_front, ref_back, top_k=3)
+            pose_candidates_dict[fragment.id] = [
+                {
+                    "pose_id": p.pose_id,
+                    "side": p.side,
+                    "tx": int(p.tx),
+                    "ty": int(p.ty),
+                    "angle": int(p.angle),
+                    "score": round(float(p.score), 4)
+                }
+                for p in poses
+            ]
             
             # Place fragment
             for p in poses:
@@ -148,6 +171,8 @@ def run_production_pipeline(
                 )
         
         active_search = placed_fragments
+        pose_candidates_path = output_dir / "pose_candidates.json"
+        pose_candidates_path.write_text(json.dumps(pose_candidates_dict, indent=2), encoding="utf-8")
         matrix = build_pose_compatibility_matrix(active_search, cell=cell)
     else:
         active_search = active
@@ -170,6 +195,7 @@ def run_production_pipeline(
         max_solutions=max_solutions,
         time_limit_seconds=time_limit_seconds,
         order_strategy=order_strategy,
+        precise_bound_threshold=precise_bound_threshold,
     )
     timings["solve"] = perf_counter() - started
     timings["total"] = sum(value for key, value in timings.items() if key != "total")
@@ -211,6 +237,16 @@ def run_production_pipeline(
             ref_info["back"] = "numpy_array"
             ref_info["back_sha256"] = hashlib.sha256(np.ascontiguousarray(reference_back).tobytes()).hexdigest()
 
+    manifest_outputs = {
+        "matrix": str(matrix_path),
+        "candidates": str(candidates_path),
+        "quality_report": str(quality_path),
+        "report": str(report_path),
+        "visualizations": str(vis_dir),
+    }
+    if auto_locate:
+        manifest_outputs["pose_candidates"] = str(pose_candidates_path)
+
     manifest = {
         "tool": "moneyrepair",
         "version": _package_version(),
@@ -232,6 +268,7 @@ def run_production_pipeline(
             "max_overlap_ratio": max_overlap_ratio,
             "auto_locate": auto_locate,
             "thresholds": thresholds.to_dict(),
+            "precise_bound_threshold": precise_bound_threshold,
         },
         "quality": {
             "accepted": quality_summary["accepted"],
@@ -246,13 +283,7 @@ def run_production_pipeline(
             "best_coverage": solutions[0].coverage if solutions else None,
         },
         "timings_seconds": timings,
-        "outputs": {
-            "matrix": str(matrix_path),
-            "candidates": str(candidates_path),
-            "quality_report": str(quality_path),
-            "report": str(report_path),
-            "visualizations": str(vis_dir),
-        },
+        "outputs": manifest_outputs,
     }
     manifest_path = output_dir / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

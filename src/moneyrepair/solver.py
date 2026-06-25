@@ -108,7 +108,7 @@ def solve_covering_sets(
             make_solution(selected, union_mask)
             return
 
-        # ====== Tier 1: Scalar upper bound area check (O(1) pruning) ======
+        # ====== Tier 1: Fast scalar upper bound area check ======
         if len(candidates) == 0:
             return
 
