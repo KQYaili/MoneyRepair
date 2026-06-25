@@ -13,3 +13,4 @@ Initial simulation-first release:
 - DFS coverage search with candidate visualization reports;
 - batch confirmation loop for manual reconstruction;
 - benchmark and matrix footprint commands.
+- GitHub CI, release checklist, and publishing guide.

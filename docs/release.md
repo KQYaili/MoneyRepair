@@ -32,3 +32,5 @@ git push -u origin main
 
 After publishing, update `pyproject.toml` project URLs to the final repository
 URL.
+
+See [github.md](github.md) for SSH, HTTPS, and bundle-based publishing options.
