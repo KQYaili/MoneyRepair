@@ -105,3 +105,72 @@ def test_multiple_poses_of_same_fragment_mutual_exclusion():
         ids = set(sol.fragment_ids)
         assert not ("f0_p0" in ids and "f0_p1" in ids)
 
+
+def test_hybrid_locator_robustness_to_noise_and_rotation():
+    # 1. Create templates
+    width, height = 360, 160
+    template_front = synthetic_banknote(width=width, height=height, seed=42)
+    template_back = synthetic_banknote(width=width, height=height, seed=100)
+
+    # 2. Extract a true fragment crop at a known position on back template
+    tx, ty = 120, 50
+    fw, fh = 50, 40
+    
+    mask = np.zeros((height, width), dtype=bool)
+    mask[ty : ty + fh, tx : tx + fw] = True
+    
+    # Crop the back template region
+    raw_img = np.where(mask[..., None], template_back, 0)
+    
+    # Extract tight crop image and mask
+    from moneyrepair.locator import _crop_foreground
+    crop_img, crop_mask = _crop_foreground(raw_img, mask)
+    
+    # Rotate the cropped fragment by 270 degrees counter-clockwise (so best match requires 90 degrees rotation)
+    rotated_img, rotated_mask = _rotate_image_and_mask(crop_img, crop_mask, 270)
+    
+    # Construct a fragment with the rotated crop
+    frag_mask = np.zeros((100, 100), dtype=bool)
+    rh, rw = rotated_mask.shape[:2]
+    frag_mask[10 : 10 + rh, 10 : 10 + rw] = rotated_mask
+    
+    frag_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    frag_img[10 : 10 + rh, 10 : 10 + rw][rotated_mask] = rotated_img[rotated_mask]
+    
+    # Apply color cast / brightness gain to the fragment image to simulate real camera characteristics
+    frag_img = frag_img.astype(np.float64)
+    # Gain of 0.8 on red, 1.2 on green, 0.9 on blue
+    frag_img[..., 0] *= 0.8
+    frag_img[..., 1] *= 1.2
+    frag_img[..., 2] *= 0.9
+    # Add random noise
+    rng = np.random.default_rng(12345)
+    noise = rng.normal(0, 5, frag_img.shape)
+    frag_img = np.clip(frag_img + noise, 0, 255).astype(np.uint8)
+    
+    frag = Fragment(
+        id="robustness_test_frag",
+        mask=frag_mask,
+        image=frag_img,
+    )
+    
+    # 3. Locate poses
+    poses = locate_fragment_poses(frag, template_front, template_back, top_k=3, coarse_step=8)
+    
+    assert len(poses) > 0
+    top = poses[0]
+    
+    # The correct side is back
+    assert top.side == "back"
+    
+    # The correct rotation angle is 90 degrees
+    assert top.angle == 90
+    
+    # The translation should match the original tx, ty within a tolerance of coarse_step / 2
+    assert abs(top.tx - tx) <= 1
+    assert abs(top.ty - ty) <= 1
+    
+    # The score should remain high (e.g. > 0.7) despite color shift and noise
+    assert top.score > 0.7
+
+

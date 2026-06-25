@@ -316,4 +316,4 @@ Version planning:
 [v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md),
 [v2.5 scientific reporting](docs/v2_5_scientific_reporting.md),
 [v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md), and
-[v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) (with [algorithm deduction](docs/v4_0_algorithm_deduction.md)).
+[v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) (with [algorithm deduction](docs/v4_0_algorithm_deduction.md) and [performance convergence report](docs/stage4_convergence_report.md)).
