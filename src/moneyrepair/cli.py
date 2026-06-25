@@ -18,12 +18,17 @@ from moneyrepair.compat import (
     PackedCompatibilityMatrix,
     compatibility_from_pair_records,
     compute_compatibility,
+    compute_compatibility_fast,
     filter_compatibility_to_ids,
     load_pair_records,
+    restrict_packed_to_ids,
+    write_incompatible_pairs,
 )
 from moneyrepair.features import describe_contours, match_similar_contours
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.labels import parse_roi, update_manifest_labels
+from moneyrepair.pipeline import run_production_pipeline
+from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import load_strategy_results, write_strategy_report
@@ -73,17 +78,44 @@ def _cmd_simulate_realistic(args: argparse.Namespace) -> None:
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
     _, fragments = load_dataset(args.dataset)
-    matrix = compute_compatibility(
-        fragments,
-        max_overlap_pixels=args.max_overlap_pixels,
-        max_overlap_ratio=args.max_overlap_ratio,
-    )
+    allowed_ids = None
     if args.reference_scores and args.max_reference_rmse is not None:
         allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
-        matrix = filter_compatibility_to_ids(matrix, allowed_ids)
-    matrix.save(args.output)
-    incompatible = int((~matrix.compatible).sum() - len(matrix.ids))
-    print(f"wrote matrix for {len(matrix.ids)} fragments to {args.output}; incompatible_pairs={incompatible // 2}")
+
+    if args.pairs_out:
+        count = write_incompatible_pairs(
+            args.pairs_out,
+            fragments,
+            max_overlap_pixels=args.max_overlap_pixels,
+            max_overlap_ratio=args.max_overlap_ratio,
+            cell=args.cell,
+        )
+        print(f"wrote {count} incompatible pairs to {args.pairs_out}")
+
+    total_pairs = len(fragments) * (len(fragments) - 1) // 2
+    if args.engine == "fast":
+        packed = compute_compatibility_fast(
+            fragments,
+            max_overlap_pixels=args.max_overlap_pixels,
+            max_overlap_ratio=args.max_overlap_ratio,
+            cell=args.cell,
+        )
+        if allowed_ids is not None:
+            packed = restrict_packed_to_ids(packed, allowed_ids)
+        packed.save(args.output)
+        incompatible = total_pairs - packed.compatible_pair_count()
+        print(f"wrote packed matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
+    else:
+        matrix = compute_compatibility(
+            fragments,
+            max_overlap_pixels=args.max_overlap_pixels,
+            max_overlap_ratio=args.max_overlap_ratio,
+        )
+        if allowed_ids is not None:
+            matrix = filter_compatibility_to_ids(matrix, allowed_ids)
+        matrix.save(args.output)
+        incompatible = int((~matrix.compatible).sum() - len(matrix.ids))
+        print(f"wrote matrix for {len(matrix.ids)} fragments to {args.output}; incompatible_pairs={incompatible // 2}")
 
 
 def _solutions_to_json(solutions) -> list[dict]:
@@ -234,7 +266,7 @@ def _cmd_batch_confirm(args: argparse.Namespace) -> None:
         raise ValueError(f"candidate index {args.index} is out of range")
     solution = solutions[args.index]
     note_id = args.note_id or state.next_note_id(prefix=args.note_prefix)
-    state.add_confirmation(note_id, solution)
+    state.add_confirmation(note_id, solution, operator=args.operator, reason=args.reason)
     save_batch_state(args.state, state)
     print(f"confirmed {note_id} with {len(solution.fragment_ids)} fragments at coverage={solution.coverage:.4%}")
 
@@ -245,7 +277,7 @@ def _cmd_batch_reject(args: argparse.Namespace) -> None:
     if args.index < 0 or args.index >= len(solutions):
         raise ValueError(f"candidate index {args.index} is out of range")
     solution = solutions[args.index]
-    state.reject_solution(solution)
+    state.reject_solution(solution, operator=args.operator, reason=args.reason)
     save_batch_state(args.state, state)
     print(f"rejected candidate {args.index} with {len(solution.fragment_ids)} fragments")
 
@@ -382,6 +414,49 @@ def _cmd_report_strategies(args: argparse.Namespace) -> None:
     print(json.dumps(outputs, indent=2))
 
 
+def _quality_thresholds(args: argparse.Namespace) -> QualityThresholds:
+    return QualityThresholds(
+        min_focus=args.min_focus,
+        max_glare=args.max_glare,
+        min_segmentation=args.min_segmentation,
+        max_color_drift=args.max_color_drift,
+    )
+
+
+def _cmd_assess_quality(args: argparse.Namespace) -> None:
+    template, fragments = load_dataset(args.dataset)
+    thresholds = _quality_thresholds(args)
+    reference = template if args.use_reference else None
+    reports = assess_fragments(fragments, thresholds=thresholds, reference=reference)
+    summary = summarize_quality(reports, thresholds)
+    payload = {"summary": summary, "frames": [report.to_dict() for report in reports]}
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(json.dumps(summary, indent=2))
+    if args.output:
+        print(f"output={args.output}")
+
+
+def _cmd_run_pipeline(args: argparse.Namespace) -> None:
+    thresholds = _quality_thresholds(args)
+    manifest = run_production_pipeline(
+        args.dataset,
+        args.output_dir,
+        target_coverage=args.coverage,
+        max_solutions=args.max_solutions,
+        order_strategy=args.order_strategy,
+        time_limit_seconds=args.time_limit,
+        thresholds=thresholds,
+        drop_rejected_frames=not args.keep_rejected,
+        cell=args.cell,
+        max_overlap_pixels=args.max_overlap_pixels,
+        max_overlap_ratio=args.max_overlap_ratio,
+    )
+    print(json.dumps(manifest, indent=2))
+
+
 def _cmd_smoke(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     dataset_path = output_dir / "demo_fragments.npz"
@@ -454,6 +529,9 @@ def build_parser() -> argparse.ArgumentParser:
     matrix.add_argument("--max-overlap-ratio", type=float, default=0.0)
     matrix.add_argument("--reference-scores")
     matrix.add_argument("--max-reference-rmse", type=float)
+    matrix.add_argument("--engine", choices=("naive", "fast"), default="naive", help="fast uses grid pruning and writes packed bits directly")
+    matrix.add_argument("--cell", type=int, help="spatial grid cell size for the fast engine; defaults to the median fragment size")
+    matrix.add_argument("--pairs-out", help="also stream incompatible pairs to this CSV without a dense matrix")
     matrix.set_defaults(func=_cmd_build_matrix)
 
     solve = sub.add_parser("solve", help="search compatible high-coverage sets")
@@ -513,12 +591,16 @@ def build_parser() -> argparse.ArgumentParser:
     batch_confirm.add_argument("--index", type=int, default=0)
     batch_confirm.add_argument("--note-id")
     batch_confirm.add_argument("--note-prefix", default="note")
+    batch_confirm.add_argument("--operator", default="", help="operator id recorded in the audit log")
+    batch_confirm.add_argument("--reason", default="", help="free-text reason recorded in the audit log")
     batch_confirm.set_defaults(func=_cmd_batch_confirm)
 
     batch_reject = sub.add_parser("batch-reject", help="remember a bad candidate so batch-next can skip it")
     batch_reject.add_argument("--state", required=True)
     batch_reject.add_argument("--candidates", required=True)
     batch_reject.add_argument("--index", type=int, default=0)
+    batch_reject.add_argument("--operator", default="", help="operator id recorded in the audit log")
+    batch_reject.add_argument("--reason", default="", help="free-text reason recorded in the audit log")
     batch_reject.set_defaults(func=_cmd_batch_reject)
 
     ingest = sub.add_parser("ingest-manifest", help="place real fragment images from a JSON manifest")
@@ -597,6 +679,33 @@ def build_parser() -> argparse.ArgumentParser:
     report_strategies.add_argument("--title", default="MoneyRepair strategy benchmark")
     report_strategies.add_argument("--dpi", type=int, default=600)
     report_strategies.set_defaults(func=_cmd_report_strategies)
+
+    def _add_quality_args(target: argparse.ArgumentParser) -> None:
+        target.add_argument("--min-focus", type=float, default=60.0)
+        target.add_argument("--max-glare", type=float, default=0.06)
+        target.add_argument("--min-segmentation", type=float, default=0.55)
+        target.add_argument("--max-color-drift", type=float, default=26.0)
+
+    assess = sub.add_parser("assess-quality", help="score acquisition quality of a dataset against the contract")
+    assess.add_argument("--dataset", required=True)
+    assess.add_argument("--output")
+    assess.add_argument("--use-reference", action="store_true", help="score color drift against the dataset note template")
+    _add_quality_args(assess)
+    assess.set_defaults(func=_cmd_assess_quality)
+
+    pipeline = sub.add_parser("run-pipeline", help="run one auditable production batch with a run manifest")
+    pipeline.add_argument("--dataset", required=True)
+    pipeline.add_argument("--output-dir", required=True)
+    pipeline.add_argument("--coverage", type=float, default=0.99)
+    pipeline.add_argument("--max-solutions", type=int, default=10)
+    pipeline.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area_degree")
+    pipeline.add_argument("--time-limit", type=float)
+    pipeline.add_argument("--cell", type=int)
+    pipeline.add_argument("--max-overlap-pixels", type=int, default=0)
+    pipeline.add_argument("--max-overlap-ratio", type=float, default=0.0)
+    pipeline.add_argument("--keep-rejected", action="store_true", help="keep frames that fail the quality contract in the search")
+    _add_quality_args(pipeline)
+    pipeline.set_defaults(func=_cmd_run_pipeline)
 
     smoke = sub.add_parser("smoke", help="run the full synthetic pipeline")
     smoke.add_argument("--output-dir", required=True)

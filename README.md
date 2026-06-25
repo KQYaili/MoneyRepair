@@ -149,7 +149,36 @@ moneyrepair batch-next --dataset data/real_fragments.npz --matrix data/real_matr
 `batch-next` writes `candidates.json`, a `vis/` directory, and `report.html`.
 `batch-confirm` records the accepted candidate and removes those fragments from
 future searches. Use `batch-reject` when a visually bad candidate should not be
-shown again.
+shown again. Both accept `--operator` and `--reason`, recorded in the batch
+state audit log.
+
+## Production pipeline (v2.0)
+
+v2.0 makes production tradeoffs: gate capture quality, prune fast, search, and
+keep everything auditable. See
+[docs/v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md).
+
+Score acquisition quality against the contract (focus, glare, segmentation
+confidence, color drift):
+
+```bash
+moneyrepair assess-quality --dataset data/real_fragments.npz --use-reference --output data/quality.json
+```
+
+Build the compatibility matrix with the grid-accelerated engine for large
+fragment counts, optionally streaming incompatible pairs without a dense matrix:
+
+```bash
+moneyrepair build-matrix --dataset data/real_fragments.npz --engine fast --pairs-out data/incompatible_pairs.csv --output data/real_matrix.npz
+```
+
+Run one auditable batch end to end. It gates frames on the quality contract,
+prunes, searches with the `area_degree` strategy, renders candidates, and writes
+`run_manifest.json` with input hashes, parameters, timings, and the QA summary:
+
+```bash
+moneyrepair run-pipeline --dataset data/real_fragments.npz --output-dir data/run_0001 --coverage 0.99 --max-solutions 10
+```
 
 ## Current scope
 
@@ -170,4 +199,3 @@ Version planning:
 [v1.5 experiments](docs/v1_5_experiments.md),
 [v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md), and
 [v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
-# 1

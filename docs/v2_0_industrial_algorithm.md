@@ -44,11 +44,28 @@ puzzle solving.
 - Do not optimize for a single unique automated answer; optimize for a small,
   inspectable candidate set.
 
-## Production hardening still needed
+## Shipped in 2.0
 
-- Real acquisition QA metrics: blur, glare, segmentation confidence, color drift.
-- Parallel pairwise comparison for 20k fragments.
-- Memory-mapped or chunked matrix import/export when `.npz` is not enough.
-- Audit log for every accepted/rejected note.
-- Operator UI for candidate review.
+- Acquisition QA metrics implemented in `quality.py`: focus (variance of
+  Laplacian over interior content), glare (clipped-highlight fraction),
+  segmentation confidence (mask solidity), and color drift (per-channel mean
+  difference against the reference note, or white-balance cast). Exposed as
+  `assess-quality` and enforced as a gate inside `run-pipeline`.
+- Grid-pruned compatibility build `compute_compatibility_fast` writes packed
+  bits directly, so the dense `n*n` array is never materialised for the ~20k
+  target. `build-matrix --engine fast` selects it.
+- Chunked/streaming export `write_incompatible_pairs` (`--pairs-out`) produces a
+  pairs file without a dense matrix; feed it back through `import-pairs`.
+- Audit log: every `batch-confirm` / `batch-reject` records timestamp, action,
+  note id, fragments, operator, and reason in the batch state.
+- `run-pipeline` is the auditable production entrypoint and writes a
+  `run_manifest.json` with input SHA-256, parameters, timings, QA summary, and
+  output paths.
+
+## Production hardening still open
+
+- Multiprocessing for the pairwise comparison loop (the grid keeps it near the
+  count of adjacent pairs; a process pool is the next lever for the 20k target).
+- Memory-mapped matrix import/export when even the packed `.npz` is too large.
+- Operator UI for candidate review (the HTML report is the current stand-in).
 - Golden datasets with scanned and photographed fragments.

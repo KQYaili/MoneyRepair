@@ -18,10 +18,35 @@ class ConfirmedNote:
     accepted_at: str
 
 
+@dataclass(frozen=True)
+class AuditEvent:
+    """One immutable record in the reconstruction audit trail."""
+
+    timestamp: str
+    action: str
+    note_id: str
+    fragment_ids: tuple[str, ...]
+    coverage: float
+    operator: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "action": self.action,
+            "note_id": self.note_id,
+            "fragment_ids": list(self.fragment_ids),
+            "coverage": self.coverage,
+            "operator": self.operator,
+            "reason": self.reason,
+        }
+
+
 @dataclass
 class BatchState:
     confirmed_notes: list[ConfirmedNote] = field(default_factory=list)
     rejected_solution_keys: set[tuple[str, ...]] = field(default_factory=set)
+    audit_log: list[AuditEvent] = field(default_factory=list)
 
     @property
     def used_fragment_ids(self) -> set[str]:
@@ -37,7 +62,26 @@ class BatchState:
     def next_note_id(self, prefix: str = "note") -> str:
         return f"{prefix}-{len(self.confirmed_notes) + 1:05d}"
 
-    def add_confirmation(self, note_id: str, solution: CoverageSolution) -> None:
+    def _record_audit(self, action: str, note_id: str, solution: CoverageSolution, operator: str, reason: str) -> None:
+        self.audit_log.append(
+            AuditEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                action=action,
+                note_id=note_id,
+                fragment_ids=solution.fragment_ids,
+                coverage=solution.coverage,
+                operator=operator,
+                reason=reason,
+            )
+        )
+
+    def add_confirmation(
+        self,
+        note_id: str,
+        solution: CoverageSolution,
+        operator: str = "",
+        reason: str = "",
+    ) -> None:
         self.confirmed_notes.append(
             ConfirmedNote(
                 note_id=note_id,
@@ -47,9 +91,11 @@ class BatchState:
                 accepted_at=datetime.now(timezone.utc).isoformat(),
             )
         )
+        self._record_audit("confirm", note_id, solution, operator, reason)
 
-    def reject_solution(self, solution: CoverageSolution) -> None:
+    def reject_solution(self, solution: CoverageSolution, operator: str = "", reason: str = "") -> None:
         self.rejected_solution_keys.add(tuple(sorted(solution.fragment_ids)))
+        self._record_audit("reject", "", solution, operator, reason)
 
     def filter_rejected(self, solutions: list[CoverageSolution]) -> list[CoverageSolution]:
         return [solution for solution in solutions if tuple(sorted(solution.fragment_ids)) not in self.rejected_solution_keys]
@@ -67,6 +113,7 @@ class BatchState:
                 for note in self.confirmed_notes
             ],
             "rejected_solution_keys": [list(key) for key in sorted(self.rejected_solution_keys)],
+            "audit_log": [event.to_dict() for event in self.audit_log],
         }
 
     @classmethod
@@ -86,6 +133,18 @@ class BatchState:
             tuple(sorted(str(fragment_id) for fragment_id in item))
             for item in payload.get("rejected_solution_keys", [])
         }
+        state.audit_log = [
+            AuditEvent(
+                timestamp=str(item.get("timestamp", "")),
+                action=str(item.get("action", "")),
+                note_id=str(item.get("note_id", "")),
+                fragment_ids=tuple(str(fragment_id) for fragment_id in item.get("fragment_ids", [])),
+                coverage=float(item.get("coverage", 0.0)),
+                operator=str(item.get("operator", "")),
+                reason=str(item.get("reason", "")),
+            )
+            for item in payload.get("audit_log", [])
+        ]
         return state
 
 

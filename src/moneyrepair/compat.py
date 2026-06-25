@@ -9,6 +9,8 @@ import numpy as np
 
 from moneyrepair.types import Fragment
 
+_POPCOUNT_TABLE = np.array([bin(value).count("1") for value in range(256)], dtype=np.int64)
+
 
 @dataclass(frozen=True)
 class CompatibilityMatrix:
@@ -82,10 +84,21 @@ class PackedCompatibilityMatrix:
         n = len(id_tuple)
         width = (n + 7) // 8
         packed = np.full((n, width), 255 if value else 0, dtype=np.uint8)
+        if value and n > 0:
+            pad = width * 8 - n
+            if pad:
+                packed[:, -1] &= np.uint8((0xFF << pad) & 0xFF)
         matrix = cls(ids=id_tuple, packed=packed, n=n)
         for index in range(n):
             matrix.set_compatible(index, index, False)
         return matrix
+
+    def compatible_pair_count(self) -> int:
+        """Number of undirected compatible pairs, counted straight from bits."""
+
+        if self.n in (0, None):
+            return 0
+        return int(_POPCOUNT_TABLE[self.packed].sum() // 2)
 
     def index(self, fragment_id: str) -> int:
         return self.ids.index(fragment_id)
@@ -178,6 +191,122 @@ def compute_compatibility(
     return CompatibilityMatrix(ids=ids, compatible=compatible)
 
 
+def _pair_overlap_pixels(
+    left: Fragment,
+    right: Fragment,
+    left_bbox: tuple[int, int, int, int],
+    right_bbox: tuple[int, int, int, int],
+) -> int:
+    x0 = max(left_bbox[0], right_bbox[0])
+    y0 = max(left_bbox[1], right_bbox[1])
+    x1 = min(left_bbox[2], right_bbox[2])
+    y1 = min(left_bbox[3], right_bbox[3])
+    if x0 >= x1 or y0 >= y1:
+        return 0
+    return int(np.logical_and(left.mask[y0:y1, x0:x1], right.mask[y0:y1, x0:x1]).sum())
+
+
+def _auto_cell_size(bboxes: list[tuple[int, int, int, int]]) -> int:
+    dims = sorted(max(x1 - x0, y1 - y0) for x0, y0, x1, y1 in bboxes if x1 > x0 and y1 > y0)
+    if not dims:
+        return 1
+    return max(1, int(dims[len(dims) // 2]))
+
+
+def _bbox_cells(bbox: tuple[int, int, int, int], cell: int) -> Iterable[tuple[int, int]]:
+    x0, y0, x1, y1 = bbox
+    for cy in range(y0 // cell, (y1 - 1) // cell + 1):
+        for cx in range(x0 // cell, (x1 - 1) // cell + 1):
+            yield cx, cy
+
+
+def iter_incompatible_pairs(
+    fragments: list[Fragment],
+    max_overlap_pixels: int = 0,
+    max_overlap_ratio: float = 0.0,
+    cell: int | None = None,
+) -> Iterable[tuple[int, int]]:
+    """Yield index pairs ``(i, j)`` (i < j) whose masks overlap past tolerance.
+
+    Fragments are hashed into a coarse spatial grid by bounding box, so only
+    spatially close pairs are ever compared. For fragments that tile a note this
+    keeps the work near the number of truly adjacent pairs instead of ``n^2``.
+    """
+
+    bboxes = [fragment.bbox for fragment in fragments]
+    areas = [max(fragment.area, 1) for fragment in fragments]
+    if cell is None:
+        cell = _auto_cell_size(bboxes)
+    cell = max(1, int(cell))
+
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for index, bbox in enumerate(bboxes):
+        if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            continue
+        for key in _bbox_cells(bbox, cell):
+            buckets.setdefault(key, []).append(index)
+
+    seen: set[tuple[int, int]] = set()
+    for members in buckets.values():
+        count = len(members)
+        for a in range(count):
+            i = members[a]
+            for b in range(a + 1, count):
+                j = members[b]
+                pair = (i, j) if i < j else (j, i)
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                overlap = _pair_overlap_pixels(fragments[pair[0]], fragments[pair[1]], bboxes[pair[0]], bboxes[pair[1]])
+                if overlap <= max_overlap_pixels:
+                    continue
+                ratio = overlap / float(min(areas[pair[0]], areas[pair[1]]))
+                if ratio > max_overlap_ratio:
+                    yield pair
+
+
+def compute_compatibility_fast(
+    fragments: list[Fragment],
+    max_overlap_pixels: int = 0,
+    max_overlap_ratio: float = 0.0,
+    cell: int | None = None,
+) -> PackedCompatibilityMatrix:
+    """Grid-pruned compatibility build that writes packed bits directly.
+
+    Equivalent result to :func:`compute_compatibility` but never materialises the
+    dense ``n*n`` boolean array, so it scales to the ~20k fragment production
+    target where the dense matrix would cost hundreds of megabytes.
+    """
+
+    ids = tuple(fragment.id for fragment in fragments)
+    matrix = PackedCompatibilityMatrix.filled(ids, value=True)
+    for i, j in iter_incompatible_pairs(fragments, max_overlap_pixels, max_overlap_ratio, cell):
+        matrix.set_pair_compatible(i, j, False)
+    return matrix
+
+
+def write_incompatible_pairs(
+    path: str | Path,
+    fragments: list[Fragment],
+    max_overlap_pixels: int = 0,
+    max_overlap_ratio: float = 0.0,
+    cell: int | None = None,
+) -> int:
+    """Stream incompatible pairs to a CSV without holding a dense matrix."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ids = [fragment.id for fragment in fragments]
+    count = 0
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["fragment_a", "fragment_b"])
+        for i, j in iter_incompatible_pairs(fragments, max_overlap_pixels, max_overlap_ratio, cell):
+            writer.writerow([ids[i], ids[j]])
+            count += 1
+    return count
+
+
 def incompatibility_matrix(compatibility: CompatibilityMatrix) -> np.ndarray:
     incompatible = ~compatibility.compatible.copy()
     np.fill_diagonal(incompatible, False)
@@ -197,6 +326,22 @@ def filter_compatibility_to_ids(
             filtered[:, index] = False
     np.fill_diagonal(filtered, False)
     return CompatibilityMatrix(ids=compatibility.ids, compatible=filtered)
+
+
+def restrict_packed_to_ids(
+    matrix: PackedCompatibilityMatrix,
+    allowed_ids: set[str],
+) -> PackedCompatibilityMatrix:
+    """Mark fragments outside ``allowed_ids`` incompatible with every partner."""
+
+    packed = matrix.packed.copy()
+    for index, fragment_id in enumerate(matrix.ids):
+        if fragment_id not in allowed_ids:
+            packed[index, :] = 0
+            byte_index = index // 8
+            bit = np.uint8(1 << (7 - (index % 8)))
+            packed[:, byte_index] &= np.uint8(255) ^ bit
+    return PackedCompatibilityMatrix(ids=matrix.ids, packed=packed, n=matrix.n)
 
 
 def load_pair_records(path: str | Path) -> list[tuple[str, str]]:
