@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import moneyrepair
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.simulate import make_synthetic_fragments, save_dataset
 
@@ -19,7 +20,7 @@ def test_run_production_pipeline_writes_auditable_manifest(tmp_path):
         time_limit_seconds=10,
     )
 
-    assert manifest["version"] == "2.0.0"
+    assert manifest["version"] == moneyrepair.__version__
     assert manifest["inputs"]["dataset_sha256"]
     assert manifest["inputs"]["fragments_total"] == len(fragments)
     assert manifest["search"]["active_fragments"] >= 1

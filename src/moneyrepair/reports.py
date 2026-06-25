@@ -3,28 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from moneyrepair.style import REPORT_PALETTE, load_matplotlib
+
 
 def _load_matplotlib():
-    try:
-        import matplotlib as mpl
-        import matplotlib.pyplot as plt
-    except ImportError as exc:
-        raise RuntimeError("report generation requires matplotlib; install with moneyrepair[reports]") from exc
-
-    mpl.rcParams.update(
-        {
-            "font.family": "sans-serif",
-            "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans", "sans-serif"],
-            "svg.fonttype": "none",
-            "pdf.fonttype": 42,
-            "font.size": 7,
-            "axes.spines.right": False,
-            "axes.spines.top": False,
-            "axes.linewidth": 0.8,
-            "legend.frameon": False,
-        }
-    )
-    return plt
+    return load_matplotlib()
 
 
 def load_strategy_results(path: str | Path) -> list[dict]:
@@ -56,7 +39,7 @@ def write_strategy_report(
     ax1 = fig.add_subplot(grid[0, 1])
     ax2 = fig.add_subplot(grid[0, 2])
 
-    palette = ["#4C78A8", "#72B7B2", "#F58518", "#54A24B"]
+    palette = REPORT_PALETTE
     ax0.bar(strategies, solve, color=palette[: len(strategies)])
     ax0.set_title("DFS solve time")
     ax0.set_ylabel("seconds")

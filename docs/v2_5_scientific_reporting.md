@@ -57,11 +57,35 @@ Current Python report command:
 moneyrepair report-strategies --input runs/v1_5_strategy_benchmark.json --output-prefix runs/v1_5_strategy_report
 ```
 
+## Shipped in 2.5
+
+- `style.py` centralises the palette and publication rcParams; `reports.py` and
+  `figures.py` both use it for a consistent look across panels.
+- `figures.py` renders the multi-panel evidence figure
+  (`render_report_figure`) and the standard QA / algorithm / footprint /
+  coverage panels (`assemble_standard_panels`).
+- Every figure ships a `<prefix>_data.csv` source table and a
+  `<prefix>_manifest.json` with per-panel claims, export paths, the palette, and
+  SHA-256 provenance for each source artifact.
+- `validate_report` is the report-level QA gate: it flags missing panels, empty
+  series, missing exports, or a missing palette.
+- `diagrams.py` emits the editable Visio-style schematic as a JSON node/edge
+  spec plus an editable-text SVG of the acquisition → manifest → pruning → DFS →
+  report → operator-review loop.
+
+Commands:
+
+```bash
+moneyrepair report-figures --output-prefix runs/report \
+  --strategy-benchmark runs/v1_5_strategy_benchmark.json \
+  --quality clean=runs/qa_clean.json --quality degraded=runs/qa_degraded.json \
+  --claim "Approximate placement plus pairwise incompatibility yields a small inspectable candidate set."
+moneyrepair export-diagram --name production-pipeline --output-prefix runs/pipeline
+```
+
 ## Next refinement
 
-- Add a source-data CSV next to every figure.
-- Add a figure manifest with panel titles, claim, export paths, and provenance.
-- Add a methods schematic export path for editable VSDX once a local Visio
-  runtime is available.
-- Add report-level QA: text not clipped, no missing panels, source JSON hashes,
-  and consistent palette across panels.
+- Convert the editable diagram spec to VSDX once a local Visio runtime is
+  available (the JSON spec is already structured for it).
+- Add a hero composite that embeds the diagram SVG beside the Python panels.
+- Add text-overflow detection to the report QA gate.

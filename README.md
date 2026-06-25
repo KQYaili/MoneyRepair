@@ -180,6 +180,34 @@ prunes, searches with the `area_degree` strategy, renders candidates, and writes
 moneyrepair run-pipeline --dataset data/real_fragments.npz --output-dir data/run_0001 --coverage 0.99 --max-solutions 10
 ```
 
+## Scientific reporting (v2.5)
+
+v2.5 turns benchmark and QA artifacts into a polished, auditable report. See
+[docs/v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
+
+Render the multi-panel evidence figure (QA, strategy timing, matrix footprint,
+coverage). Each figure ships a `*_data.csv` source table and a `*_manifest.json`
+with per-panel claims and SHA-256 provenance for every source artifact:
+
+```bash
+moneyrepair report-figures --output-prefix runs/report \
+  --strategy-benchmark runs/strategy_benchmark.json \
+  --quality clean=runs/qa_clean.json --quality degraded=runs/qa_degraded.json \
+  --claim "Approximate placement plus pairwise incompatibility yields a small inspectable candidate set."
+```
+
+Export the editable Visio-style pipeline schematic (JSON node/edge spec plus an
+editable-text SVG):
+
+```bash
+moneyrepair export-diagram --name production-pipeline --output-prefix runs/pipeline
+```
+
+Quantitative panels stay in Python (`matplotlib`, install with
+`pip install -e ".[reports]"`) for reproducibility; the schematic stays editable
+for methods diagrams, following the Visio-oriented references listed in the
+[reporting doc](docs/v2_5_scientific_reporting.md).
+
 ## Current scope
 
 This is intentionally a software simulation first. Real scan/photo ingestion can

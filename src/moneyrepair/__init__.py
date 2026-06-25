@@ -9,6 +9,8 @@ from moneyrepair.compat import (
     compute_compatibility_fast,
     write_incompatible_pairs,
 )
+from moneyrepair.diagrams import DiagramSpec, production_pipeline_spec, write_diagram
+from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.ingest import fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
@@ -21,7 +23,7 @@ from moneyrepair.simulate import make_synthetic_fragments
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.types import Fragment
 
-__version__ = "2.0.0"
+__version__ = "2.5.0"
 
 __all__ = [
     "AuditEvent",
@@ -29,6 +31,8 @@ __all__ = [
     "CompatibilityMatrix",
     "ConfirmedNote",
     "CoverageSolution",
+    "DiagramSpec",
+    "FigurePanel",
     "Fragment",
     "FrameQuality",
     "MatrixFootprint",
@@ -38,6 +42,7 @@ __all__ = [
     "RealismProfile",
     "SyntheticBenchmark",
     "__version__",
+    "assemble_standard_panels",
     "assess_fragments",
     "compatibility_from_pair_records",
     "compare_solver_strategies",
@@ -47,6 +52,8 @@ __all__ = [
     "estimate_matrix_footprint",
     "make_synthetic_fragments",
     "make_realistic_synthetic_fragments",
+    "production_pipeline_spec",
+    "render_report_figure",
     "run_production_pipeline",
     "run_synthetic_benchmark",
     "segment_scan_to_manifest",
@@ -55,6 +62,8 @@ __all__ = [
     "solve_covering_sets",
     "summarize_quality",
     "update_manifest_labels",
+    "validate_report",
+    "write_diagram",
     "write_incompatible_pairs",
     "write_strategy_report",
 ]

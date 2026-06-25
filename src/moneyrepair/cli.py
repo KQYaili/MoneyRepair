@@ -24,7 +24,9 @@ from moneyrepair.compat import (
     restrict_packed_to_ids,
     write_incompatible_pairs,
 )
+from moneyrepair.diagrams import DIAGRAMS, write_diagram
 from moneyrepair.features import describe_contours, match_similar_contours
+from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
@@ -457,6 +459,56 @@ def _cmd_run_pipeline(args: argparse.Namespace) -> None:
     print(json.dumps(manifest, indent=2))
 
 
+def _cmd_report_figures(args: argparse.Namespace) -> None:
+    sources: dict[str, str] = {}
+    strategy_results = None
+    if args.strategy_benchmark:
+        strategy_results = json.loads(Path(args.strategy_benchmark).read_text(encoding="utf-8"))
+        sources["strategy_benchmark"] = args.strategy_benchmark
+
+    quality_summaries: dict[str, dict] = {}
+    for item in args.quality or []:
+        if "=" in item:
+            label, path = item.split("=", 1)
+        else:
+            label, path = Path(item).stem, item
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        quality_summaries[label] = payload.get("summary", payload)
+        sources[f"quality:{label}"] = path
+
+    panels = assemble_standard_panels(
+        strategy_results=strategy_results,
+        quality_summaries=quality_summaries or None,
+    )
+    manifest = render_report_figure(
+        panels,
+        args.output_prefix,
+        title=args.title,
+        claim=args.claim,
+        sources=sources,
+        dpi=args.dpi,
+    )
+    problems = validate_report(manifest)
+    print(
+        json.dumps(
+            {
+                "exports": manifest["exports"],
+                "panels": [panel["key"] for panel in manifest["panels"]],
+                "qa_problems": problems,
+            },
+            indent=2,
+        )
+    )
+
+
+def _cmd_export_diagram(args: argparse.Namespace) -> None:
+    if args.name not in DIAGRAMS:
+        raise ValueError(f"unknown diagram '{args.name}'; choices: {', '.join(DIAGRAMS)}")
+    spec = DIAGRAMS[args.name]()
+    outputs = write_diagram(spec, args.output_prefix)
+    print(json.dumps(outputs, indent=2))
+
+
 def _cmd_smoke(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     dataset_path = output_dir / "demo_fragments.npz"
@@ -706,6 +758,20 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--keep-rejected", action="store_true", help="keep frames that fail the quality contract in the search")
     _add_quality_args(pipeline)
     pipeline.set_defaults(func=_cmd_run_pipeline)
+
+    report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
+    report_figures.add_argument("--output-prefix", required=True)
+    report_figures.add_argument("--strategy-benchmark", help="strategy benchmark JSON for the algorithm/footprint/coverage panels")
+    report_figures.add_argument("--quality", action="append", help="LABEL=PATH assess-quality JSON for the QA panel; repeatable")
+    report_figures.add_argument("--title", default="MoneyRepair evidence report")
+    report_figures.add_argument("--claim", default="")
+    report_figures.add_argument("--dpi", type=int, default=600)
+    report_figures.set_defaults(func=_cmd_report_figures)
+
+    export_diagram = sub.add_parser("export-diagram", help="write an editable Visio-style diagram spec and SVG")
+    export_diagram.add_argument("--name", choices=tuple(DIAGRAMS), default="production-pipeline")
+    export_diagram.add_argument("--output-prefix", required=True)
+    export_diagram.set_defaults(func=_cmd_export_diagram)
 
     smoke = sub.add_parser("smoke", help="run the full synthetic pipeline")
     smoke.add_argument("--output-dir", required=True)

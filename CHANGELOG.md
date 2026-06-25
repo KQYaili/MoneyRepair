@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.5.0
+
+Polished scientific reporting:
+
+- shared publication style (`style.py`): one palette and rcParams reused by
+  every Python panel;
+- multi-panel evidence figure (`figures.py`) over the QA, algorithm, matrix
+  footprint, and coverage panels, each with a per-panel claim;
+- a source-data CSV and a figure manifest with panel claims, export paths, and
+  SHA-256 provenance next to every figure, plus report-level QA validation;
+- editable Visio-style diagrams (`diagrams.py`): a JSON node/edge spec plus an
+  editable-text SVG of the production pipeline loop;
+- `report-figures` and `export-diagram` commands.
+
 ## 2.0.0
 
 Industrial production tradeoffs over open-ended research:
