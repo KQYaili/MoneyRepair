@@ -1,4 +1,4 @@
-from moneyrepair.benchmark import estimate_matrix_footprint, run_synthetic_benchmark, write_matrix_footprint
+from moneyrepair.benchmark import compare_solver_strategies, estimate_matrix_footprint, run_synthetic_benchmark, write_matrix_footprint
 
 
 def test_estimate_matrix_footprint_for_20000_fragments(tmp_path):
@@ -26,3 +26,18 @@ def test_run_synthetic_benchmark_reports_timings_and_solution():
     assert result.matrix_footprint.fragments == 10
     assert result.timings_seconds["total"] >= 0
     assert result.solutions_found >= 1
+
+
+def test_compare_solver_strategies_runs_each_strategy():
+    results = compare_solver_strategies(
+        pieces=10,
+        width=120,
+        height=60,
+        target_coverage=0.9,
+        max_solutions=1,
+        time_limit_seconds=5,
+        strategies=("area", "degree"),
+    )
+
+    assert [item.order_strategy for item in results] == ["area", "degree"]
+    assert all(item.pieces_generated == 10 for item in results)

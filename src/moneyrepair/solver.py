@@ -24,6 +24,7 @@ def solve_covering_sets(
     start_id: str | None = None,
     time_limit_seconds: float | None = None,
     allowed_ids: set[str] | None = None,
+    order_strategy: str = "area",
 ) -> list[CoverageSolution]:
     """Depth-first search for compatible fragment sets covering the note."""
 
@@ -44,10 +45,23 @@ def solve_covering_sets(
     if not allowed_indices:
         return []
 
+    if order_strategy not in {"area", "degree", "area_degree"}:
+        raise ValueError("order_strategy must be one of: area, degree, area_degree")
+
     total_area = fragments[0].mask.size
     target_area = int(np.ceil(total_area * target_coverage))
     areas = np.array([fragment.area for fragment in fragments], dtype=np.int64)
-    order = tuple(index for index in np.argsort(-areas).tolist() if index in allowed_indices)
+    allowed_tuple = tuple(sorted(allowed_indices))
+    degrees = {
+        index: len(compatibility.compatible_indices(index, tuple(candidate for candidate in allowed_tuple if candidate != index)))
+        for index in allowed_tuple
+    }
+    if order_strategy == "area":
+        order = tuple(index for index in np.argsort(-areas).tolist() if index in allowed_indices)
+    elif order_strategy == "degree":
+        order = tuple(sorted(allowed_tuple, key=lambda index: (degrees[index], -areas[index], index)))
+    else:
+        order = tuple(sorted(allowed_tuple, key=lambda index: (-areas[index], degrees[index], index)))
     order_rank = {index: rank for rank, index in enumerate(order)}
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     solutions: list[CoverageSolution] = []

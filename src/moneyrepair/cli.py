@@ -7,7 +7,13 @@ from pathlib import Path
 import numpy as np
 
 from moneyrepair.batch import load_batch_state, save_batch_state
-from moneyrepair.benchmark import estimate_matrix_footprint, run_synthetic_benchmark, write_matrix_footprint, write_synthetic_benchmark
+from moneyrepair.benchmark import (
+    compare_solver_strategies,
+    estimate_matrix_footprint,
+    run_synthetic_benchmark,
+    write_matrix_footprint,
+    write_synthetic_benchmark,
+)
 from moneyrepair.compat import (
     PackedCompatibilityMatrix,
     compatibility_from_pair_records,
@@ -19,6 +25,8 @@ from moneyrepair.features import describe_contours, match_similar_contours
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
+from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
+from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
@@ -35,6 +43,32 @@ def _cmd_simulate(args: argparse.Namespace) -> None:
     )
     save_dataset(args.output, template, fragments)
     print(f"wrote {len(fragments)} fragments to {args.output}")
+
+
+def _cmd_simulate_realistic(args: argparse.Namespace) -> None:
+    profile = RealismProfile(
+        brightness_jitter=args.brightness_jitter,
+        contrast_jitter=args.contrast_jitter,
+        color_jitter=args.color_jitter,
+        blur_radius_max=args.blur_radius_max,
+        noise_sigma=args.noise_sigma,
+        illumination_strength=args.illumination_strength,
+        jpeg_quality_min=args.jpeg_quality_min,
+        jpeg_quality_max=args.jpeg_quality_max,
+    )
+    template, fragments, profile = make_realistic_synthetic_fragments(
+        pieces=args.pieces,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        side=args.side,
+        profile=profile,
+    )
+    save_dataset(args.output, template, fragments)
+    if args.profile_output:
+        Path(args.profile_output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.profile_output).write_text(json.dumps(profile.to_dict(), indent=2), encoding="utf-8")
+    print(f"wrote {len(fragments)} realistic fragments to {args.output}")
 
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
@@ -88,6 +122,7 @@ def _cmd_solve(args: argparse.Namespace) -> None:
         start_id=args.start_id,
         time_limit_seconds=args.time_limit,
         allowed_ids=allowed_ids,
+        order_strategy=args.order_strategy,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -304,6 +339,7 @@ def _cmd_benchmark_synthetic(args: argparse.Namespace) -> None:
         "target_coverage": args.coverage,
         "max_solutions": args.max_solutions,
         "time_limit_seconds": args.time_limit,
+        "order_strategy": args.order_strategy,
     }
     if args.output:
         result = write_synthetic_benchmark(args.output, **kwargs)
@@ -313,6 +349,37 @@ def _cmd_benchmark_synthetic(args: argparse.Namespace) -> None:
     print(json.dumps(payload, indent=2))
     if args.output:
         print(f"output={args.output}")
+
+
+def _cmd_benchmark_strategies(args: argparse.Namespace) -> None:
+    results = compare_solver_strategies(
+        pieces=args.pieces,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        target_coverage=args.coverage,
+        max_solutions=args.max_solutions,
+        time_limit_seconds=args.time_limit,
+        strategies=tuple(args.strategies.split(",")),
+    )
+    payload = [result.to_dict() for result in results]
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(json.dumps(payload, indent=2))
+    if args.output:
+        print(f"output={args.output}")
+
+
+def _cmd_report_strategies(args: argparse.Namespace) -> None:
+    outputs = write_strategy_report(
+        load_strategy_results(args.input),
+        output_prefix=args.output_prefix,
+        title=args.title,
+        dpi=args.dpi,
+    )
+    print(json.dumps(outputs, indent=2))
 
 
 def _cmd_smoke(args: argparse.Namespace) -> None:
@@ -362,6 +429,24 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--side", default="front")
     simulate.set_defaults(func=_cmd_simulate)
 
+    realistic = sub.add_parser("simulate-realistic", help="generate photometrically degraded synthetic fragments")
+    realistic.add_argument("--output", required=True)
+    realistic.add_argument("--pieces", type=int, default=24)
+    realistic.add_argument("--width", type=int, default=420)
+    realistic.add_argument("--height", type=int, default=180)
+    realistic.add_argument("--seed", type=int, default=7)
+    realistic.add_argument("--side", default="front")
+    realistic.add_argument("--brightness-jitter", type=float, default=0.16)
+    realistic.add_argument("--contrast-jitter", type=float, default=0.12)
+    realistic.add_argument("--color-jitter", type=float, default=0.08)
+    realistic.add_argument("--blur-radius-max", type=float, default=0.8)
+    realistic.add_argument("--noise-sigma", type=float, default=7.0)
+    realistic.add_argument("--illumination-strength", type=float, default=0.22)
+    realistic.add_argument("--jpeg-quality-min", type=int, default=72)
+    realistic.add_argument("--jpeg-quality-max", type=int, default=94)
+    realistic.add_argument("--profile-output")
+    realistic.set_defaults(func=_cmd_simulate_realistic)
+
     matrix = sub.add_parser("build-matrix", help="build packed compatibility matrix")
     matrix.add_argument("--dataset", required=True)
     matrix.add_argument("--output", required=True)
@@ -380,6 +465,7 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--start-id")
     solve.add_argument("--time-limit", type=float)
     solve.add_argument("--allowed-ids")
+    solve.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area")
     solve.set_defaults(func=_cmd_solve)
 
     visualize = sub.add_parser("visualize", help="render solution overlays")
@@ -489,8 +575,28 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--coverage", type=float, default=0.98)
     bench.add_argument("--max-solutions", type=int, default=5)
     bench.add_argument("--time-limit", type=float, default=30.0)
+    bench.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area")
     bench.add_argument("--output")
     bench.set_defaults(func=_cmd_benchmark_synthetic)
+
+    bench_strategies = sub.add_parser("benchmark-strategies", help="compare DFS ordering strategies on one synthetic benchmark")
+    bench_strategies.add_argument("--pieces", type=int, default=80)
+    bench_strategies.add_argument("--width", type=int, default=480)
+    bench_strategies.add_argument("--height", type=int, default=210)
+    bench_strategies.add_argument("--seed", type=int, default=7)
+    bench_strategies.add_argument("--coverage", type=float, default=0.98)
+    bench_strategies.add_argument("--max-solutions", type=int, default=5)
+    bench_strategies.add_argument("--time-limit", type=float, default=30.0)
+    bench_strategies.add_argument("--strategies", default="area,degree,area_degree")
+    bench_strategies.add_argument("--output")
+    bench_strategies.set_defaults(func=_cmd_benchmark_strategies)
+
+    report_strategies = sub.add_parser("report-strategies", help="render SVG/PDF/TIFF report from strategy benchmark JSON")
+    report_strategies.add_argument("--input", required=True)
+    report_strategies.add_argument("--output-prefix", required=True)
+    report_strategies.add_argument("--title", default="MoneyRepair strategy benchmark")
+    report_strategies.add_argument("--dpi", type=int, default=600)
+    report_strategies.set_defaults(func=_cmd_report_strategies)
 
     smoke = sub.add_parser("smoke", help="run the full synthetic pipeline")
     smoke.add_argument("--output-dir", required=True)

@@ -62,6 +62,7 @@ class SyntheticBenchmark:
     matrix_footprint: MatrixFootprint
     solutions_found: int
     best_coverage: float | None
+    order_strategy: str = "area"
 
     def to_dict(self) -> dict:
         return {
@@ -75,6 +76,7 @@ class SyntheticBenchmark:
             "matrix_footprint": self.matrix_footprint.to_dict(),
             "solutions_found": self.solutions_found,
             "best_coverage": self.best_coverage,
+            "order_strategy": self.order_strategy,
         }
 
 
@@ -86,6 +88,7 @@ def run_synthetic_benchmark(
     target_coverage: float = 0.98,
     max_solutions: int = 5,
     time_limit_seconds: float | None = 30.0,
+    order_strategy: str = "area",
 ) -> SyntheticBenchmark:
     """Run a deterministic synthetic pipeline benchmark."""
 
@@ -106,6 +109,7 @@ def run_synthetic_benchmark(
         target_coverage=target_coverage,
         max_solutions=max_solutions,
         time_limit_seconds=time_limit_seconds,
+        order_strategy=order_strategy,
     )
     timings["solve"] = perf_counter() - started
     timings["total"] = sum(timings.values())
@@ -121,6 +125,7 @@ def run_synthetic_benchmark(
         matrix_footprint=estimate_matrix_footprint(len(fragments)),
         solutions_found=len(solutions),
         best_coverage=solutions[0].coverage if solutions else None,
+        order_strategy=order_strategy,
     )
 
 
@@ -130,3 +135,28 @@ def write_synthetic_benchmark(path: str | Path, **kwargs) -> SyntheticBenchmark:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
     return result
+
+
+def compare_solver_strategies(
+    pieces: int = 80,
+    width: int = 480,
+    height: int = 210,
+    seed: int = 7,
+    target_coverage: float = 0.98,
+    max_solutions: int = 5,
+    time_limit_seconds: float | None = 30.0,
+    strategies: tuple[str, ...] = ("area", "degree", "area_degree"),
+) -> list[SyntheticBenchmark]:
+    return [
+        run_synthetic_benchmark(
+            pieces=pieces,
+            width=width,
+            height=height,
+            seed=seed,
+            target_coverage=target_coverage,
+            max_solutions=max_solutions,
+            time_limit_seconds=time_limit_seconds,
+            order_strategy=strategy,
+        )
+        for strategy in strategies
+    ]

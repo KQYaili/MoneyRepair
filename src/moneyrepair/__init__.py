@@ -1,11 +1,13 @@
 """MoneyRepair simulation toolkit."""
 
 from moneyrepair.batch import BatchState, ConfirmedNote
-from moneyrepair.benchmark import MatrixFootprint, SyntheticBenchmark, estimate_matrix_footprint, run_synthetic_benchmark
+from moneyrepair.benchmark import MatrixFootprint, SyntheticBenchmark, compare_solver_strategies, estimate_matrix_footprint, run_synthetic_benchmark
 from moneyrepair.compat import CompatibilityMatrix, PackedCompatibilityMatrix, compatibility_from_pair_records
 from moneyrepair.ingest import fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.reference import ReferenceScore, score_best_reference_side, score_fragments_by_side
+from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
+from moneyrepair.reports import write_strategy_report
 from moneyrepair.scan import connected_components, segment_scan_to_manifest
 from moneyrepair.simulate import make_synthetic_fragments
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
@@ -20,16 +22,20 @@ __all__ = [
     "MatrixFootprint",
     "PackedCompatibilityMatrix",
     "ReferenceScore",
+    "RealismProfile",
     "SyntheticBenchmark",
     "compatibility_from_pair_records",
+    "compare_solver_strategies",
     "connected_components",
     "fragments_from_manifest",
     "estimate_matrix_footprint",
     "make_synthetic_fragments",
+    "make_realistic_synthetic_fragments",
     "run_synthetic_benchmark",
     "segment_scan_to_manifest",
     "score_best_reference_side",
     "score_fragments_by_side",
     "solve_covering_sets",
     "update_manifest_labels",
+    "write_strategy_report",
 ]

@@ -127,11 +127,14 @@ To estimate matrix memory before a large run:
 ```bash
 moneyrepair estimate-matrix --fragments 20000 --output data/matrix_footprint.json
 moneyrepair benchmark-synthetic --pieces 120 --width 600 --height 260 --coverage 0.98 --output data/benchmark_120.json
+moneyrepair benchmark-strategies --pieces 120 --width 600 --height 260 --coverage 0.98 --output data/strategy_benchmark.json
+moneyrepair report-strategies --input data/strategy_benchmark.json --output-prefix data/strategy_report
 ```
 
 `benchmark-synthetic` times synthetic data generation, compatibility matrix
 construction, and DFS search. Use it for machine-local sanity checks before a
-large WSL/Anaconda run.
+large WSL/Anaconda run. `report-strategies` requires matplotlib; install it with
+`pip install -e ".[reports]"` if your environment does not already include it.
 
 ## Batch reconstruction
 
@@ -162,4 +165,9 @@ Run `python -m pytest -q` and `python -m compileall -q src` before publishing
 changes. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 For GitHub publishing steps, see [docs/github.md](docs/github.md).
+
+Version planning:
+[v1.5 experiments](docs/v1_5_experiments.md),
+[v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md), and
+[v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
 # 1

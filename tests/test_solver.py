@@ -69,3 +69,17 @@ def test_solver_allowed_ids_excludes_confirmed_fragments():
 
     assert solutions
     assert set(solutions[0].fragment_ids) == {"b", "c"}
+
+
+def test_solver_supports_order_strategies():
+    masks = []
+    for x0, x1 in [(0, 2), (2, 4), (4, 6)]:
+        mask = np.zeros((2, 6), dtype=bool)
+        mask[:, x0:x1] = True
+        masks.append(mask)
+    fragments = [Fragment("a", masks[0]), Fragment("b", masks[1]), Fragment("c", masks[2])]
+    matrix = compute_compatibility(fragments)
+
+    for strategy in ("area", "degree", "area_degree"):
+        solutions = solve_covering_sets(fragments, matrix, target_coverage=1.0, order_strategy=strategy)
+        assert solutions[0].coverage == 1.0
