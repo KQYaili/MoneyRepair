@@ -37,9 +37,9 @@ reports = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/"
-Documentation = "https://github.com/"
-Issues = "https://github.com/"
+Homepage = "https://github.com/KQYaili/MoneyRepair"
+Documentation = "https://github.com/KQYaili/MoneyRepair/blob/main/docs/pipeline.md"
+Issues = "https://github.com/KQYaili/MoneyRepair/issues"
 
 [project.scripts]
 moneyrepair = "moneyrepair.cli:main"
