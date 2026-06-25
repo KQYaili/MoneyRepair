@@ -256,7 +256,7 @@ template (so it depends on the note, not the region), or serial labels with
 
 ## Production-grade auto-locator & pose solver (v4.0)
 
-v4.0 shifts the system from a pipeline where approximate fragment placement is given beforehand to an industrial, end-to-end framework that automatically estimates translation, rotation, and side placement candidate poses, and solves them using JIT-accelerated algorithms. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
+v4.0 shifts the system from a pipeline where approximate fragment placement is given beforehand to a simulation-backed end-to-end prototype that automatically estimates translation, rotation, and side placement candidate poses, and solves them using JIT-accelerated algorithms. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
 
 ### 1. Hybrid Coarse-to-Fine Pose Locator
 Finding the optimal $X$, $Y$, rotation ($0^\circ, 90^\circ, 180^\circ, 270^\circ$), and side (front/back) configuration can be slow on large note templates. `locator.py` implements a hybrid matching pipeline:
@@ -275,19 +275,21 @@ poses = locate_fragment_poses(fragment, template_front, template_back, top_k=3, 
 To handle the combinatorial explosion of searching through multiple candidate poses for up to thousands of fragments, the branch-and-bound solver introduces:
 - **Numba-Accelerated Scalar Pruning**: Replaces high-overhead NumPy fancy indexing (`areas[candidates]`) with a zero-allocation flat sum helper (`sum_candidate_areas`).
 - **Precise Bounding Threshold**: Uses `--precise-bound-threshold` (default 24) to configure when the solver switches from fast scalar area estimation to precise pixel-accurate geometry check.
+- **Experimental Adjacency/Boundary Color Continuity**: Uses `--max-boundary-diff` (disabled by default at `-1.0`) to check color transitions across touching borders using a Numba JIT helper. Note that lighting variations and shadows on real photos make boundary color matches unstable; this should remain disabled (set to negative) in default production runs and treated purely as an experimental hard pruning option.
 
 ### 3. Integrated Production Command
 Run the complete pipeline end-to-end with automated placement search, custom reference templates, and detailed auditable logging:
 
 ```bash
 moneyrepair run-pipeline \
-  --dataset data/real_fragments.npz \
-  --output-dir data/run_v4 \
+  --dataset runs/pool.npz \
+  --output-dir runs/final \
   --auto-locate \
+  --score-margin 0.03 \
+  --min-score 0.70 \
+  --discriminate-appearance \
   --precise-bound-threshold 24 \
-  --reference-front data/rmb100_front.png \
-  --reference-back data/rmb100_back.png \
-  --coverage 0.99
+  --coverage 0.97
 ```
 
 When `--auto-locate` is enabled:
