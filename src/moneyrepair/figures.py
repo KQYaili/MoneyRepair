@@ -237,9 +237,26 @@ def quality_panel(quality_summaries: dict[str, dict]) -> FigurePanel:
     )
 
 
+def chimera_panel(chimera_results: list[dict]) -> FigurePanel:
+    categories = [f"{item['notes']}_notes" for item in chimera_results]
+    return FigurePanel(
+        key="chimera",
+        title="Chimera Rate",
+        kind="line",
+        categories=categories,
+        series={
+            "overlap_only": [float(item["overlap_chimera_rate"]) for item in chimera_results],
+            "discriminative": [float(item["disc_chimera_rate"]) for item in chimera_results],
+        },
+        ylabel="fraction",
+        claim="overlap-only stitches chimeras; appearance discrimination keeps rate at 0",
+    )
+
+
 def assemble_standard_panels(
     strategy_results: list[dict] | None = None,
     quality_summaries: dict[str, dict] | None = None,
+    chimera_results: list[dict] | None = None,
 ) -> list[FigurePanel]:
     """Build the standard evidence-chain panels from available artifacts."""
 
@@ -250,6 +267,8 @@ def assemble_standard_panels(
         panels.append(algorithm_panel(strategy_results))
         panels.append(footprint_panel(strategy_results))
         panels.append(coverage_panel(strategy_results))
+    if chimera_results:
+        panels.append(chimera_panel(chimera_results))
     if not panels:
         raise ValueError("no artifacts provided to assemble a report figure")
     return panels

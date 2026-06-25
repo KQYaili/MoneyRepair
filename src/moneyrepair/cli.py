@@ -575,9 +575,15 @@ def _cmd_report_figures(args: argparse.Namespace) -> None:
         quality_summaries[label] = payload.get("summary", payload)
         sources[f"quality:{label}"] = path
 
+    purity_results = None
+    if args.chimera_benchmark:
+        purity_results = json.loads(Path(args.chimera_benchmark).read_text(encoding="utf-8"))
+        sources["chimera_benchmark"] = args.chimera_benchmark
+
     panels = assemble_standard_panels(
         strategy_results=strategy_results,
         quality_summaries=quality_summaries or None,
+        chimera_results=purity_results,
     )
     manifest = render_report_figure(
         panels,
@@ -889,6 +895,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)
     report_figures.add_argument("--strategy-benchmark", help="strategy benchmark JSON for the algorithm/footprint/coverage panels")
+    report_figures.add_argument("--chimera-benchmark", help="chimera benchmark JSON for the chimera panel")
     report_figures.add_argument("--quality", action="append", help="LABEL=PATH assess-quality JSON for the QA panel; repeatable")
     report_figures.add_argument("--title", default="MoneyRepair evidence report")
     report_figures.add_argument("--claim", default="")
