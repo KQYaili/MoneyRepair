@@ -1,0 +1,114 @@
+{
+  "title": "MoneyRepair production pipeline",
+  "width": 1350.0,
+  "height": 196.0,
+  "nodes": [
+    {
+      "id": "acq",
+      "label": "Acquisition QA",
+      "x": 30.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    },
+    {
+      "id": "manifest",
+      "label": "Manifest model",
+      "x": 220.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "data"
+    },
+    {
+      "id": "prune",
+      "label": "Compatibility pruning",
+      "x": 410.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "search",
+      "label": "DFS search",
+      "x": 600.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "report",
+      "label": "Candidate report",
+      "x": 790.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "data"
+    },
+    {
+      "id": "review",
+      "label": "Operator review",
+      "x": 980.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "decision"
+    },
+    {
+      "id": "confirm",
+      "label": "Confirmed note",
+      "x": 1170.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    }
+  ],
+  "edges": [
+    {
+      "source": "acq",
+      "target": "manifest",
+      "label": "accepted frames",
+      "kind": "flow"
+    },
+    {
+      "source": "manifest",
+      "target": "prune",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "prune",
+      "target": "search",
+      "label": "compatible pairs",
+      "kind": "flow"
+    },
+    {
+      "source": "search",
+      "target": "report",
+      "label": "candidates",
+      "kind": "flow"
+    },
+    {
+      "source": "report",
+      "target": "review",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "review",
+      "target": "confirm",
+      "label": "accept",
+      "kind": "flow"
+    },
+    {
+      "source": "review",
+      "target": "search",
+      "label": "reject / retry",
+      "kind": "feedback"
+    }
+  ]
+}

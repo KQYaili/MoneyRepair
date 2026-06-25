@@ -1,0 +1,108 @@
+{
+  "title": "MoneyRepair acquisition flow",
+  "width": 1350.0,
+  "height": 196.0,
+  "nodes": [
+    {
+      "id": "start",
+      "label": "Start",
+      "x": 30.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    },
+    {
+      "id": "focus",
+      "label": "Focus QA",
+      "x": 220.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "glare",
+      "label": "Glare QA",
+      "x": 410.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "drift",
+      "label": "Color drift QA",
+      "x": 600.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "seg",
+      "label": "Segmentation QA",
+      "x": 790.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "manifest",
+      "label": "Manifest model",
+      "x": 980.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "data"
+    },
+    {
+      "id": "end",
+      "label": "End",
+      "x": 1170.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    }
+  ],
+  "edges": [
+    {
+      "source": "start",
+      "target": "focus",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "focus",
+      "target": "glare",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "glare",
+      "target": "drift",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "drift",
+      "target": "seg",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "seg",
+      "target": "manifest",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "manifest",
+      "target": "end",
+      "label": "",
+      "kind": "flow"
+    }
+  ]
+}

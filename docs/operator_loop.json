@@ -1,0 +1,114 @@
+{
+  "title": "MoneyRepair operator loop",
+  "width": 1160.0,
+  "height": 302.0,
+  "nodes": [
+    {
+      "id": "start",
+      "label": "Start",
+      "x": 30.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    },
+    {
+      "id": "gallery",
+      "label": "Render gallery",
+      "x": 220.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "data"
+    },
+    {
+      "id": "review",
+      "label": "Operator review",
+      "x": 410.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "decision"
+    },
+    {
+      "id": "confirm",
+      "label": "Confirm reconstruction",
+      "x": 600.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "remove",
+      "label": "Remove from pool",
+      "x": 790.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "next",
+      "label": "Next batch",
+      "x": 980.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    },
+    {
+      "id": "reject",
+      "label": "Reject candidate",
+      "x": 410.0,
+      "y": 176.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    }
+  ],
+  "edges": [
+    {
+      "source": "start",
+      "target": "gallery",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "gallery",
+      "target": "review",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "review",
+      "target": "confirm",
+      "label": "accept",
+      "kind": "flow"
+    },
+    {
+      "source": "review",
+      "target": "reject",
+      "label": "reject",
+      "kind": "flow"
+    },
+    {
+      "source": "confirm",
+      "target": "remove",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "remove",
+      "target": "next",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "reject",
+      "target": "gallery",
+      "label": "retry",
+      "kind": "feedback"
+    }
+  ]
+}

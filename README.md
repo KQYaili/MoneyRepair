@@ -209,14 +209,12 @@ template (so it depends on the note, not the region), or serial labels with
 `--discriminate serial`. Limits and the residual hard tail are documented in the
 [v3.0 note](docs/v3_0_chimera_discrimination.md).
 
-## Scientific reporting (v2.5)
+## Scientific reporting & diagram export (v2.5)
 
-v2.5 turns benchmark and QA artifacts into a polished, auditable report. See
-[docs/v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
+v2.5 turns benchmark and QA artifacts into a polished, auditable report, and exports editable Visio-style diagrams. See [docs/v2.5 scientific reporting](docs/v2_5_scientific_reporting.md).
 
-Render the multi-panel evidence figure (QA, strategy timing, matrix footprint,
-coverage). Each figure ships a `*_data.csv` source table and a `*_manifest.json`
-with per-panel claims and SHA-256 provenance for every source artifact:
+### 1. Scientific Evidence Figures
+Render the multi-panel evidence figure (QA, strategy timing, matrix footprint, coverage). Each figure ships a `*_data.csv` source data table and a `*_manifest.json` metadata file containing per-panel claims and SHA-256 provenance hashes for every source artifact:
 
 ```bash
 moneyrepair report-figures --output-prefix runs/report \
@@ -225,17 +223,36 @@ moneyrepair report-figures --output-prefix runs/report \
   --claim "Approximate placement plus pairwise incompatibility yields a small inspectable candidate set."
 ```
 
-Export the editable Visio-style pipeline schematic (JSON node/edge spec plus an
-editable-text SVG):
+### 2. Visio-Style Process Diagrams
+MoneyRepair supports exporting fully editable process flowcharts. Each flowchart is exported into three formats:
+1. **`.json`**: Structural node/edge model.
+2. **`.svg`**: High-quality vector graphic with editable `<text>` elements (rendered directly in the repository/documentation).
+3. **`.vsdx`**: Native Microsoft Visio format (automatically generated using local Visio COM automation on Windows).
 
+To export a diagram, run the CLI:
 ```bash
-moneyrepair export-diagram --name production-pipeline --output-prefix runs/pipeline
+moneyrepair export-diagram --name <diagram-name> --output-prefix docs/<output-name>
 ```
 
-Quantitative panels stay in Python (`matplotlib`, install with
-`pip install -e ".[reports]"`) for reproducibility; the schematic stays editable
-for methods diagrams, following the Visio-oriented references listed in the
-[reporting doc](docs/v2_5_scientific_reporting.md).
+#### Available Diagrams:
+
+##### Production Pipeline (`production-pipeline`)
+Core reconstruction workflow from image acquisition to operator confirmation.
+![MoneyRepair Production Pipeline](docs/pipeline_diagram.svg)
+
+##### Image QA Gating (`acquisition-flow`)
+Sequential quality gates (focus, glare, segmentation, color drift) evaluating incoming fragment frames.
+![Image QA Gating Pipeline](docs/acquisition_flow.svg)
+
+##### DFS Search Logic (`search-logic`)
+Branch-and-bound depth-first search (DFS) candidate solver logic showing backtracking and pruning.
+![DFS Branch and Bound Logic](docs/search_logic.svg)
+
+##### Operator Audit Loop (`operator-loop`)
+Human-in-the-loop interactive review, confirmation, rejection, and fragment pool exhaustion flow.
+![Interactive Operator Audit Loop](docs/operator_loop.svg)
+
+Quantitative panels stay in Python (`matplotlib`, install with `pip install -e ".[reports]"`) for reproducibility; the schematics stay editable for methods diagrams, following the Visio-oriented references listed in the [reporting doc](docs/v2_5_scientific_reporting.md).
 
 ## Current scope
 
