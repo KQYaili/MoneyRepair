@@ -45,37 +45,63 @@ def cluster_fragments_by_appearance(
     fragments: list[Fragment],
     template: np.ndarray,
     tolerance: float = 0.05,
+    min_samples: int = 2,
 ) -> dict[str, int]:
-    """Greedy clustering of fragments by appearance gain.
+    """Cluster fragments by appearance gain using a pure NumPy DBSCAN algorithm.
 
-    Fragments within ``tolerance`` (Euclidean distance on the 3-vector gain) of
-    an existing cluster centroid join it; otherwise they seed a new cluster.
-    Returns a mapping from fragment id to integer cluster id. With well-separated
-    per-note tones this recovers one cluster per note.
+    This replaces the sequential greedy clustering to ensure order-independence
+    and prevent centroid drift ("rolling snowball" effect) under continuous wear.
+    Noise fragments (DBSCAN label -1) are assigned to unique singleton groups.
     """
+    if not fragments:
+        return {}
 
     appearances = fragment_appearances(fragments, template)
-    centroids: list[np.ndarray] = []
-    counts: list[int] = []
+    ids = [frag.id for frag in fragments]
+    X = np.array([appearances[fid] for fid in ids], dtype=np.float64)
+
+    n = len(fragments)
+    labels = np.full(n, -1, dtype=np.int32)
+
+    # Compute pairwise Euclidean distance
+    diff = X[:, None, :] - X[None, :, :]
+    dist = np.sqrt(np.sum(diff**2, axis=-1))
+
+    # Neighborhoods (indices within tolerance)
+    neighbors = [np.flatnonzero(dist[i] <= tolerance) for i in range(n)]
+
+    cluster_id = 0
+    for i in range(n):
+        if labels[i] != -1:
+            continue
+
+        if len(neighbors[i]) >= min_samples:
+            labels[i] = cluster_id
+            queue = list(neighbors[i])
+            head = 0
+            while head < len(queue):
+                curr = queue[head]
+                head += 1
+
+                if labels[curr] == -1:
+                    labels[curr] = cluster_id
+                    if len(neighbors[curr]) >= min_samples:
+                        for neighbor in neighbors[curr]:
+                            if labels[neighbor] == -1:
+                                queue.append(neighbor)
+            cluster_id += 1
+
+    # Map groups: cluster labels map to groups, noise map to unique singletons
     groups: dict[str, int] = {}
-    for fragment in fragments:
-        vector = appearances[fragment.id]
-        best_index = -1
-        best_distance = tolerance
-        for index, centroid in enumerate(centroids):
-            distance = float(np.linalg.norm(vector - centroid))
-            if distance <= best_distance:
-                best_distance = distance
-                best_index = index
-        if best_index < 0:
-            centroids.append(vector.copy())
-            counts.append(1)
-            groups[fragment.id] = len(centroids) - 1
+    next_unique_id = cluster_id
+    for idx, fid in enumerate(ids):
+        lbl = labels[idx]
+        if lbl == -1:
+            groups[fid] = next_unique_id
+            next_unique_id += 1
         else:
-            count = counts[best_index] + 1
-            centroids[best_index] = (centroids[best_index] * counts[best_index] + vector) / count
-            counts[best_index] = count
-            groups[fragment.id] = best_index
+            groups[fid] = int(lbl)
+
     return groups
 
 

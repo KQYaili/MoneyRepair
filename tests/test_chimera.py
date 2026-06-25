@@ -56,3 +56,50 @@ def test_discriminative_matrix_eliminates_chimeras():
 
     assert diagnosis["chimeras"] == 0
     assert len(diagnosis["pure_notes_found"]) == 3
+
+
+def test_dbscan_clustering_order_independent_and_no_drift():
+    from moneyrepair.types import Fragment
+    from moneyrepair.fingerprint import cluster_fragments_by_appearance
+    import numpy as np
+    import moneyrepair.fingerprint as fp
+
+    orig_appearances = fp.fragment_appearances
+    try:
+        frags = [Fragment(id=f"f{i}", mask=np.ones((10, 10), dtype=bool)) for i in range(5)]
+        mock_appearances = {
+            "f0": np.array([1.0, 1.0, 1.0]),
+            "f1": np.array([1.01, 1.01, 1.01]),
+            "f2": np.array([1.1, 1.1, 1.1]),
+            "f3": np.array([1.11, 1.11, 1.11]),
+            "f4": np.array([1.3, 1.3, 1.3]),
+        }
+        fp.fragment_appearances = lambda frags, temp: mock_appearances
+
+        # Order 1
+        groups1 = cluster_fragments_by_appearance(frags, np.zeros((10, 10, 3)), tolerance=0.03, min_samples=2)
+
+        # Order 2: shuffled frags list
+        shuffled_frags = [frags[2], frags[4], frags[0], frags[3], frags[1]]
+        groups2 = cluster_fragments_by_appearance(shuffled_frags, np.zeros((10, 10, 3)), tolerance=0.03, min_samples=2)
+
+        # Group by group ID to compare partitions
+        part1 = {}
+        for fid, gid in groups1.items():
+            part1.setdefault(gid, set()).add(fid)
+        sets1 = sorted([sorted(list(s)) for s in part1.values()])
+
+        part2 = {}
+        for fid, gid in groups2.items():
+            part2.setdefault(gid, set()).add(fid)
+        sets2 = sorted([sorted(list(s)) for s in part2.values()])
+
+        assert sets1 == sets2
+
+        # Expected groups: f4 (noise), {f0, f1}, {f2, f3}
+        expected = [["f4"], ["f0", "f1"], ["f2", "f3"]]
+        expected_sets = sorted([sorted(list(s)) for s in expected])
+        assert sets1 == expected_sets
+
+    finally:
+        fp.fragment_appearances = orig_appearances
