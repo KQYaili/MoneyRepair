@@ -100,7 +100,7 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         if allowed_ids is not None:
             packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
-        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
         print(
             f"wrote interlock-discriminated matrix for {len(packed.ids)} fragments to {args.output}; "
@@ -123,7 +123,7 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         if allowed_ids is not None:
             packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
-        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
         print(f"wrote {args.discriminate}-discriminated matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
         return
@@ -138,7 +138,6 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         )
         print(f"wrote {count} incompatible pairs to {args.pairs_out}")
 
-    total_pairs = len(fragments) * (len(fragments) - 1) // 2
     if args.engine == "fast":
         packed = compute_compatibility_fast(
             fragments,
@@ -149,6 +148,7 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         if allowed_ids is not None:
             packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
+        total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
         print(f"wrote packed matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
     else:
