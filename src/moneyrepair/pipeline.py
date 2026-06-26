@@ -54,6 +54,7 @@ def run_production_pipeline(
     max_boundary_diff: float = -1.0,
     discriminate_appearance: bool = False,
     discriminate_tolerance: float = 0.05,
+    touch_priority: bool = True,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
@@ -230,6 +231,7 @@ def run_production_pipeline(
         time_limit_seconds=time_limit_seconds,
         order_strategy=order_strategy,
         precise_bound_threshold=precise_bound_threshold,
+        touch_priority=touch_priority,
     )
     timings["solve"] = perf_counter() - started
     timings["total"] = sum(value for key, value in timings.items() if key not in ("total", "total_without_jit_warmup"))
@@ -309,6 +311,7 @@ def run_production_pipeline(
             "max_boundary_diff": max_boundary_diff,
             "discriminate_appearance": discriminate_appearance,
             "discriminate_tolerance": discriminate_tolerance,
+            "touch_priority": touch_priority,
         },
         "quality": {
             "accepted": quality_summary["accepted"],

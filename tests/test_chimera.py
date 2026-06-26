@@ -140,6 +140,22 @@ def test_spatial_wear_breaks_perfect_global_gain_inverse():
     assert float(spatial_gains.std(axis=0).mean()) > float(global_gains.std(axis=0).mean()) + 0.005
 
 
+def test_per_note_partition_gives_each_note_independent_tear_geometry():
+    _, fragments = make_multi_note_fragments(
+        notes=2,
+        pieces_per_note=6,
+        width=120,
+        height=70,
+        seed=17,
+        partition_model="per_note",
+    )
+    first_note = [fragment for fragment in fragments if fragment.meta["note_id"] == "note-000"]
+    second_note = [fragment for fragment in fragments if fragment.meta["note_id"] == "note-001"]
+
+    assert first_note[0].meta["partition_model"] == "per_note"
+    assert any(not np.array_equal(left.mask, right.mask) for left, right in zip(first_note, second_note))
+
+
 def test_group_diagnosis_reports_mixed_and_exact_recoverable_notes():
     _, fragments = _pool(notes=2, pieces_per_note=4)
     exact_groups = {fragment.id: int(fragment.meta["note_id"].split("-")[-1]) for fragment in fragments}
@@ -174,3 +190,24 @@ def test_pressure_case_reports_uncapped_grouping_metrics():
     assert row["cluster_count"] >= 1
     assert "cluster_exact_recoverable_rate" in row
     assert "disc_uniquely_exact_recovered_rate" in row
+
+
+def test_pressure_case_can_run_interlock_on_per_note_partitions():
+    row = run_pressure_case(
+        notes=3,
+        pieces_per_note=5,
+        width=120,
+        height=70,
+        seed=19,
+        appearance_spread=0.04,
+        wear_model="spatial",
+        partition_model="per_note",
+        include_interlock=True,
+        coverage=0.9,
+        max_solutions=5,
+        time_limit=5.0,
+    )
+
+    assert row["partition_model"] == "per_note"
+    assert "interlock_chimeras" in row
+    assert "interlock_uniquely_exact_recovered_rate" in row

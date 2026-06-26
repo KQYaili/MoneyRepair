@@ -156,6 +156,7 @@ def make_multi_note_fragments(
     gamma_spread: float = 0.0,
     stain_count: int = 0,
     stain_strength: float = 0.0,
+    partition_model: str = "shared",
 ) -> tuple[np.ndarray, list[Fragment]]:
     """Generate fragments from ``notes`` distinct banknotes of one denomination.
 
@@ -163,7 +164,9 @@ def make_multi_note_fragments(
     every note is the same template with one per-channel appearance gain and a
     serial number. ``spatial`` adds local gamma, vignetting, stains, and
     low-frequency wear so the global-gain fingerprint no longer perfectly
-    inverts the simulator.
+    inverts the simulator. ``partition_model="shared"`` gives every note the
+    same cut pattern; ``"per_note"`` gives each note an independent tear
+    partition so geometry can carry identity signal.
 
     This is the honest testbed: pieces from different notes that cover disjoint
     regions do not overlap, so an overlap-only compatibility matrix will happily
@@ -175,18 +178,29 @@ def make_multi_note_fragments(
         raise ValueError("notes must be >= 1")
     if wear_model not in {"global_gain", "spatial"}:
         raise ValueError("wear_model must be 'global_gain' or 'spatial'")
+    if partition_model not in {"shared", "per_note"}:
+        raise ValueError("partition_model must be 'shared' or 'per_note'")
     template = synthetic_banknote(width=width, height=height, seed=seed)
     rng = np.random.default_rng(seed + 5_000)
     x0, y0, x1, y1 = _serial_roi(height, width)
     fragments: list[Fragment] = []
 
-    # One shared region partition for every note: same denomination, same cut
-    # positions. Pieces then differ only by which physical note they came from,
-    # so the only way to tell a chimera from a true note is appearance/serial,
-    # never shape or position. This is the "2000 identical notes" core.
-    labels = _voronoi_partition(height=height, width=width, pieces=pieces_per_note, seed=seed + 1)
+    # ``shared`` is the deliberately hardest chimera testbed: every physical
+    # note is cut by the same partition, so shape cannot help. ``per_note`` is
+    # closer to real hand-tearing, where each note has its own tear geometry and
+    # torn-edge fit becomes a discriminative signal independent of appearance.
+    shared_labels = (
+        _voronoi_partition(height=height, width=width, pieces=pieces_per_note, seed=seed + 1)
+        if partition_model == "shared"
+        else None
+    )
 
     for note_index in range(notes):
+        labels = (
+            shared_labels
+            if shared_labels is not None
+            else _voronoi_partition(height=height, width=width, pieces=pieces_per_note, seed=seed + 1 + note_index * 10_007)
+        )
         gain = 1.0 + rng.uniform(-appearance_spread, appearance_spread, size=3)
         serial = f"SN{note_index:08d}"
         note_id = f"note-{note_index:03d}"
@@ -218,6 +232,7 @@ def make_multi_note_fragments(
                         "serial": serial,
                         "gain": [round(float(value), 4) for value in gain],
                         "wear_model": wear_model,
+                        "partition_model": partition_model,
                     },
                 )
             )

@@ -69,6 +69,7 @@ def solve_covering_sets(
     allowed_ids: set[str] | None = None,
     order_strategy: str = "area",
     precise_bound_threshold: int = 24,
+    touch_priority: bool = True,
 ) -> list[CoverageSolution]:
     """Depth-first search for compatible fragment sets covering the note."""
 
@@ -113,7 +114,7 @@ def solve_covering_sets(
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     solutions: list[CoverageSolution] = []
     seen: set[tuple[int, ...]] = set()
-    touches = compute_touches_matrix(fragments)
+    touches = compute_touches_matrix(fragments) if touch_priority else None
 
     def timed_out() -> bool:
         return deadline is not None and monotonic() >= deadline
@@ -159,17 +160,20 @@ def solve_covering_sets(
             if int((union_mask | combined_candidates_mask).sum()) < target_area:
                 return
 
-        # Prioritize candidates that physically touch any of the currently selected fragments
-        touching_mask = np.zeros(len(fragments), dtype=bool)
-        for sel_idx in selected:
-            touching_mask |= touches[sel_idx]
+        if touches is None:
+            ordered_candidates = candidates
+        else:
+            # Prioritize candidates that physically touch any of the currently selected fragments
+            touching_mask = np.zeros(len(fragments), dtype=bool)
+            for sel_idx in selected:
+                touching_mask |= touches[sel_idx]
 
-        is_touching = touching_mask[candidates]
-        offsets = np.arange(len(candidates))
-        touching_offsets = offsets[is_touching]
-        non_touching_offsets = offsets[~is_touching]
-        reordered_offsets = np.concatenate((touching_offsets, non_touching_offsets))
-        ordered_candidates = candidates[reordered_offsets]
+            is_touching = touching_mask[candidates]
+            offsets = np.arange(len(candidates))
+            touching_offsets = offsets[is_touching]
+            non_touching_offsets = offsets[~is_touching]
+            reordered_offsets = np.concatenate((touching_offsets, non_touching_offsets))
+            ordered_candidates = candidates[reordered_offsets]
 
         for pos in range(len(ordered_candidates)):
             if timed_out() or len(solutions) >= max_solutions:

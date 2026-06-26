@@ -68,6 +68,55 @@ moneyrepair pressure-chimeras \
 
 The command prints a compact table and writes JSON with all seed-level rows.
 
+Use a short smoke run before launching the full table:
+
+```bash
+moneyrepair pressure-chimeras \
+  --mode n-sweep \
+  --notes-list 3,8,20 \
+  --seeds 7 \
+  --time-limit 5 \
+  --output runs/pressure_smoke.json
+```
+
+The full N/spread sweeps above are long runs.
+
+## Tear geometry
+
+`partition_model=shared` is the adversarial identity test: every note is cut by
+the same partition, so shape carries no identity signal. Real hand tearing is
+closer to `partition_model=per_note`, where each physical note has independent
+tear geometry. v4.2 adds a first raster interlock check:
+
+```bash
+moneyrepair pressure-chimeras \
+  --mode n-sweep \
+  --notes-list 3,8,20 \
+  --appearance-spread 0.04 \
+  --wear-model spatial \
+  --partition-model per_note \
+  --include-interlock \
+  --seeds 7,8,9 \
+  --output runs/pressure_interlock.json
+```
+
+For a dataset already placed in note coordinates, the same signal is available
+as a matrix builder:
+
+```bash
+moneyrepair build-matrix \
+  --dataset runs/per_note_pool.npz \
+  --discriminate interlock \
+  --min-interlock-contact 8 \
+  --min-interlock-ratio 0.03 \
+  --output runs/interlock_matrix.npz
+```
+
+This is intentionally a minimal geometric baseline, not a full torn-edge
+matcher. It checks whether adjacent masks share enough local boundary contact;
+the next stronger version should compare contour fragments as negative shapes,
+not only count raster contact edges.
+
 ## Metrics that matter
 
 Top-k chimera counts are still reported, but they are not the primary large-N

@@ -19,6 +19,7 @@ from moneyrepair.fingerprint import (
     fragment_appearance,
 )
 from moneyrepair.ingest import fragments_from_manifest
+from moneyrepair.interlock import TearInterlockScore, compute_interlock_compatibility, tear_interlock_score
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
@@ -31,7 +32,7 @@ from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragm
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.types import Fragment
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"
 
 __all__ = [
     "AuditEvent",
@@ -49,6 +50,7 @@ __all__ = [
     "ReferenceScore",
     "RealismProfile",
     "SyntheticBenchmark",
+    "TearInterlockScore",
     "__version__",
     "assemble_standard_panels",
     "assess_fragments",
@@ -57,6 +59,7 @@ __all__ = [
     "compare_solver_strategies",
     "compute_compatibility_clustered",
     "compute_compatibility_fast",
+    "compute_interlock_compatibility",
     "connected_components",
     "diagnose_groups",
     "diagnose_solutions",
@@ -69,6 +72,7 @@ __all__ = [
     "make_realistic_synthetic_fragments",
     "production_pipeline_spec",
     "solution_purity",
+    "tear_interlock_score",
     "render_report_figure",
     "run_pressure_case",
     "run_pressure_sweep",

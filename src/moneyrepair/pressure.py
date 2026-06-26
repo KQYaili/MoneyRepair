@@ -9,6 +9,7 @@ import numpy as np
 from moneyrepair.compat import compute_compatibility_clustered, compute_compatibility_fast
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
 from moneyrepair.fingerprint import cluster_fragments_by_appearance
+from moneyrepair.interlock import compute_interlock_compatibility
 from moneyrepair.simulate import make_multi_note_fragments
 from moneyrepair.solver import solve_covering_sets
 
@@ -48,6 +49,11 @@ def run_pressure_case(
     gamma_spread: float = 0.0,
     stain_count: int = 0,
     stain_strength: float = 0.0,
+    partition_model: str = "shared",
+    include_interlock: bool = False,
+    min_interlock_contact: int = 8,
+    min_interlock_ratio: float = 0.03,
+    touch_priority: bool = True,
 ) -> dict[str, Any]:
     """Run one chimera pressure case and return flat JSON-ready metrics."""
 
@@ -65,6 +71,7 @@ def run_pressure_case(
         gamma_spread=gamma_spread,
         stain_count=stain_count,
         stain_strength=stain_strength,
+        partition_model=partition_model,
     )
     generated_seconds = perf_counter() - started
 
@@ -85,6 +92,7 @@ def run_pressure_case(
         max_solutions=max_solutions,
         time_limit_seconds=time_limit,
         order_strategy=order_strategy,
+        touch_priority=touch_priority,
     )
     overlap_solve_seconds = perf_counter() - started
     overlap_diag = diagnose_solutions(overlap_solutions, fragments)
@@ -101,6 +109,7 @@ def run_pressure_case(
         max_solutions=max_solutions,
         time_limit_seconds=time_limit,
         order_strategy=order_strategy,
+        touch_priority=touch_priority,
     )
     disc_solve_seconds = perf_counter() - started
     disc_diag = diagnose_solutions(disc_solutions, fragments)
@@ -112,9 +121,17 @@ def run_pressure_case(
         "appearance_spread": appearance_spread,
         "seed": seed,
         "wear_model": wear_model,
+        "partition_model": partition_model,
         "discriminate_tolerance": discriminate_tolerance,
+        "noise_sigma": noise_sigma,
+        "local_wear_strength": local_wear_strength,
+        "gamma_spread": gamma_spread,
+        "stain_count": stain_count,
+        "stain_strength": stain_strength,
         "coverage": coverage,
         "max_solutions": max_solutions,
+        "touch_priority": touch_priority,
+        "include_interlock": include_interlock,
         "cluster_count": group_diag["groups"],
         "cluster_deficit": group_diag["cluster_deficit"],
         "mixed_group_count": group_diag["mixed_group_count"],
@@ -131,26 +148,61 @@ def run_pressure_case(
     }
     row.update(_diagnosis_summary("overlap", overlap_diag))
     row.update(_diagnosis_summary("disc", disc_diag))
+
+    if include_interlock:
+        started = perf_counter()
+        interlock_matrix = compute_interlock_compatibility(
+            fragments,
+            min_contact_edges=min_interlock_contact,
+            min_contact_ratio=min_interlock_ratio,
+        )
+        row["interlock_build_seconds"] = perf_counter() - started
+        started = perf_counter()
+        interlock_solutions = solve_covering_sets(
+            fragments,
+            interlock_matrix,
+            target_coverage=coverage,
+            max_solutions=max_solutions,
+            time_limit_seconds=time_limit,
+            order_strategy=order_strategy,
+            touch_priority=touch_priority,
+        )
+        row["interlock_solve_seconds"] = perf_counter() - started
+        row["min_interlock_contact"] = min_interlock_contact
+        row["min_interlock_ratio"] = min_interlock_ratio
+        row.update(_diagnosis_summary("interlock", diagnose_solutions(interlock_solutions, fragments)))
     return row
 
 
 def aggregate_pressure_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average seed-level rows by notes/spread/wear-model."""
 
-    groups: dict[tuple[int, float, str], list[dict[str, Any]]] = {}
+    key_fields = (
+        "notes",
+        "appearance_spread",
+        "wear_model",
+        "partition_model",
+        "discriminate_tolerance",
+        "noise_sigma",
+        "local_wear_strength",
+        "gamma_spread",
+        "stain_count",
+        "stain_strength",
+        "min_interlock_contact",
+        "min_interlock_ratio",
+        "touch_priority",
+        "include_interlock",
+    )
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for row in rows:
-        key = (int(row["notes"]), float(row["appearance_spread"]), str(row["wear_model"]))
+        key = tuple(row.get(field) for field in key_fields)
         groups.setdefault(key, []).append(row)
 
     summary: list[dict[str, Any]] = []
-    for (notes, spread, wear_model), items in groups.items():
-        out: dict[str, Any] = {
-            "notes": notes,
-            "appearance_spread": spread,
-            "wear_model": wear_model,
-            "seeds": len(items),
-        }
-        fixed_keys = {"seed", "notes", "appearance_spread", "wear_model"}
+    for key, items in groups.items():
+        out: dict[str, Any] = {field: value for field, value in zip(key_fields, key) if value is not None}
+        out["seeds"] = len(items)
+        fixed_keys = {"seed", *key_fields}
         numeric_keys = sorted(
             {
                 key
@@ -184,6 +236,11 @@ def run_pressure_sweep(
     gamma_spread: float = 0.0,
     stain_count: int = 0,
     stain_strength: float = 0.0,
+    partition_model: str = "shared",
+    include_interlock: bool = False,
+    min_interlock_contact: int = 8,
+    min_interlock_ratio: float = 0.03,
+    touch_priority: bool = True,
 ) -> dict[str, Any]:
     rows = [
         run_pressure_case(
@@ -204,6 +261,11 @@ def run_pressure_sweep(
             gamma_spread=gamma_spread,
             stain_count=stain_count,
             stain_strength=stain_strength,
+            partition_model=partition_model,
+            include_interlock=include_interlock,
+            min_interlock_contact=min_interlock_contact,
+            min_interlock_ratio=min_interlock_ratio,
+            touch_priority=touch_priority,
         )
         for notes in notes_values
         for spread in spread_values

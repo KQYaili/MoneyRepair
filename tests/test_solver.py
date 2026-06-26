@@ -83,3 +83,22 @@ def test_solver_supports_order_strategies():
     for strategy in ("area", "degree", "area_degree"):
         solutions = solve_covering_sets(fragments, matrix, target_coverage=1.0, order_strategy=strategy)
         assert solutions[0].coverage == 1.0
+
+
+def test_solver_can_disable_touch_priority(monkeypatch):
+    mask_a = np.zeros((2, 4), dtype=bool)
+    mask_b = np.zeros((2, 4), dtype=bool)
+    mask_a[:, :2] = True
+    mask_b[:, 2:] = True
+    fragments = [Fragment("a", mask_a), Fragment("b", mask_b)]
+    matrix = compute_compatibility(fragments)
+
+    import moneyrepair.solver as solver_module
+
+    def fail_if_called(_fragments):
+        raise AssertionError("touch matrix should not be computed")
+
+    monkeypatch.setattr(solver_module, "compute_touches_matrix", fail_if_called)
+    solutions = solve_covering_sets(fragments, matrix, target_coverage=1.0, touch_priority=False)
+
+    assert solutions[0].coverage == 1.0

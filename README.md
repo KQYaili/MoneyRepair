@@ -261,9 +261,18 @@ larger note pools, realistic low appearance spread, and a spatial wear model
 that a global RGB-gain fingerprint cannot perfectly invert. See
 [docs/v4.1 pressure realism](docs/v4_1_pressure_realism.md).
 
+Smoke profile:
+
+```bash
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --seeds 7 --time-limit 5 --output runs/pressure_smoke.json
+```
+
+Longer pressure runs:
+
 ```bash
 moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20,40,80,150 --appearance-spread 0.18 --seeds 7,8,9 --output runs/pressure_n.json
 moneyrepair pressure-chimeras --mode spread-sweep --notes 30 --spread-list 0.18,0.10,0.06,0.04,0.02 --wear-model spatial --seeds 7,8,9 --output runs/pressure_spread.json
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-spread 0.04 --wear-model spatial --partition-model per_note --include-interlock --seeds 7,8,9 --output runs/pressure_interlock.json
 ```
 
 The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
@@ -291,10 +300,12 @@ poses = locate_fragment_poses(fragment, template_front, template_back, top_k=3, 
 To reduce the combinatorial explosion of searching through multiple candidate poses, the branch-and-bound solver introduces:
 - **Numba-Accelerated Scalar Pruning**: Replaces high-overhead NumPy fancy indexing (`areas[candidates]`) with a zero-allocation flat sum helper (`sum_candidate_areas`).
 - **Precise Bounding Threshold**: Uses `--precise-bound-threshold` (default 24) to configure when the solver switches from fast scalar area estimation to precise pixel-accurate geometry check.
+- **Optional Touch Priority**: The DFS can prioritise candidates that touch the current assembly, and `--no-touch-priority` disables that preordering when virtual pose counts make the touch matrix too expensive.
 - **Experimental Adjacency/Boundary Color Continuity**: Uses `--max-boundary-diff` (disabled by default at `-1.0`) to check color transitions across touching borders using a Numba JIT helper. Note that lighting variations and shadows on real photos make boundary color matches unstable; this should remain disabled (set to negative) in default production runs and treated purely as an experimental hard pruning option.
 
 ### 3. Integrated Production Command
-Run the complete pipeline end-to-end with automated placement search, custom reference templates, and detailed auditable logging:
+Run raw-crop auto-location without appearance discrimination; current appearance
+fingerprinting assumes fragments are already in template coordinates:
 
 ```bash
 moneyrepair run-pipeline \
@@ -303,8 +314,18 @@ moneyrepair run-pipeline \
   --auto-locate \
   --score-margin 0.03 \
   --min-score 0.70 \
-  --discriminate-appearance \
   --precise-bound-threshold 24 \
+  --coverage 0.97
+```
+
+For a pre-aligned simulation pool, appearance discrimination can be enabled:
+
+```bash
+moneyrepair run-pipeline \
+  --dataset runs/pool.npz \
+  --output-dir runs/final_aligned \
+  --auto-locate \
+  --discriminate-appearance \
   --coverage 0.97
 ```
 

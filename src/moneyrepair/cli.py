@@ -30,6 +30,7 @@ from moneyrepair.features import describe_contours, match_similar_contours
 from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
+from moneyrepair.interlock import compute_interlock_compatibility
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_sweep
@@ -86,6 +87,23 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
     allowed_ids = None
     if args.reference_scores and args.max_reference_rmse is not None:
         allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
+
+    if args.discriminate == "interlock":
+        packed = compute_interlock_compatibility(
+            fragments,
+            max_overlap_pixels=args.max_overlap_pixels,
+            max_overlap_ratio=args.max_overlap_ratio,
+            cell=args.cell,
+            min_contact_edges=args.min_interlock_contact,
+            min_contact_ratio=args.min_interlock_ratio,
+        )
+        if allowed_ids is not None:
+            packed = restrict_packed_to_ids(packed, allowed_ids)
+        packed.save(args.output)
+        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        incompatible = total_pairs - packed.compatible_pair_count()
+        print(f"wrote interlock-discriminated matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
+        return
 
     if args.discriminate != "none":
         packed = discriminative_compatibility(
@@ -171,16 +189,19 @@ def _parse_float_list(value: str) -> list[float]:
 
 
 def _print_pressure_summary(summary: list[dict]) -> None:
-    columns = (
+    columns = [
         "notes",
         "appearance_spread",
+        "partition_model",
         "cluster_count",
         "mixed_note_count",
         "cluster_exact_recoverable_rate",
         "overlap_chimeras",
         "disc_chimeras",
         "disc_uniquely_exact_recovered_rate",
-    )
+    ]
+    if any("interlock_chimeras" in row for row in summary):
+        columns.extend(("interlock_chimeras", "interlock_uniquely_exact_recovered_rate"))
     print("\t".join(columns))
     for row in summary:
         values = []
@@ -208,6 +229,7 @@ def _cmd_solve(args: argparse.Namespace) -> None:
         time_limit_seconds=args.time_limit,
         allowed_ids=allowed_ids,
         order_strategy=args.order_strategy,
+        touch_priority=not args.no_touch_priority,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -515,6 +537,7 @@ def _cmd_run_pipeline(args: argparse.Namespace) -> None:
         max_boundary_diff=args.max_boundary_diff,
         discriminate_appearance=args.discriminate_appearance,
         discriminate_tolerance=args.discriminate_tolerance,
+        touch_priority=not args.no_touch_priority,
     )
     print(json.dumps(manifest, indent=2))
 
@@ -534,6 +557,7 @@ def _cmd_simulate_multi_note(args: argparse.Namespace) -> None:
         gamma_spread=args.gamma_spread,
         stain_count=args.stain_count,
         stain_strength=args.stain_strength,
+        partition_model=args.partition_model,
     )
     save_dataset(args.output, template, fragments)
     print(f"wrote {len(fragments)} fragments from {args.notes} notes to {args.output}")
@@ -648,6 +672,11 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
         gamma_spread=args.gamma_spread,
         stain_count=args.stain_count,
         stain_strength=args.stain_strength,
+        partition_model=args.partition_model,
+        include_interlock=args.include_interlock,
+        min_interlock_contact=args.min_interlock_contact,
+        min_interlock_ratio=args.min_interlock_ratio,
+        touch_priority=not args.no_touch_priority,
     )
     payload = {
         "config": {
@@ -664,6 +693,11 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
             "order_strategy": args.order_strategy,
             "discriminate_tolerance": args.discriminate_tolerance,
             "wear_model": args.wear_model,
+            "partition_model": args.partition_model,
+            "include_interlock": args.include_interlock,
+            "min_interlock_contact": args.min_interlock_contact,
+            "min_interlock_ratio": args.min_interlock_ratio,
+            "touch_priority": not args.no_touch_priority,
         },
         **result,
     }
@@ -811,6 +845,7 @@ def build_parser() -> argparse.ArgumentParser:
     multi.add_argument("--gamma-spread", type=float, default=0.0)
     multi.add_argument("--stain-count", type=int, default=0)
     multi.add_argument("--stain-strength", type=float, default=0.0)
+    multi.add_argument("--partition-model", choices=("shared", "per_note"), default="shared")
     multi.set_defaults(func=_cmd_simulate_multi_note)
 
     matrix = sub.add_parser("build-matrix", help="build packed compatibility matrix")
@@ -823,8 +858,10 @@ def build_parser() -> argparse.ArgumentParser:
     matrix.add_argument("--engine", choices=("naive", "fast"), default="naive", help="fast uses grid pruning and writes packed bits directly")
     matrix.add_argument("--cell", type=int, help="spatial grid cell size for the fast engine; defaults to the median fragment size")
     matrix.add_argument("--pairs-out", help="also stream incompatible pairs to this CSV without a dense matrix")
-    matrix.add_argument("--discriminate", choices=("none", "appearance", "serial"), default="none", help="also require same-note discrimination (appearance fingerprint or serial label), not only non-overlap")
+    matrix.add_argument("--discriminate", choices=("none", "appearance", "serial", "interlock"), default="none", help="also require same-note discrimination (appearance fingerprint, serial label, or tear interlock), not only non-overlap")
     matrix.add_argument("--discriminate-tolerance", type=float, default=0.05, help="appearance clustering tolerance for --discriminate appearance")
+    matrix.add_argument("--min-interlock-contact", type=int, default=8, help="minimum touching boundary edges before tear interlock becomes a hard test")
+    matrix.add_argument("--min-interlock-ratio", type=float, default=0.03, help="minimum shared-boundary ratio for --discriminate interlock")
     matrix.set_defaults(func=_cmd_build_matrix)
 
     solve = sub.add_parser("solve", help="search compatible high-coverage sets")
@@ -837,6 +874,7 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--time-limit", type=float)
     solve.add_argument("--allowed-ids")
     solve.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area")
+    solve.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in the DFS")
     solve.set_defaults(func=_cmd_solve)
 
     visualize = sub.add_parser("visualize", help="render solution overlays")
@@ -1006,6 +1044,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--max-boundary-diff", type=float, default=-1.0, help="max boundary color difference threshold (disabled if negative)")
     pipeline.add_argument("--discriminate-appearance", action="store_true", help="enable appearance clustering discrimination in pose matrix")
     pipeline.add_argument("--discriminate-tolerance", type=float, default=0.05, help="appearance clustering tolerance")
+    pipeline.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in the DFS")
     _add_quality_args(pipeline)
     pipeline.set_defaults(func=_cmd_run_pipeline)
 
@@ -1044,6 +1083,11 @@ def build_parser() -> argparse.ArgumentParser:
     pressure.add_argument("--gamma-spread", type=float, default=0.0)
     pressure.add_argument("--stain-count", type=int, default=0)
     pressure.add_argument("--stain-strength", type=float, default=0.0)
+    pressure.add_argument("--partition-model", choices=("shared", "per_note"), default="shared")
+    pressure.add_argument("--include-interlock", action="store_true", help="also run the tear-interlock geometry matrix")
+    pressure.add_argument("--min-interlock-contact", type=int, default=8)
+    pressure.add_argument("--min-interlock-ratio", type=float, default=0.03)
+    pressure.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in solver calls")
     pressure.add_argument("--output", help="write raw rows and averaged summary as JSON")
     pressure.set_defaults(func=_cmd_pressure_chimeras)
 
