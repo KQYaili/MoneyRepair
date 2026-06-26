@@ -1,4 +1,4 @@
-"""LLM-guided search policy controller and assembly critic for MoneyRepair.
+"""UNVERIFIED research scaffold. LLM search policy controller. Does NOT beat the deterministic exact-cover. To matter it must be trained and shown to win on the fine-fragment regime (pieces>=16), which has not been done.
 
 The LLM layer is deliberately kept above the deterministic geometry and solver
 layers. It reads candidate assemblies and search diagnostics, then updates an

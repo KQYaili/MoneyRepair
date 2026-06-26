@@ -1,3 +1,5 @@
+"""SUPERSEDED baseline. Kept for comparison only. Appearance wear gain fails under spatially non-uniform wear. Not used by the supported pipeline."""
+
 from __future__ import annotations
 
 import numpy as np

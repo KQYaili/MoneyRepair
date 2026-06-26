@@ -26,14 +26,13 @@ from moneyrepair.compat import (
 )
 from moneyrepair.diagnostics import diagnose_solutions
 from moneyrepair.diagrams import DIAGRAMS, write_diagram
-from moneyrepair.features import describe_contours, match_similar_contours, match_raw_crop_contours
+from moneyrepair.baselines.features import describe_contours, match_similar_contours, match_raw_crop_contours
 from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
-from moneyrepair.fingerprint import discriminative_compatibility
+from moneyrepair.baselines.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
-from moneyrepair.interlock import compute_interlock_compatibility_with_stats
+from moneyrepair.baselines.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
-from moneyrepair.policy_compare import POLICY_COMPARE_STRATEGIES, run_policy_controller_comparison
 from moneyrepair.pressure import run_pressure_sweep
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
@@ -43,12 +42,6 @@ from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import TEARFIT_COVER_OBJECTIVES, TEARFIT_SEED_STRATEGIES, run_tearfit_strategy_comparison, run_tearfit_sweep
-from moneyrepair.v6_to_v10 import (
-    V6_TO_V10_ARCHITECTURES,
-    V6TrainingSmokeConfig,
-    run_v6_to_v10_architecture_comparison,
-    run_v6_training_smoke,
-)
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -843,6 +836,12 @@ def _cmd_tearfit_compare(args: argparse.Namespace) -> None:
 
 
 def _cmd_policy_compare(args: argparse.Namespace) -> None:
+    print("================================================================================")
+    print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
+    print("Does NOT beat the deterministic exact-cover. To matter it must be trained")
+    print("and shown to win on the fine-fragment regime (pieces>=16), which has not been done.")
+    print("================================================================================")
+    from moneyrepair.experimental.policy_compare import run_policy_controller_comparison
     payload = run_policy_controller_comparison(
         profile=args.profile,
         policies=args.policies.split(","),
@@ -874,6 +873,12 @@ def _cmd_policy_compare(args: argparse.Namespace) -> None:
 
 
 def _cmd_architecture_compare(args: argparse.Namespace) -> None:
+    print("================================================================================")
+    print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
+    print("Does NOT beat the deterministic exact-cover. To matter it must be trained")
+    print("and shown to win on the fine-fragment regime (pieces>=16), which has not been done.")
+    print("================================================================================")
+    from moneyrepair.experimental.v6_to_v10 import run_v6_to_v10_architecture_comparison
     payload = run_v6_to_v10_architecture_comparison(
         architectures=args.architectures.split(","),
         nodes=args.nodes,
@@ -896,6 +901,12 @@ def _cmd_architecture_compare(args: argparse.Namespace) -> None:
 
 
 def _cmd_v6_train_smoke(args: argparse.Namespace) -> None:
+    print("================================================================================")
+    print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
+    print("Does NOT beat the deterministic exact-cover. To matter it must be trained")
+    print("and shown to win on the fine-fragment regime (pieces>=16), which has not been done.")
+    print("================================================================================")
+    from moneyrepair.experimental.v6_to_v10 import run_v6_training_smoke, V6TrainingSmokeConfig
     payload = run_v6_training_smoke(
         V6TrainingSmokeConfig(
             nodes=args.nodes,
@@ -1018,6 +1029,18 @@ def _cmd_smoke(args: argparse.Namespace) -> None:
     print(f"solutions={solutions_path}")
     print(f"visualizations={vis_dir}")
     print(f"report={output_dir / 'report.html'}")
+
+
+POLICY_COMPARE_STRATEGIES = (
+    "static_score",
+    "static_count",
+    "static_broaden",
+    "llm_balanced",
+    "llm_coverage_first",
+    "llm_score_first",
+    "llm_broaden_search",
+)
+V6_TO_V10_ARCHITECTURES = ("gnas", "ebm", "diffusion", "neural_ilp", "latent_world")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1361,7 +1384,10 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit_compare.add_argument("--output", help="write full comparison JSON")
     tearfit_compare.set_defaults(func=_cmd_tearfit_compare)
 
-    policy_compare = sub.add_parser("policy-compare", help="compare static exact-cover and LLM search-controller policies")
+    experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
+    exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)
+
+    policy_compare = exp_sub.add_parser("policy-compare", help="compare static exact-cover and LLM search-controller policies")
     policy_compare.add_argument("--profile", choices=("smoke", "pressure"), default="smoke")
     policy_compare.add_argument("--policies", default=",".join(POLICY_COMPARE_STRATEGIES))
     policy_compare.add_argument("--serial-ocr-rates", default="0.6")
@@ -1379,7 +1405,7 @@ def build_parser() -> argparse.ArgumentParser:
     policy_compare.add_argument("--output", help="write full policy comparison JSON")
     policy_compare.set_defaults(func=_cmd_policy_compare)
 
-    architecture_compare = sub.add_parser("architecture-compare", help="run v6-v10 architecture smoke comparison")
+    architecture_compare = exp_sub.add_parser("architecture-compare", help="run v6-v10 architecture smoke comparison")
     architecture_compare.add_argument("--architectures", default=",".join(V6_TO_V10_ARCHITECTURES))
     architecture_compare.add_argument("--nodes", type=int, default=8)
     architecture_compare.add_argument("--pieces-per-note", type=int, default=4)
@@ -1390,7 +1416,7 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_compare.add_argument("--output", help="write full architecture comparison JSON")
     architecture_compare.set_defaults(func=_cmd_architecture_compare)
 
-    v6_train_smoke = sub.add_parser("v6-train-smoke", help="run synthetic v6 edge-training smoke test with hard negatives")
+    v6_train_smoke = exp_sub.add_parser("v6-train-smoke", help="run synthetic v6 edge-training smoke test with hard negatives")
     v6_train_smoke.add_argument("--nodes", type=int, default=8)
     v6_train_smoke.add_argument("--pieces-per-note", type=int, default=4)
     v6_train_smoke.add_argument("--embedding-dim", type=int, default=32)

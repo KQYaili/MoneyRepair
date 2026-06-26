@@ -5,9 +5,11 @@ from __future__ import annotations
 import urllib.error
 import numpy as np
 import pytest
+pytestmark = pytest.mark.experimental
+
 from moneyrepair.types import Fragment
 from moneyrepair.tearfit import AssemblyCandidate, TearFitEdge
-from moneyrepair.llm_control import (
+from moneyrepair.experimental.llm_control import (
     LLMAgentConfig,
     LLMFeedback,
     LLMController,

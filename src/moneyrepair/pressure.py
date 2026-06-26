@@ -8,8 +8,8 @@ import numpy as np
 
 from moneyrepair.compat import compute_compatibility_clustered, compute_compatibility_fast
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
-from moneyrepair.fingerprint import cluster_fragments_by_appearance
-from moneyrepair.interlock import apply_interlock_constraints_with_stats, compute_interlock_compatibility_with_stats
+from moneyrepair.baselines.fingerprint import cluster_fragments_by_appearance
+from moneyrepair.baselines.interlock import apply_interlock_constraints_with_stats, compute_interlock_compatibility_with_stats
 from moneyrepair.simulate import make_multi_note_fragments
 from moneyrepair.solver import solve_covering_sets
 

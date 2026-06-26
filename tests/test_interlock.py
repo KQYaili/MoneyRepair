@@ -1,6 +1,6 @@
 import numpy as np
 
-from moneyrepair.interlock import (
+from moneyrepair.baselines.interlock import (
     apply_interlock_constraints_with_stats,
     compute_interlock_compatibility,
     compute_interlock_compatibility_with_stats,

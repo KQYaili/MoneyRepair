@@ -9,7 +9,21 @@ from typing import Iterable
 
 import numpy as np
 
-from moneyrepair.interlock import binary_dilation_3x3
+def binary_dilation_3x3(mask: np.ndarray) -> np.ndarray:
+    """Dilate a binary 2D array with a 3x3 structuring element (all ones) using numpy shifts."""
+    if mask.size == 0 or mask.ndim != 2:
+        return mask
+    mask = mask.astype(bool)
+    dilated = mask.copy()
+    dilated[1:, :] |= mask[:-1, :]
+    dilated[:-1, :] |= mask[1:, :]
+    dilated[:, 1:] |= mask[:, :-1]
+    dilated[:, :-1] |= mask[:, 1:]
+    dilated[1:, 1:] |= mask[:-1, :-1]
+    dilated[:-1, :-1] |= mask[1:, 1:]
+    dilated[1:, :-1] |= mask[:-1, 1:]
+    dilated[:-1, 1:] |= mask[1:, :-1]
+    return dilated
 from moneyrepair.simulate import synthetic_banknote
 from moneyrepair.types import Fragment
 

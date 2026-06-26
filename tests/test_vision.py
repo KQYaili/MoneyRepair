@@ -1,6 +1,6 @@
 import numpy as np
 
-from moneyrepair.vision import (
+from moneyrepair.baselines.vision import (
     apply_affine,
     contour_points,
     curve_distance,

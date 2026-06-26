@@ -2,7 +2,7 @@ import numpy as np
 
 from moneyrepair.compat import compute_compatibility_fast
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
-from moneyrepair.fingerprint import cluster_fragments_by_appearance, discriminative_compatibility, fragment_appearances
+from moneyrepair.baselines.fingerprint import cluster_fragments_by_appearance, discriminative_compatibility, fragment_appearances
 from moneyrepair.pressure import run_pressure_case
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, save_dataset
 from moneyrepair.solver import solve_covering_sets
@@ -63,9 +63,9 @@ def test_discriminative_matrix_eliminates_chimeras():
 
 def test_dbscan_clustering_order_independent_and_no_drift():
     from moneyrepair.types import Fragment
-    from moneyrepair.fingerprint import cluster_fragments_by_appearance
+    from moneyrepair.baselines.fingerprint import cluster_fragments_by_appearance
     import numpy as np
-    import moneyrepair.fingerprint as fp
+    import moneyrepair.baselines.fingerprint as fp
 
     orig_appearances = fp.fragment_appearances
     try:

@@ -1,9 +1,11 @@
+"""SUPERSEDED baseline. Kept for comparison only. Whole-contour similarity matching produces straight-edge spurious matches and inverts on jagged inputs. Not used by the supported pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from moneyrepair.types import Fragment
-from moneyrepair.vision import contour_points, curve_distance, direction_histogram, tag_contour
+from moneyrepair.baselines.vision import contour_points, curve_distance, direction_histogram, tag_contour
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,7 @@ def match_raw_crop_contours(
     Translation- and rotation-invariant matching of local torn edges.
     """
     import numpy as np
-    from moneyrepair.vision import contour_points, resample_curve
+    from moneyrepair.baselines.vision import contour_points, resample_curve
 
     curves = []
     for f in fragments:

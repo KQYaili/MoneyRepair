@@ -1,6 +1,6 @@
 import numpy as np
 
-from moneyrepair.features import describe_contours, match_similar_contours
+from moneyrepair.baselines.features import describe_contours, match_similar_contours
 from moneyrepair.types import Fragment
 
 
@@ -35,7 +35,7 @@ def test_match_similar_contours_uses_tag_compatible_pairs():
 
 
 def test_match_raw_crop_contours_finds_subsegment_match():
-    from moneyrepair.features import match_raw_crop_contours
+    from moneyrepair.baselines.features import match_raw_crop_contours
 
     mask_a = np.zeros((32, 32), dtype=bool)
     mask_a[5:15, 5:15] = True

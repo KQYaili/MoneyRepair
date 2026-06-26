@@ -1,3 +1,5 @@
+"""SUPERSEDED baseline. Kept for comparison only. Contour features support code. Not used by the supported pipeline."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -41,6 +41,7 @@ ocr = [
 reports = [
     "matplotlib>=3.8",
 ]
+llm = []
 
 [project.urls]
 Homepage = "https://github.com/KQYaili/MoneyRepair"
@@ -56,3 +57,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "experimental: mark test as part of experimental unverified research tools",
+]

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from moneyrepair.policy_compare import run_policy_controller_comparison
+import pytest
+pytestmark = pytest.mark.experimental
+
+from moneyrepair.experimental.policy_compare import run_policy_controller_comparison
 
 
 def test_policy_controller_comparison_reports_best_policy():

@@ -1,4 +1,4 @@
-"""Advanced modeling architectures for MoneyRepair (v6 to v10).
+"""UNVERIFIED research scaffold. Untrained / not benchmarked. Does NOT beat the deterministic exact-cover. To matter it must be trained and shown to win on the fine-fragment regime (pieces>=16), which has not been done.
 
 This module implements the architectural schemas and core code for the v6-v10
 evolution of the banknote reconstruction system:

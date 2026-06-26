@@ -1,3 +1,5 @@
+"""SUPERSEDED baseline. Kept for comparison only. Contact-count alone is a no-op when loose, and severs true seams when tight. Not used by the supported pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

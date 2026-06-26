@@ -203,7 +203,7 @@ def run_production_pipeline(
         # Compute appearance clusters if requested
         groups = None
         if discriminate_appearance:
-            from moneyrepair.fingerprint import cluster_fragments_by_appearance
+            from moneyrepair.baselines.fingerprint import cluster_fragments_by_appearance
             groups = cluster_fragments_by_appearance(active, template, tolerance=discriminate_tolerance)
 
         matrix = build_pose_compatibility_matrix(
@@ -227,7 +227,7 @@ def run_production_pipeline(
         from moneyrepair.compat import CompatibilityMatrix, PackedCompatibilityMatrix
         if isinstance(matrix, CompatibilityMatrix):
             matrix = PackedCompatibilityMatrix.from_dense(matrix)
-        from moneyrepair.interlock import apply_interlock_constraints_with_stats
+        from moneyrepair.baselines.interlock import apply_interlock_constraints_with_stats
         matrix, interlock_stats = apply_interlock_constraints_with_stats(
             matrix,
             active_search,

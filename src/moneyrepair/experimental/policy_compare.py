@@ -1,10 +1,12 @@
+"""UNVERIFIED research scaffold. Comparison tool for llm_control. Not used by the supported pipeline."""
+
 from __future__ import annotations
 
 from typing import Iterable
 
 import numpy as np
 
-from moneyrepair.llm_control import LLMAgentConfig, MockStrategy, llm_guided_assembly_loop
+from moneyrepair.experimental.llm_control import LLMAgentConfig, MockStrategy, llm_guided_assembly_loop
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,
