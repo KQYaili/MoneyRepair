@@ -164,20 +164,37 @@ def apply_interlock_constraints_with_stats(
     if tuple(fragment.id for fragment in fragments) != base.ids:
         raise ValueError("fragment order must match compatibility ids")
     packed = PackedCompatibilityMatrix(ids=base.ids, packed=base.packed.copy(), n=base.n)
+    
+    # Extract coordinates of all compatible pairs from the base matrix
+    dense_matrix = base.to_dense()
+    left_indices, right_indices = np.where(dense_matrix.compatible)
+    
+    # Focus only on the upper triangle (unique pairs)
+    valid_mask = right_indices > left_indices
+    left_active = left_indices[valid_mask]
+    right_active = right_indices[valid_mask]
+    
+    bboxes = [f.bbox for f in fragments]
+    expanded = [_expanded_bbox(bbox) for bbox in bboxes]
+    
     bbox_candidate_pairs = 0
     scored_contact_pairs = 0
     rejected_pairs = 0
-    for left_index, right_index in iter_contact_candidate_pairs(fragments, cell=cell):
-        bbox_candidate_pairs += 1
-        if not packed.is_compatible(left_index, right_index):
-            continue
-        score = tear_interlock_score(fragments[left_index], fragments[right_index])
-        if score.contact_edges < min_contact_edges:
-            continue
-        scored_contact_pairs += 1
-        if score.contact_ratio < min_contact_ratio:
-            packed.set_pair_compatible(left_index, right_index, False)
-            rejected_pairs += 1
+    
+    for k in range(len(left_active)):
+        left_index = int(left_active[k])
+        right_index = int(right_active[k])
+        
+        # Verify expanded bounding boxes intersect
+        if _bbox_intersects(expanded[left_index], expanded[right_index]):
+            bbox_candidate_pairs += 1
+            score = tear_interlock_score(fragments[left_index], fragments[right_index])
+            if score.contact_edges >= min_contact_edges:
+                scored_contact_pairs += 1
+                if score.contact_ratio < min_contact_ratio:
+                    packed.set_pair_compatible(left_index, right_index, False)
+                    rejected_pairs += 1
+                    
     return packed, InterlockCompatibilityStats(
         bbox_candidate_pairs=bbox_candidate_pairs,
         scored_contact_pairs=scored_contact_pairs,
