@@ -97,3 +97,28 @@ human queue for the residual, not full automation.
 - The simulator is more realistic than shared Voronoi partitions, but it is
   still synthetic and should be used to falsify ideas, not to claim field
   performance.
+
+## Scale vs Fineness (measured, geometry-only, `serial-ocr-rate 0`)
+
+Two different collapse axes were being conflated. Independent re-runs separate
+them:
+
+| Case | Result | Bound |
+| --- | --- | --- |
+| N=20/50/100, p=8 | yield 1.000 / precision 1.000 | — |
+| N=200, p=8, tight time budget | yield ~0.09, and previously a crash | compute/bug |
+| N=200, p=8, generous time budget | **yield 1.000 / precision 1.000** | compute |
+| N=50, p=16 (fine) | yield ~0.04 | **signal** |
+
+The scale (large N) collapse was **compute/bug-bound**: `select_exact_cover_candidates`
+crashed with a `RecursionError` on the large candidate pools that N>=200 produces,
+and even when it did not crash it was hitting the search time limit. With the
+recursion crash fixed (iterative branch-and-bound) and an adequate budget, N=200
+p=8 recovers to full exact yield. Earlier "scale wall" numbers were artifacts of
+the crash plus a tight time budget.
+
+The fineness collapse (many small pieces) is the genuine **signal** wall: short,
+frayed tear edges carry too little absolute-coordinate evidence, so it does not
+recover with more compute. That is the residual that needs either a learned
+fine-tear matcher or the human queue — consistent with the high-precision
+triage stance above.

@@ -57,7 +57,7 @@ from moneyrepair.tearfit import (
 )
 from moneyrepair.types import Fragment
 
-__version__ = "4.2.0"
+__version__ = "4.2.1"
 
 __all__ = [
     "AuditEvent",

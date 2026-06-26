@@ -223,3 +223,25 @@ def test_diagnosis_counts_exact_and_chimera_candidates():
 
     assert diag.exact_confirmed == 1
     assert diag.chimeras == 1
+
+
+def test_exact_cover_scales_past_recursion_limit_without_crashing():
+    # Regression: the set-packing search used to recurse once per candidate, so
+    # a large pool (N=200-scale runs generate well over 1000 candidates) blew
+    # Python's recursion limit and crashed mid-search. The iterative form must
+    # return the full disjoint packing instead.
+    count = 2500
+    candidates = [
+        AssemblyCandidate(
+            fragment_ids=(f"f{index:05d}",),
+            coverage=0.99,
+            raw_coverage=0.99,
+            score=1.0,
+            support_pixels=1,
+        )
+        for index in range(count)
+    ]
+    selected = select_exact_cover_candidates(candidates, time_limit_seconds=None, objective="score_then_count")
+    # every candidate is disjoint, so the optimal packing keeps all of them.
+    assert len(selected) == count
+    assert len({candidate.fragment_ids for candidate in selected}) == count

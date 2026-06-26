@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.2.1
+
+Scale-axis crash fix and an honest disentangling of the two yield-collapse axes:
+
+- fixes a `RecursionError` in `select_exact_cover_candidates`: the set-packing
+  search recursed once per candidate, so large pools (N=200-scale runs generate
+  well over 1000 candidates) overflowed Python's recursion limit and crashed
+  mid-search. It is now an explicit-stack branch-and-bound with identical
+  include-first ordering and both pruning bounds, plus precomputed per-candidate
+  frozensets/scores;
+- adds a regression test that packs 2500 disjoint candidates without crashing;
+- documents the measured result that the **scale** collapse (large N) was
+  compute/bug-bound — N=200 p=8 geometry-only recovers to 1.000 exact yield and
+  precision once the crash is fixed and given budget — while the **fineness**
+  collapse (many small pieces, e.g. p=16) is the real signal wall.
+
 ## 4.2.0
 
 Tear-geometry pressure and final v4.1 review fixes:

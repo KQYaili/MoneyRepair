@@ -813,30 +813,46 @@ def select_exact_cover_candidates(
             return count > best_count or (count == best_count and score > best_score)
         return score > best_score or (score == best_score and count > best_count)
 
-    def dfs(pos: int, used_ids: frozenset[str], used_labels: frozenset[str], chosen: tuple[int, ...], score: float) -> None:
-        nonlocal best_count, best_score, best_choice
+    # Iterative branch-and-bound. The recursive form recursed to depth equal to
+    # the candidate count, so large pools (N=200+) overflowed Python's recursion
+    # limit and crashed mid-search instead of returning the best packing found so
+    # far. An explicit LIFO stack keeps the identical include-first DFS order and
+    # both pruning bounds, with no depth limit. Per-candidate frozensets/scores
+    # are precomputed once instead of rebuilt at every visited node.
+    remaining_count = len(remaining)
+    item_ids_list = [frozenset(item.fragment_ids) for item in remaining]
+    item_labels_list = [frozenset(item.labels) for item in remaining]
+    item_scores = [adjusted_score(item) for item in remaining]
+
+    stack: list[tuple[int, frozenset[str], frozenset[str], tuple[int, ...], float]] = [
+        (0, frozenset(used_locked_ids), frozenset(used_locked_labels), (), locked_score)
+    ]
+    while stack:
         if deadline is not None and monotonic() >= deadline:
-            return
-        if objective == "count_then_score" and locked_count + len(chosen) + (len(remaining) - pos) < best_count:
-            return
+            break
+        pos, used_ids, used_labels, chosen, score = stack.pop()
+        if objective == "count_then_score" and locked_count + len(chosen) + (remaining_count - pos) < best_count:
+            continue
         if objective == "score_then_count" and score + suffix_score[pos] < best_score:
-            return
-        if pos >= len(remaining):
+            continue
+        if pos >= remaining_count:
             count = locked_count + len(chosen)
             if better(count, score):
                 best_count = count
                 best_score = score
                 best_choice = chosen
-            return
+            continue
 
-        item = remaining[pos]
-        item_ids = frozenset(item.fragment_ids)
-        item_labels = frozenset(item.labels)
+        # Push skip-branch first so the include-branch is popped first, matching
+        # the recursive preorder (a good packing found early tightens the bound).
+        stack.append((pos + 1, used_ids, used_labels, chosen, score))
+        item_ids = item_ids_list[pos]
+        item_labels = item_labels_list[pos]
         if not (item_ids & used_ids) and not (item_labels & used_labels):
-            dfs(pos + 1, used_ids | item_ids, used_labels | item_labels, chosen + (pos,), score + adjusted_score(item))
-        dfs(pos + 1, used_ids, used_labels, chosen, score)
+            stack.append(
+                (pos + 1, used_ids | item_ids, used_labels | item_labels, chosen + (pos,), score + item_scores[pos])
+            )
 
-    dfs(0, frozenset(used_locked_ids), frozenset(used_locked_labels), (), locked_score)
     return locked + [remaining[index] for index in best_choice]
 
 
