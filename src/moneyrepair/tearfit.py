@@ -63,6 +63,8 @@ class AssemblyCandidate:
     score: float
     support_pixels: int
     labels: tuple[str, ...] = field(default_factory=tuple)
+    base_score: float = 0.0
+    constraint_bonus: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -695,8 +697,9 @@ def generate_assembly_candidates(
                     else:
                         coverage = raw_coverage
 
+                    base_score = coverage * 10_000.0 + new_support + 100.0 * len(new_labels)
                     preference_bonus = _pair_preference_bonus(new_state_set, preferred_pair_indices, preferred_pair_bonus)
-                    score = coverage * 10_000.0 + new_support + 100.0 * len(new_labels) + preference_bonus
+                    score = base_score + preference_bonus
 
                     new_info = StateInfo(
                         state=new_state_set,
@@ -727,6 +730,8 @@ def generate_assembly_candidates(
                             score=score,
                             support_pixels=new_support,
                             labels=tuple(sorted(new_labels)),
+                            base_score=base_score,
+                            constraint_bonus=preference_bonus,
                         )
                         if existing_candidate is None or candidate.score > existing_candidate.score:
                             candidates[ids] = candidate
@@ -852,8 +857,23 @@ def select_exact_cover_candidates(
             stack.append(
                 (pos + 1, used_ids | item_ids, used_labels | item_labels, chosen + (pos,), score + item_scores[pos])
             )
-
-    return locked + [remaining[index] for index in best_choice]
+    selected_out = locked + [remaining[index] for index in best_choice]
+    final_out = []
+    for candidate in selected_out:
+        key = _candidate_key(candidate.fragment_ids)
+        if key in preferred_keys:
+            candidate = AssemblyCandidate(
+                fragment_ids=candidate.fragment_ids,
+                coverage=candidate.coverage,
+                raw_coverage=candidate.raw_coverage,
+                score=candidate.score + preferred_candidate_bonus,
+                support_pixels=candidate.support_pixels,
+                labels=candidate.labels,
+                base_score=candidate.base_score,
+                constraint_bonus=candidate.constraint_bonus + preferred_candidate_bonus,
+            )
+        final_out.append(candidate)
+    return final_out
 
 
 def diagnose_confirmed_candidates(candidates: list[AssemblyCandidate], fragments: list[Fragment]) -> TearFitDiagnostics:

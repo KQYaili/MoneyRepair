@@ -41,7 +41,7 @@ class LLMAgentConfig:
     model_name: str = "gemini-2.5-flash"
     temperature: float = 0.1
     api_url: str | None = None
-    use_mock: bool = True
+    use_mock: bool = False
     fallback_policy: FallbackPolicy = "raise"
     mock_strategy: MockStrategy = "balanced"
 
@@ -128,6 +128,7 @@ def apply_feedback_to_policy(
             policy.forbidden_candidates.add(key)
             policy.locked_candidates.discard(key)
             policy.preferred_candidates.discard(key)
+            print(f"[LLM Coordinator] Constraint: FORBID candidate {key}")
 
     for index in feedback.keep:
         if 0 <= int(index) < len(candidate_pool):
@@ -135,6 +136,7 @@ def apply_feedback_to_policy(
             if key not in policy.forbidden_candidates:
                 policy.locked_candidates.add(key)
                 policy.preferred_candidates.add(key)
+                print(f"[LLM Coordinator] Constraint: LOCK candidate {key}")
 
     for group in feedback.merge:
         ids = [fragment_id for fragment_id in group if fragment_id]
@@ -142,18 +144,28 @@ def apply_feedback_to_policy(
             pair = _pair_key(left, right)
             policy.forced_pairs.add(pair)
             policy.preferred_pairs.add(pair)
+            print(f"[LLM Coordinator] Constraint: MERGE pair {pair}")
 
     if feedback.suggest_seed:
         seed = str(feedback.suggest_seed)
+        policy.seed_whitelist.clear()
+        policy.seed_labels.clear()
         fragment_ids = {fragment.id for fragment in fragments}
         labels = {fragment.label for fragment in fragments if fragment.label}
         if seed in fragment_ids:
             policy.seed_whitelist.add(seed)
+            print(f"[LLM Coordinator] Seed Whitelist: Added fragment seed {seed}")
         elif seed in labels:
             policy.seed_labels.add(seed)
+            print(f"[LLM Coordinator] Seed Labels: Added label seed {seed}")
         else:
-            # Unknown seed strings are usually OCR labels proposed by the LLM.
             policy.seed_labels.add(seed)
+            print(f"[LLM Coordinator] Seed Labels: Added unknown label seed {seed}")
+    else:
+        if policy.seed_whitelist or policy.seed_labels:
+            print("[LLM Coordinator] Seed Whitelist/Labels cleared.")
+        policy.seed_whitelist.clear()
+        policy.seed_labels.clear()
 
     if feedback.strategy == "coverage_first":
         policy.objective = "count_then_score"
@@ -166,6 +178,9 @@ def apply_feedback_to_policy(
     elif feedback.strategy == "broaden_search":
         policy.request_more_candidates = True
         policy.coverage_delta = min(policy.coverage_delta, -0.05)
+
+    if feedback.strategy != "balanced":
+        print(f"[LLM Coordinator] Strategy: Set to '{feedback.strategy}' (objective={policy.objective}, coverage_delta={policy.coverage_delta:.2f})")
 
     return _policy_signature(policy) != before
 
@@ -417,6 +432,9 @@ def llm_guided_assembly_loop(
     controller = LLMController(llm_config)
     policy = SearchPolicy()
     final_selected: list[AssemblyCandidate] = []
+    
+    # Registry to accumulate all generated candidates across iterations
+    all_generated_candidates: dict[tuple[str, ...], AssemblyCandidate] = {}
 
     for iteration in range(max_iterations):
         elapsed = monotonic() - start_time
@@ -442,12 +460,28 @@ def llm_guided_assembly_loop(
             forbidden_candidates=policy.forbidden_candidates or None,
             time_limit_seconds=remaining_time,
         )
-        if not candidates:
+        
+        # Accumulate newly generated candidates
+        for candidate in candidates:
+            key = _candidate_key(candidate.fragment_ids)
+            if key not in all_generated_candidates or candidate.score > all_generated_candidates[key].score:
+                all_generated_candidates[key] = candidate
+
+        # Prepare candidates for the solver by filtering registry against forbidden policy list
+        solver_candidates = [
+            c for key, c in all_generated_candidates.items()
+            if key not in policy.forbidden_candidates
+        ]
+        
+        if not solver_candidates:
             break
+
+        # Sort solver candidates to match the standard select_exact_cover_candidates input ordering
+        solver_candidates.sort(key=lambda item: (-item.score, item.fragment_ids))
 
         try:
             selected = select_exact_cover_candidates(
-                candidates,
+                solver_candidates,
                 time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time)),
                 objective=policy.objective,
                 forbidden_candidates=policy.forbidden_candidates or None,
@@ -459,7 +493,7 @@ def llm_guided_assembly_loop(
             policy.preferred_candidates.update(policy.locked_candidates)
             policy.locked_candidates.clear()
             selected = select_exact_cover_candidates(
-                candidates,
+                solver_candidates,
                 time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time)),
                 objective=policy.objective,
                 forbidden_candidates=policy.forbidden_candidates or None,
@@ -469,15 +503,31 @@ def llm_guided_assembly_loop(
         final_selected = selected
         diagnostics = diagnose_confirmed_candidates(selected, fragments)
         assigned_ids = {fragment_id for candidate in selected for fragment_id in candidate.fragment_ids}
+        
+        candidate_pool = _pool_for_llm(solver_candidates, selected, candidate_pool_limit)
+
+        # Compute conflict graph stats for the LLM
+        conflict_pairs = 0
+        total_pairs = len(candidate_pool) * (len(candidate_pool) - 1) // 2
+        if total_pairs > 0:
+            for c1, c2 in combinations(candidate_pool, 2):
+                if (set(c1.fragment_ids) & set(c2.fragment_ids)) or (set(c1.labels) & set(c2.labels)):
+                    conflict_pairs += 1
+            conflict_density = conflict_pairs / total_pairs
+        else:
+            conflict_density = 0.0
+
         global_stats = {
             "iteration": iteration,
             "total_fragments": len(fragments),
-            "candidate_pool_size": len(candidates),
+            "candidate_pool_size": len(solver_candidates),
             "unassigned_fragments": len(fragments) - len(assigned_ids),
             "confirmed_assemblies": diagnostics.confirmed,
             "exact_confirmed": diagnostics.exact_confirmed,
             "chimeras": diagnostics.chimeras,
             "chimera_rate": diagnostics.chimeras / diagnostics.confirmed if diagnostics.confirmed else 0.0,
+            "conflict_pairs": conflict_pairs,
+            "conflict_density": round(conflict_density, 3),
             "policy": {
                 "seed_whitelist": sorted(policy.seed_whitelist),
                 "seed_labels": sorted(policy.seed_labels),
@@ -489,13 +539,12 @@ def llm_guided_assembly_loop(
             },
         }
 
-        candidate_pool = _pool_for_llm(candidates, selected, candidate_pool_limit)
         feedback = controller.analyze_search_state(
             fragments,
             candidate_pool,
             selected,
             global_stats,
-            rejected_by_solver=_rejected_summary(candidates, selected),
+            rejected_by_solver=_rejected_summary(solver_candidates, selected),
         )
         changed = apply_feedback_to_policy(feedback, candidate_pool, fragments, policy)
         if not changed:

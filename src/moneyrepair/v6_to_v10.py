@@ -223,7 +223,24 @@ def compute_v6_loss(
     lambda_entropy: float = 0.1,
     margin: float = 0.5,
 ) -> torch.Tensor:
-    """Computes the combined loss for Sinkhorn soft matching / pair assignment relaxation."""
+    """Computes the combined loss for Sinkhorn soft matching / pair assignment relaxation.
+    
+    .. note::
+       Birkhoff-von Neumann vs. Candidate-Level Exact Cover:
+       The coverage loss (`loss_cover`) here acts as a node-node matching relaxation by penalising
+       deviations from marginal constraint (i.e. `A.sum(dim=1) ≈ 1`), which operates entirely in the
+       pairwise node-adjacency space (fragment-to-fragment matching).
+       
+       A true candidate-level soft exact-cover loss would operate directly on the candidate selection
+       probabilities (say, `s_probs` for generated candidate assemblies) and the candidate-fragment
+       incidence matrix `H` (where `H[i, c] = 1` if fragment `i` is in candidate `c`). In that setting,
+       the exact-cover constraint would be relaxed to `H @ s_probs ≈ 1` (each fragment is covered by exactly
+       one chosen candidate), yielding a coverage loss like `torch.mean((torch.matmul(H, s_probs) - 1.0) ** 2)`.
+       
+       Since candidate generation is a discrete, non-differentiable beam-search step that runs downstream of GNAS,
+       GNAS trains with the node-level Sinkhorn marginal relaxation to learn the continuous adjacency edge features
+       needed by the search/solver layers.
+    """
     # 1. Edge Loss (BCE)
     loss_edge = F.binary_cross_entropy(P, y_edge)
 
