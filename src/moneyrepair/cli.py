@@ -33,6 +33,7 @@ from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
+from moneyrepair.policy_compare import POLICY_COMPARE_STRATEGIES, run_policy_controller_comparison
 from moneyrepair.pressure import run_pressure_sweep
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
@@ -835,6 +836,37 @@ def _cmd_tearfit_compare(args: argparse.Namespace) -> None:
         )
 
 
+def _cmd_policy_compare(args: argparse.Namespace) -> None:
+    payload = run_policy_controller_comparison(
+        profile=args.profile,
+        policies=args.policies.split(","),
+        serial_ocr_rates=_parse_float_list(args.serial_ocr_rates),
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        min_overlap_pixels=args.min_overlap_pixels,
+        tolerance=args.tolerance,
+        coverage_threshold=args.coverage_threshold,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        ensure_serial_anchor=args.ensure_serial_anchor,
+        candidate_time_limit_seconds=args.candidate_time_limit,
+        cover_time_limit_seconds=args.cover_time_limit,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote policy comparison to {output}")
+    print(f"best_policy={payload['best_policy']}")
+    for row in payload["summary"]:
+        print(
+            "{policy}: min_precision={min_exact_precision:.3f} "
+            "mean_precision={mean_exact_precision:.3f} mean_yield={mean_exact_yield:.3f} "
+            "mean_chimera={mean_chimera_rate:.3f}".format(**row)
+        )
+
+
 def _cmd_report_figures(args: argparse.Namespace) -> None:
     sources: dict[str, str] = {}
     strategy_results = None
@@ -1265,6 +1297,24 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit_compare.add_argument("--cover-time-limit", type=float, default=5.0)
     tearfit_compare.add_argument("--output", help="write full comparison JSON")
     tearfit_compare.set_defaults(func=_cmd_tearfit_compare)
+
+    policy_compare = sub.add_parser("policy-compare", help="compare static exact-cover and LLM search-controller policies")
+    policy_compare.add_argument("--profile", choices=("smoke", "pressure"), default="smoke")
+    policy_compare.add_argument("--policies", default=",".join(POLICY_COMPARE_STRATEGIES))
+    policy_compare.add_argument("--serial-ocr-rates", default="0.6")
+    policy_compare.add_argument("--width", type=int, default=120)
+    policy_compare.add_argument("--height", type=int, default=64)
+    policy_compare.add_argument("--seed", type=int, default=7)
+    policy_compare.add_argument("--min-overlap-pixels", type=int, default=10)
+    policy_compare.add_argument("--tolerance", type=int, default=2)
+    policy_compare.add_argument("--coverage-threshold", type=float, default=0.93)
+    policy_compare.add_argument("--gap-fill-radius", type=int, default=2)
+    policy_compare.add_argument("--beam-width", type=int, default=48)
+    policy_compare.add_argument("--ensure-serial-anchor", action="store_true")
+    policy_compare.add_argument("--candidate-time-limit", type=float, default=10.0)
+    policy_compare.add_argument("--cover-time-limit", type=float, default=5.0)
+    policy_compare.add_argument("--output", help="write full policy comparison JSON")
+    policy_compare.set_defaults(func=_cmd_policy_compare)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)

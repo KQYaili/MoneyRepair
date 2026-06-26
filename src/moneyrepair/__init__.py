@@ -30,6 +30,7 @@ from moneyrepair.interlock import (
 )
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
+from moneyrepair.policy_compare import POLICY_COMPARE_STRATEGIES, run_policy_controller_comparison
 from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
 from moneyrepair.quality import FrameQuality, QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import ReferenceScore, score_best_reference_side, score_fragments_by_side
@@ -73,6 +74,7 @@ __all__ = [
     "InterlockCompatibilityStats",
     "MatrixFootprint",
     "PackedCompatibilityMatrix",
+    "POLICY_COMPARE_STRATEGIES",
     "QualityThresholds",
     "ReferenceScore",
     "RealismProfile",
@@ -113,6 +115,7 @@ __all__ = [
     "render_report_figure",
     "run_pressure_case",
     "run_pressure_sweep",
+    "run_policy_controller_comparison",
     "run_production_pipeline",
     "run_tearfit_sweep",
     "run_tearfit_strategy_comparison",

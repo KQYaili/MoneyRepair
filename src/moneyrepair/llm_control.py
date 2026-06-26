@@ -26,6 +26,7 @@ from moneyrepair.tearfit import (
 from moneyrepair.types import Fragment
 
 FallbackPolicy = Literal["mock", "empty", "raise"]
+MockStrategy = Literal["balanced", "coverage_first", "score_first", "broaden_search"]
 
 
 @dataclass
@@ -42,6 +43,7 @@ class LLMAgentConfig:
     api_url: str | None = None
     use_mock: bool = True
     fallback_policy: FallbackPolicy = "raise"
+    mock_strategy: MockStrategy = "balanced"
 
 
 @dataclass(frozen=True)
@@ -245,7 +247,7 @@ class LLMController:
                                 drop.append(idx)
                             elif candidate.get("coverage", 0.0) < 0.2:
                                 drop.append(idx)
-                            else:
+                            elif candidate.get("solver_selected", True):
                                 keep.append(idx)
                         return json.dumps(
                             {
@@ -253,7 +255,7 @@ class LLMController:
                                 "drop": drop,
                                 "merge": [],
                                 "suggest_seed": None,
-                                "strategy": "balanced",
+                                "strategy": self.config.mock_strategy,
                                 "explanation": "Mock logic applied.",
                             }
                         )

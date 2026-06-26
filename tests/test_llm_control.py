@@ -19,7 +19,7 @@ from moneyrepair.llm_control import (
 
 
 def test_llm_controller_mock_parsing():
-    config = LLMAgentConfig(use_mock=True)
+    config = LLMAgentConfig(use_mock=True, mock_strategy="coverage_first")
     controller = LLMController(config)
 
     # Test mock response parsing with simple state JSON
@@ -41,7 +41,7 @@ def test_llm_controller_mock_parsing():
     # The mock model should drop candidate 0 due to label conflicts
     assert 0 in feedback.drop
     assert 1 in feedback.keep
-    assert feedback.strategy == "balanced"
+    assert feedback.strategy == "coverage_first"
 
 
 def test_llm_guided_assembly_loop_execution():

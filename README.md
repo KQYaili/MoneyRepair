@@ -348,7 +348,12 @@ weighted candidate set packing, and direct strategy comparison. See
 ```bash
 moneyrepair tearfit-compare --profile smoke --output runs/tearfit_compare_smoke.json
 moneyrepair tearfit-demo --notes-list 20,50,100 --seed-strategy anchor_priority --cover-objective score_then_count --output runs/tearfit_demo.json
+moneyrepair policy-compare --profile smoke --output runs/policy_compare_smoke.json
 ```
+
+`policy-compare` runs static exact-cover policies and offline LLM-controller
+policy variants on the same tear-fit pressure cases, then reports `best_policy`
+from exact precision, exact yield, and chimera-rate summary metrics.
 
 ## Current scope
 
