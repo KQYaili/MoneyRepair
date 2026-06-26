@@ -48,6 +48,34 @@ scale are the killers, not fray.** Serials rescue *precision* (the no-duplicate-
 constraint blocks chimeras) but not *yield*: the many small pieces per note cannot be
 reliably chained by short, frayed tears.
 
+## Figures (measured)
+
+These plot the tables above. Regenerate with
+`python docs/figures/make_figures.py` (matplotlib).
+
+![Where the wall is](docs/figures/status_wall.png)
+
+*Left (exact yield):* yield falls off as the pool grows (N) or the pieces get
+finer, and ideal serial anchors barely lift it — the orange bars stay low.
+*Right (precision):* the same ideal serials push precision back to ~1.0 (the
+no-duplicate-serial constraint blocks chimeras). So **serials rescue precision,
+not yield**: knowing each note's identity stops bad merges, but the many short,
+frayed tears in a finely-torn note still cannot be chained, so most notes are
+never assembled at all. `n/a` marks N=100, which was not run with the serial
+column.
+
+![Two collapse axes are not the same wall](docs/figures/status_scale_vs_fineness.png)
+
+*Left:* in the clean regime (coarse pieces, geometry only) the system recovers
+every note exactly — yield and precision both 1.0 at N=20/50/100. *Right:* the
+two failure axes differ in kind. **Scale (large N)** was a fixable engineering
+problem: the exact-cover search crashed (`RecursionError`) on large candidate
+pools, so N=200 read as ~0.09; with the crash fixed (v4.2.1) and an adequate
+budget it recovers to 1.0. **Fineness (pieces=16+)** is the genuine signal wall —
+short frayed tears carry too little absolute-coordinate evidence, so it stays at
+~0.04 no matter the compute. Only a better fine-tear descriptor (or the human
+queue) can move that bar.
+
 ## Honest operating stance
 
 **High-precision automatic confirmation of the easy minority + a human review queue
