@@ -242,6 +242,54 @@ def compute_v6_loss(
     )
 
 
+def candidate_soft_exact_cover_loss(
+    candidate_fragment_incidence: torch.Tensor,
+    selection_probs: torch.Tensor,
+    *,
+    lambda_cover: float = 1.0,
+    lambda_overlap: float = 1.0,
+    lambda_missing: float = 1.0,
+    lambda_entropy: float = 0.01,
+) -> torch.Tensor:
+    """Differentiable candidate-level exact-cover relaxation.
+
+    Args:
+        candidate_fragment_incidence: Binary/soft matrix with shape
+            ``(num_candidates, num_fragments)``. ``1`` means a candidate uses a
+            fragment.
+        selection_probs: Soft candidate selection variables with shape
+            ``(num_candidates,)`` or ``(num_candidates, 1)``.
+
+    The old Sinkhorn matrix is a pair-assignment relaxation. This loss models
+    the actual exact-cover surface: selected candidate assemblies should cover
+    each fragment exactly once.
+    """
+
+    if selection_probs.ndim == 2:
+        selection_probs = selection_probs.squeeze(-1)
+    if candidate_fragment_incidence.ndim != 2:
+        raise ValueError("candidate_fragment_incidence must be a 2-D matrix")
+    if selection_probs.ndim != 1:
+        raise ValueError("selection_probs must be a vector or a single-column matrix")
+    if candidate_fragment_incidence.shape[0] != selection_probs.shape[0]:
+        raise ValueError("candidate count must match selection probability count")
+
+    coverage = candidate_fragment_incidence.T @ selection_probs
+    loss_cover = torch.mean((coverage - 1.0) ** 2)
+    loss_overlap = torch.mean(F.relu(coverage - 1.0) ** 2)
+    loss_missing = torch.mean(F.relu(1.0 - coverage) ** 2)
+    loss_entropy = -torch.mean(
+        selection_probs * torch.log(selection_probs + 1e-9)
+        + (1.0 - selection_probs) * torch.log(1.0 - selection_probs + 1e-9)
+    )
+    return (
+        lambda_cover * loss_cover
+        + lambda_overlap * loss_overlap
+        + lambda_missing * loss_missing
+        + lambda_entropy * loss_entropy
+    )
+
+
 # =====================================================================
 # v7: Energy-Based Assembly Model (EBM)
 # =====================================================================

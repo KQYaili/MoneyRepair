@@ -14,6 +14,7 @@ from moneyrepair.v6_to_v10 import (
     GraphAttentionLayer,
     EdgeModel,
     AssemblyGNN,
+    candidate_soft_exact_cover_loss,
     sinkhorn_soft_assignment,
     compute_v6_loss,
     EnergyNetwork,
@@ -59,6 +60,20 @@ def test_v6_gnas_forward_and_loss():
     P_match_loss = torch.tensor([[0.9], [0.1]])
     loss = compute_v6_loss(P_match_loss, A, y_edge)
     assert loss.item() > 0.0
+
+    # 6. Candidate-level soft exact cover: candidate selections cover fragments exactly once
+    incidence = torch.tensor(
+        [
+            [1.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0, 0.0],
+        ]
+    )
+    good_selection = torch.tensor([1.0, 1.0, 0.0])
+    bad_selection = torch.tensor([1.0, 0.0, 1.0])
+    good_loss = candidate_soft_exact_cover_loss(incidence, good_selection, lambda_entropy=0.0)
+    bad_loss = candidate_soft_exact_cover_loss(incidence, bad_selection, lambda_entropy=0.0)
+    assert good_loss < bad_loss
 
 
 def test_v7_ebm_forward_and_mcmc():

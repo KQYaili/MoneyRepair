@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import numpy as np
+
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,
     diagnose_confirmed_candidates,
+    generate_assembly_candidates,
     make_fractal_tear_fragments,
     run_tearfit_trial,
     run_tearfit_strategy_comparison,
     score_absolute_tear_pairs,
     select_exact_cover_candidates,
+    TearFitEdge,
 )
+from moneyrepair.types import Fragment
 
 
 def test_fractal_tears_have_serial_anchor_per_note():
@@ -82,6 +87,60 @@ def test_exact_cover_can_use_weighted_score_objective():
 
     assert {item.fragment_ids for item in count_first} == {("a", "b"), ("c", "d")}
     assert [item.fragment_ids for item in score_first] == [("a", "c")]
+
+
+def test_exact_cover_respects_locked_candidates():
+    candidates = [
+        AssemblyCandidate(("a", "b"), coverage=0.99, raw_coverage=0.95, score=10.0, support_pixels=10),
+        AssemblyCandidate(("c", "d"), coverage=0.99, raw_coverage=0.95, score=10.0, support_pixels=10),
+        AssemblyCandidate(("a", "c"), coverage=0.99, raw_coverage=0.95, score=30.0, support_pixels=30),
+    ]
+
+    selected = select_exact_cover_candidates(
+        candidates,
+        objective="score_then_count",
+        locked_candidates={("a", "b")},
+    )
+
+    assert ("a", "b") in {item.fragment_ids for item in selected}
+    assert ("a", "c") not in {item.fragment_ids for item in selected}
+
+
+def test_candidate_generation_respects_seed_labels_and_forbidden_pairs():
+    top = np.array(
+        [[True, True, True, True], [True, True, True, True], [False, False, False, False], [False, False, False, False]]
+    )
+    bottom = np.array(
+        [[False, False, False, False], [False, False, False, False], [True, True, True, True], [True, True, True, True]]
+    )
+    fragments = [
+        Fragment("a", mask=top, label="S1"),
+        Fragment("b", mask=bottom, label="S1"),
+        Fragment("c", mask=top, label="S2"),
+        Fragment("d", mask=bottom, label="S2"),
+    ]
+    edges = [
+        TearFitEdge(left=0, right=1, overlap_pixels=8, left_hits=8, right_hits=8, overlap_ratio=1.0),
+        TearFitEdge(left=2, right=3, overlap_pixels=8, left_hits=8, right_hits=8, overlap_ratio=1.0),
+    ]
+
+    seeded = generate_assembly_candidates(
+        fragments,
+        edges,
+        coverage_threshold=0.9,
+        max_pieces=2,
+        seed_labels={"S2"},
+    )
+    blocked = generate_assembly_candidates(
+        fragments,
+        edges,
+        coverage_threshold=0.9,
+        max_pieces=2,
+        forbidden_pairs={("c", "d")},
+    )
+
+    assert [candidate.fragment_ids for candidate in seeded] == [("c", "d")]
+    assert ("c", "d") not in {candidate.fragment_ids for candidate in blocked}
 
 
 def test_labelled_tearfit_trial_confirms_pure_candidates():

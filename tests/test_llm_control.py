@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import urllib.error
+
 import numpy as np
+import pytest
 from moneyrepair.types import Fragment
 from moneyrepair.tearfit import AssemblyCandidate, TearFitEdge
 from moneyrepair.llm_control import (
     LLMAgentConfig,
     LLMFeedback,
     LLMController,
+    SearchPolicy,
+    apply_feedback_to_policy,
     llm_guided_assembly_loop,
 )
 
@@ -43,13 +48,15 @@ def test_llm_guided_assembly_loop_execution():
     config = LLMAgentConfig(use_mock=True)
     
     # Construct minimal dummy fragments and edges
-    mask = np.zeros((10, 10), dtype=bool)
-    mask[2:8, 2:8] = True
+    top = np.zeros((10, 10), dtype=bool)
+    top[:5, :] = True
+    bottom = np.zeros((10, 10), dtype=bool)
+    bottom[5:, :] = True
     
     fragments = [
-        Fragment(id="f0", mask=mask.copy(), label="S1", meta={"note_id": "n0"}),
-        Fragment(id="f1", mask=mask.copy(), label="S1", meta={"note_id": "n0"}),
-        Fragment(id="f2", mask=mask.copy(), label="S2", meta={"note_id": "n1"}),
+        Fragment(id="f0", mask=top.copy(), label="S1", meta={"note_id": "n0"}),
+        Fragment(id="f1", mask=bottom.copy(), label="S1", meta={"note_id": "n0"}),
+        Fragment(id="f2", mask=top.copy(), label="S2", meta={"note_id": "n1"}),
     ]
     
     edges = [
@@ -68,5 +75,54 @@ def test_llm_guided_assembly_loop_execution():
         beam_width=10
     )
     
-    # Verify that the solver ran and returned assemblies
-    assert len(selected) >= 0
+    assert selected
+    assert selected[0].fragment_ids == ("f0", "f1")
+
+
+def test_feedback_updates_executable_search_policy():
+    fragments = [
+        Fragment(id="f0", mask=np.ones((2, 2), dtype=bool), label="S1"),
+        Fragment(id="f1", mask=np.ones((2, 2), dtype=bool), label="S1"),
+        Fragment(id="f2", mask=np.ones((2, 2), dtype=bool), label="S2"),
+    ]
+    pool = [
+        AssemblyCandidate(("f0", "f1"), 1.0, 1.0, 20.0, 20, ("S1",)),
+        AssemblyCandidate(("f1", "f2"), 1.0, 1.0, 10.0, 10, ("S1", "S2")),
+    ]
+    policy = SearchPolicy()
+    feedback = LLMFeedback(
+        keep=[0],
+        drop=[1],
+        merge=[["f0", "f1"]],
+        suggest_seed="S1",
+        strategy="coverage_first",
+    )
+
+    changed = apply_feedback_to_policy(feedback, pool, fragments, policy)
+
+    assert changed
+    assert ("f0", "f1") in policy.locked_candidates
+    assert ("f1", "f2") in policy.forbidden_candidates
+    assert ("f0", "f1") in policy.forced_pairs
+    assert "S1" in policy.seed_labels
+    assert policy.objective == "count_then_score"
+
+
+def test_llm_api_failure_policy_is_not_silent_mock(monkeypatch):
+    def fail_urlopen(*_args, **_kwargs):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_urlopen)
+    controller = LLMController(LLMAgentConfig(use_mock=False, api_key="x", api_url="https://example.invalid", fallback_policy="raise"))
+    candidate = AssemblyCandidate(("f0",), 1.0, 1.0, 1.0, 1)
+
+    with pytest.raises(RuntimeError):
+        controller.analyze_candidates([], [candidate], {})
+
+    empty_controller = LLMController(
+        LLMAgentConfig(use_mock=False, api_key="x", api_url="https://example.invalid", fallback_policy="empty")
+    )
+    feedback = empty_controller.analyze_candidates([], [candidate], {})
+    assert feedback.drop == []
+    assert feedback.keep == []
+    assert "failed" in feedback.explanation

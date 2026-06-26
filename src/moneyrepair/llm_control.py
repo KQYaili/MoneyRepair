@@ -1,96 +1,229 @@
-"""LLM-Guided Search Policy Controller and Assembly Critic for MoneyRepair (v7+).
+"""LLM-guided search policy controller and assembly critic for MoneyRepair.
 
-This module implements the LLM Agent layer (Layer 4) of the hybrid reconstruction pipeline.
-It guides the deterministic solver by refining candidate selections, enforcing global
-appearance/label rules, and adjusting search parameters dynamically.
+The LLM layer is deliberately kept above the deterministic geometry and solver
+layers. It reads candidate assemblies and search diagnostics, then updates an
+explicit search policy. It does not predict pixel geometry, mutate tear scores,
+or replace exact-cover search.
 """
 
 from __future__ import annotations
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
+from itertools import combinations
 from time import monotonic
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any, Literal
 
-from moneyrepair.types import Fragment
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     TearFitEdge,
+    diagnose_confirmed_candidates,
     generate_assembly_candidates,
     select_exact_cover_candidates,
-    diagnose_confirmed_candidates,
 )
+from moneyrepair.types import Fragment
+
+FallbackPolicy = Literal["mock", "empty", "raise"]
 
 
 @dataclass
 class LLMAgentConfig:
-    """Configures the connection to the LLM backend (Gemini or OpenAI compatible)."""
-    api_key: Optional[str] = None
+    """Configures the LLM backend.
+
+    ``use_mock`` is intended for offline tests. In production, API failures
+    follow ``fallback_policy`` instead of silently pretending that the model ran.
+    """
+
+    api_key: str | None = None
     model_name: str = "gemini-2.5-flash"
     temperature: float = 0.1
-    api_url: Optional[str] = None
-    use_mock: bool = True  # Defaults to True for offline tests
+    api_url: str | None = None
+    use_mock: bool = True
+    fallback_policy: FallbackPolicy = "raise"
 
 
 @dataclass(frozen=True)
 class LLMFeedback:
-    """Feedback schema returned by the LLM Critic."""
-    keep: List[int] = field(default_factory=list)      # Indices of candidates to keep
-    drop: List[int] = field(default_factory=list)      # Indices of candidates to reject
-    merge: List[List[str]] = field(default_factory=list) # Fragment groups to merge together
-    suggest_seed: Optional[str] = None                 # Fragment ID or serial to use as seed
-    strategy: str = "balanced"                         # "coverage_first", "score_first", or "balanced"
-    explanation: str = ""                              # Reasoning behind the decision
+    """Strict feedback schema returned by the LLM critic."""
+
+    keep: list[int] = field(default_factory=list)
+    drop: list[int] = field(default_factory=list)
+    merge: list[list[str]] = field(default_factory=list)
+    suggest_seed: str | None = None
+    strategy: str = "balanced"
+    explanation: str = ""
+
+
+@dataclass
+class SearchPolicy:
+    """Executable constraints controlled by the LLM layer."""
+
+    seed_whitelist: set[str] = field(default_factory=set)
+    seed_labels: set[str] = field(default_factory=set)
+    forbidden_candidates: set[tuple[str, ...]] = field(default_factory=set)
+    locked_candidates: set[tuple[str, ...]] = field(default_factory=set)
+    preferred_candidates: set[tuple[str, ...]] = field(default_factory=set)
+    forced_pairs: set[tuple[str, str]] = field(default_factory=set)
+    preferred_pairs: set[tuple[str, str]] = field(default_factory=set)
+    forbidden_pairs: set[tuple[str, str]] = field(default_factory=set)
+    coverage_delta: float = 0.0
+    objective: str = "score_then_count"
+    request_more_candidates: bool = False
+
+
+def _candidate_key(fragment_ids: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
+    return tuple(sorted(fragment_ids))
+
+
+def _pair_key(left: str, right: str) -> tuple[str, str]:
+    return (left, right) if left <= right else (right, left)
+
+
+def _empty_feedback(reason: str = "") -> str:
+    return json.dumps(
+        {
+            "keep": [],
+            "drop": [],
+            "merge": [],
+            "suggest_seed": None,
+            "strategy": "balanced",
+            "explanation": reason,
+        }
+    )
+
+
+def _policy_signature(policy: SearchPolicy) -> tuple[Any, ...]:
+    return (
+        frozenset(policy.seed_whitelist),
+        frozenset(policy.seed_labels),
+        frozenset(policy.forbidden_candidates),
+        frozenset(policy.locked_candidates),
+        frozenset(policy.preferred_candidates),
+        frozenset(policy.forced_pairs),
+        frozenset(policy.preferred_pairs),
+        frozenset(policy.forbidden_pairs),
+        policy.coverage_delta,
+        policy.objective,
+        policy.request_more_candidates,
+    )
+
+
+def apply_feedback_to_policy(
+    feedback: LLMFeedback,
+    candidate_pool: list[AssemblyCandidate],
+    fragments: list[Fragment],
+    policy: SearchPolicy,
+) -> bool:
+    """Convert LLM JSON feedback into executable search constraints."""
+
+    before = _policy_signature(policy)
+
+    for index in feedback.drop:
+        if 0 <= int(index) < len(candidate_pool):
+            key = _candidate_key(candidate_pool[int(index)].fragment_ids)
+            policy.forbidden_candidates.add(key)
+            policy.locked_candidates.discard(key)
+            policy.preferred_candidates.discard(key)
+
+    for index in feedback.keep:
+        if 0 <= int(index) < len(candidate_pool):
+            key = _candidate_key(candidate_pool[int(index)].fragment_ids)
+            if key not in policy.forbidden_candidates:
+                policy.locked_candidates.add(key)
+                policy.preferred_candidates.add(key)
+
+    for group in feedback.merge:
+        ids = [fragment_id for fragment_id in group if fragment_id]
+        for left, right in combinations(sorted(set(ids)), 2):
+            pair = _pair_key(left, right)
+            policy.forced_pairs.add(pair)
+            policy.preferred_pairs.add(pair)
+
+    if feedback.suggest_seed:
+        seed = str(feedback.suggest_seed)
+        fragment_ids = {fragment.id for fragment in fragments}
+        labels = {fragment.label for fragment in fragments if fragment.label}
+        if seed in fragment_ids:
+            policy.seed_whitelist.add(seed)
+        elif seed in labels:
+            policy.seed_labels.add(seed)
+        else:
+            # Unknown seed strings are usually OCR labels proposed by the LLM.
+            policy.seed_labels.add(seed)
+
+    if feedback.strategy == "coverage_first":
+        policy.objective = "count_then_score"
+        policy.coverage_delta = min(policy.coverage_delta, -0.05)
+    elif feedback.strategy == "score_first":
+        policy.objective = "score_then_count"
+        policy.coverage_delta = max(policy.coverage_delta, 0.02)
+    elif feedback.strategy == "balanced":
+        policy.request_more_candidates = False
+    elif feedback.strategy == "broaden_search":
+        policy.request_more_candidates = True
+        policy.coverage_delta = min(policy.coverage_delta, -0.05)
+
+    return _policy_signature(policy) != before
 
 
 class LLMController:
-    """Wraps the LLM API calls, prompt construction, and JSON output parsing."""
+    """Wraps LLM API calls, prompt construction, and JSON output parsing."""
 
     def __init__(self, config: LLMAgentConfig):
         self.config = config
 
-    def _query_api(self, prompt: str) -> str:
-        """Executes HTTP request to the Generative AI model."""
-        if self.config.use_mock or not self.config.api_key:
+    def _handle_unavailable(self, prompt: str, reason: str) -> str:
+        if self.config.fallback_policy == "mock":
             return self._mock_response(prompt)
+        if self.config.fallback_policy == "empty":
+            return _empty_feedback(reason)
+        raise RuntimeError(reason)
 
-        # Build standard Gemini generateContent API payload
-        url = self.config.api_url or f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.model_name}:generateContent?key={self.config.api_key}"
+    def _query_api(self, prompt: str) -> str:
+        """Execute the HTTP request to an OpenAI-compatible or Gemini endpoint."""
+
+        if self.config.use_mock:
+            return self._mock_response(prompt)
+        if not self.config.api_key:
+            return self._handle_unavailable(prompt, "LLM API key is missing.")
+
+        url = self.config.api_url or (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.config.model_name}:generateContent?key={self.config.api_key}"
+        )
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
-                "temperature": self.config.temperature
-            }
+                "temperature": self.config.temperature,
+            },
         }
-        
+
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
             headers=headers,
-            method="POST"
+            method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=15) as response:
                 result = json.loads(response.read().decode("utf-8"))
-                # Extract text from standard Gemini schema
                 return result["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.URLError as e:
-            # Graceful fallback to mock response if connection fails
-            return self._mock_response(prompt)
+        except urllib.error.URLError as exc:
+            return self._handle_unavailable(prompt, f"LLM API request failed: {exc}")
 
     def _mock_response(self, prompt: str) -> str:
         """Offline mock response mapping input state to feedback for tests."""
+
         try:
             state_marker = "Current State:"
             marker_idx = prompt.find(state_marker)
             if marker_idx != -1:
                 json_start = prompt.find("{", marker_idx)
                 if json_start != -1:
-                    # Parse by matching braces
                     brace_count = 0
                     json_end = -1
                     for idx in range(json_start, len(prompt)):
@@ -104,225 +237,266 @@ class LLMController:
                     if json_end != -1:
                         data = json.loads(prompt[json_start:json_end])
                         candidates = data.get("candidates", [])
-                        drop = []
-                        keep = []
-                        for idx, c in enumerate(candidates):
-                            labels = c.get("labels", [])
-                            if len(labels) > 1:  # Conflict
+                        drop: list[int] = []
+                        keep: list[int] = []
+                        for idx, candidate in enumerate(candidates):
+                            labels = candidate.get("labels", [])
+                            if len(labels) > 1:
                                 drop.append(idx)
-                            elif c.get("coverage", 0.0) < 0.2:
+                            elif candidate.get("coverage", 0.0) < 0.2:
                                 drop.append(idx)
                             else:
                                 keep.append(idx)
-                        
-                        feedback = {
-                            "keep": keep,
-                            "drop": drop,
-                            "merge": [],
-                            "suggest_seed": None,
-                            "strategy": "balanced",
-                            "explanation": "Mock logic applied."
-                        }
-                        return json.dumps(feedback)
+                        return json.dumps(
+                            {
+                                "keep": keep,
+                                "drop": drop,
+                                "merge": [],
+                                "suggest_seed": None,
+                                "strategy": "balanced",
+                                "explanation": "Mock logic applied.",
+                            }
+                        )
         except Exception:
             pass
 
-        # Generic default mock
-        return json.dumps({
-            "keep": [0],
-            "drop": [],
-            "merge": [],
-            "suggest_seed": None,
-            "strategy": "balanced",
-            "explanation": "Default mock feedback."
-        })
+        return _empty_feedback("Default mock feedback.")
 
-    def analyze_candidates(
+    def analyze_search_state(
         self,
-        fragments: List[Fragment],
-        candidates: List[AssemblyCandidate],
-        global_stats: Dict[str, Any]
+        fragments: list[Fragment],
+        candidate_pool: list[AssemblyCandidate],
+        selected_candidates: list[AssemblyCandidate],
+        global_stats: dict[str, Any],
+        rejected_by_solver: dict[str, Any] | None = None,
     ) -> LLMFeedback:
-        """Sends candidates to LLM and returns parsed keep/drop/merge actions."""
-        if not candidates:
+        """Send top-K pool, selected candidates, and rejected summary to the LLM."""
+
+        if not candidate_pool:
             return LLMFeedback()
 
-        # Simplify candidates list for token-efficient prompt encoding
+        selected_keys = {_candidate_key(candidate.fragment_ids) for candidate in selected_candidates}
         candidates_data = []
-        for idx, c in enumerate(candidates):
-            candidates_data.append({
-                "index": idx,
-                "fragment_ids": list(c.fragment_ids),
-                "coverage": round(c.coverage, 3),
-                "score": round(c.score, 1),
-                "support_pixels": c.support_pixels,
-                "labels": list(c.labels)
-            })
+        for idx, candidate in enumerate(candidate_pool):
+            key = _candidate_key(candidate.fragment_ids)
+            candidates_data.append(
+                {
+                    "index": idx,
+                    "fragment_ids": list(candidate.fragment_ids),
+                    "coverage": round(candidate.coverage, 3),
+                    "raw_coverage": round(candidate.raw_coverage, 3),
+                    "score": round(candidate.score, 1),
+                    "support_pixels": candidate.support_pixels,
+                    "labels": list(candidate.labels),
+                    "solver_selected": key in selected_keys,
+                }
+            )
 
         state = {
             "global_stats": global_stats,
-            "candidates": candidates_data
+            "fragments": {
+                "count": len(fragments),
+                "labelled": sum(1 for fragment in fragments if fragment.label),
+            },
+            "candidates": candidates_data,
+            "selected_candidate_indices": [
+                idx
+                for idx, candidate in enumerate(candidate_pool)
+                if _candidate_key(candidate.fragment_ids) in selected_keys
+            ],
+            "rejected_by_solver": rejected_by_solver or {},
         }
 
-        prompt = f"""You are the Assembly Critic & Search Policy Controller for a banknote reconstruction system.
-Given the current candidate assemblies and global statistics, analyze the structural plausibility and direct the search policy.
-Detect chimeras (assemblies mixing different notes), enforce serial label constraints, and suggest pruning actions.
+        prompt = f"""You are the Assembly Critic and Search Policy Controller for a banknote reconstruction system.
+You must only control deterministic search policy. Do not invent pixel-level geometry.
+Read the top-K candidate pool, the candidates selected by exact cover, and the solver-rejected summary.
+Detect implausible chimeras, preserve strong candidates, inject hard merge constraints only when justified,
+and suggest a concrete seed fragment ID or serial label when it would reshape the next candidate-generation pass.
 
 Current State:
 {json.dumps(state, indent=2)}
 
-You MUST respond with a single valid JSON object. Do not include markdown code block backticks.
-The JSON object must have this exact schema:
+Respond with exactly one JSON object and no markdown fences:
 {{
-  "keep": [list of candidate indices to retain],
-  "drop": [list of candidate indices to reject],
-  "merge": [[list of fragment IDs that MUST be grouped together]],
-  "suggest_seed": "fragment ID or serial label to use as search seed (or null)",
-  "strategy": "coverage_first" or "score_first" or "balanced",
+  "keep": [candidate indices to lock into the next exact-cover pass],
+  "drop": [candidate indices to forbid in the next pass],
+  "merge": [[fragment IDs that must be constrained together]],
+  "suggest_seed": "fragment ID or serial label to seed candidate generation, or null",
+  "strategy": "coverage_first" or "score_first" or "balanced" or "broaden_search",
   "explanation": "brief reasoning"
 }}
 """
         response_text = self._query_api(prompt)
-        # Strip potential markdown formatting if returned
         response_text = response_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        
+
         try:
             data = json.loads(response_text)
             return LLMFeedback(
-                keep=data.get("keep", []),
-                drop=data.get("drop", []),
-                merge=data.get("merge", []),
+                keep=[int(item) for item in data.get("keep", [])],
+                drop=[int(item) for item in data.get("drop", [])],
+                merge=[list(map(str, group)) for group in data.get("merge", [])],
                 suggest_seed=data.get("suggest_seed"),
                 strategy=data.get("strategy", "balanced"),
-                explanation=data.get("explanation", "")
+                explanation=data.get("explanation", ""),
             )
         except Exception:
-            # Return empty feedback on parse failure
             return LLMFeedback(explanation="JSON parse failed.")
+
+    def analyze_candidates(
+        self,
+        fragments: list[Fragment],
+        candidates: list[AssemblyCandidate],
+        global_stats: dict[str, Any],
+    ) -> LLMFeedback:
+        """Backward-compatible wrapper for simple candidate-only tests."""
+
+        return self.analyze_search_state(
+            fragments,
+            candidates,
+            candidates,
+            global_stats,
+            rejected_by_solver={"count": 0, "top_rejected": []},
+        )
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _pool_for_llm(
+    candidates: list[AssemblyCandidate],
+    selected: list[AssemblyCandidate],
+    limit: int,
+) -> list[AssemblyCandidate]:
+    pool = list(candidates[: max(0, limit)])
+    seen = {_candidate_key(candidate.fragment_ids) for candidate in pool}
+    for candidate in selected:
+        key = _candidate_key(candidate.fragment_ids)
+        if key not in seen:
+            pool.append(candidate)
+            seen.add(key)
+    return pool
+
+
+def _rejected_summary(candidates: list[AssemblyCandidate], selected: list[AssemblyCandidate]) -> dict[str, Any]:
+    selected_keys = {_candidate_key(candidate.fragment_ids) for candidate in selected}
+    rejected = [candidate for candidate in candidates if _candidate_key(candidate.fragment_ids) not in selected_keys]
+    label_conflicts = sum(1 for candidate in rejected if len(candidate.labels) > 1)
+    return {
+        "count": len(rejected),
+        "label_conflict_count": label_conflicts,
+        "top_rejected": [
+            {
+                "fragment_ids": list(candidate.fragment_ids),
+                "coverage": round(candidate.coverage, 3),
+                "score": round(candidate.score, 1),
+                "labels": list(candidate.labels),
+            }
+            for candidate in rejected[:8]
+        ],
+    }
 
 
 def llm_guided_assembly_loop(
-    fragments: List[Fragment],
-    edges: List[TearFitEdge],
+    fragments: list[Fragment],
+    edges: list[TearFitEdge],
     llm_config: LLMAgentConfig,
     *,
     max_iterations: int = 3,
     coverage_threshold: float = 0.93,
     max_pieces: int = 12,
     beam_width: int = 64,
+    candidate_pool_limit: int = 40,
     time_limit_seconds: float = 30.0,
-) -> List[AssemblyCandidate]:
-    """Iteratively updates search space and solver constraints using LLM Critic feedback."""
+) -> list[AssemblyCandidate]:
+    """Iteratively update candidate generation and exact-cover constraints."""
+
     start_time = monotonic()
     controller = LLMController(llm_config)
-    
-    current_edges = list(edges)
-    current_coverage_threshold = coverage_threshold
-    current_seed_strategy = "anchor_priority"
-    
-    # Track LLM-enforced drops and merges
-    ignored_candidate_ids: Set[Tuple[str, ...]] = set()
-    forced_merges: List[Set[str]] = []
-    
-    final_selected: List[AssemblyCandidate] = []
-    
+    policy = SearchPolicy()
+    final_selected: list[AssemblyCandidate] = []
+
     for iteration in range(max_iterations):
-        if monotonic() - start_time >= time_limit_seconds:
+        elapsed = monotonic() - start_time
+        if elapsed >= time_limit_seconds:
             break
-            
-        # 1. Deterministic candidate generation
+
+        remaining_time = max(1.0, time_limit_seconds - elapsed)
+        current_threshold = _clamp(coverage_threshold + policy.coverage_delta, 0.5, 0.99)
+        current_beam_width = beam_width * (2 if policy.request_more_candidates else 1)
+
         candidates = generate_assembly_candidates(
             fragments,
-            current_edges,
-            coverage_threshold=current_coverage_threshold,
+            edges,
+            coverage_threshold=current_threshold,
             max_pieces=max_pieces,
-            beam_width=beam_width,
-            seed_strategy=current_seed_strategy,
-            time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time))
+            beam_width=current_beam_width,
+            seed_strategy="anchor_priority",
+            seed_whitelist=policy.seed_whitelist or None,
+            seed_labels=policy.seed_labels or None,
+            forced_pairs=policy.forced_pairs or None,
+            preferred_pairs=policy.preferred_pairs or None,
+            forbidden_pairs=policy.forbidden_pairs or None,
+            forbidden_candidates=policy.forbidden_candidates or None,
+            time_limit_seconds=remaining_time,
         )
-        
-        # Filter out candidates previously blacklisted by LLM
-        filtered_candidates = [
-            c for c in candidates if tuple(sorted(c.fragment_ids)) not in ignored_candidate_ids
-        ]
-        
-        if not filtered_candidates:
+        if not candidates:
             break
-            
-        # 2. Solver step (Exact Cover)
-        selected = select_exact_cover_candidates(
-            filtered_candidates,
-            time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time))
-        )
-        
-        # 3. Formulate global stats for LLM
+
+        try:
+            selected = select_exact_cover_candidates(
+                candidates,
+                time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time)),
+                objective=policy.objective,
+                forbidden_candidates=policy.forbidden_candidates or None,
+                locked_candidates=policy.locked_candidates or None,
+                preferred_candidates=policy.preferred_candidates or None,
+            )
+        except ValueError:
+            # A bad LLM lock should not poison the deterministic solver forever.
+            policy.preferred_candidates.update(policy.locked_candidates)
+            policy.locked_candidates.clear()
+            selected = select_exact_cover_candidates(
+                candidates,
+                time_limit_seconds=max(1.0, time_limit_seconds - (monotonic() - start_time)),
+                objective=policy.objective,
+                forbidden_candidates=policy.forbidden_candidates or None,
+                preferred_candidates=policy.preferred_candidates or None,
+            )
+
+        final_selected = selected
         diagnostics = diagnose_confirmed_candidates(selected, fragments)
-        unassigned_count = len(fragments) - sum(len(c.fragment_ids) for c in selected)
-        
+        assigned_ids = {fragment_id for candidate in selected for fragment_id in candidate.fragment_ids}
         global_stats = {
             "iteration": iteration,
             "total_fragments": len(fragments),
-            "unassigned_fragments": unassigned_count,
+            "candidate_pool_size": len(candidates),
+            "unassigned_fragments": len(fragments) - len(assigned_ids),
             "confirmed_assemblies": diagnostics.confirmed,
             "exact_confirmed": diagnostics.exact_confirmed,
             "chimeras": diagnostics.chimeras,
             "chimera_rate": diagnostics.chimeras / diagnostics.confirmed if diagnostics.confirmed else 0.0,
+            "policy": {
+                "seed_whitelist": sorted(policy.seed_whitelist),
+                "seed_labels": sorted(policy.seed_labels),
+                "forbidden_candidates": len(policy.forbidden_candidates),
+                "locked_candidates": len(policy.locked_candidates),
+                "forced_pairs": len(policy.forced_pairs),
+                "objective": policy.objective,
+                "coverage_delta": policy.coverage_delta,
+            },
         }
-        
-        # 4. Query LLM Critic
-        feedback = controller.analyze_candidates(fragments, selected, global_stats)
-        
-        # 5. Apply LLM feedback constraint shaping
-        # Update dropped candidate set
-        for idx in feedback.drop:
-            if idx < len(selected):
-                ignored_candidate_ids.add(tuple(sorted(selected[idx].fragment_ids)))
-                
-        # Update forced merges
-        for merge_group in feedback.merge:
-            forced_merges.append(set(merge_group))
-            
-        # If no changes or keeping all, we can stop early
-        if not feedback.drop and not feedback.merge and not feedback.suggest_seed:
-            final_selected = selected
+
+        candidate_pool = _pool_for_llm(candidates, selected, candidate_pool_limit)
+        feedback = controller.analyze_search_state(
+            fragments,
+            candidate_pool,
+            selected,
+            global_stats,
+            rejected_by_solver=_rejected_summary(candidates, selected),
+        )
+        changed = apply_feedback_to_policy(feedback, candidate_pool, fragments, policy)
+        if not changed:
             break
-            
-        # Apply merges to edges (artificial boost to force GNN/BFS compatibility)
-        if feedback.merge:
-            boosted_edges = []
-            fragment_id_to_idx = {f.id: idx for idx, f in enumerate(fragments)}
-            for edge in current_edges:
-                left_id = fragments[edge.left].id
-                right_id = fragments[edge.right].id
-                boost = False
-                for merge_set in forced_merges:
-                    if left_id in merge_set and right_id in merge_set:
-                        boost = True
-                        break
-                if boost:
-                    # Boost support scoring heavily
-                    boosted_edges.append(TearFitEdge(
-                        left=edge.left,
-                        right=edge.right,
-                        overlap_pixels=edge.overlap_pixels + 500,
-                        left_hits=edge.left_hits,
-                        right_hits=edge.right_hits,
-                        overlap_ratio=edge.overlap_ratio
-                    ))
-                else:
-                    boosted_edges.append(edge)
-            current_edges = boosted_edges
-            
-        # Adjust search parameters based on LLM suggestions
-        if feedback.strategy == "coverage_first":
-            current_coverage_threshold = max(0.5, current_coverage_threshold - 0.05)
-        elif feedback.strategy == "score_first":
-            current_coverage_threshold = min(0.99, current_coverage_threshold + 0.02)
-            
-        if feedback.suggest_seed:
-            # If seed matches a fragment label, route seed selection to it
-            current_seed_strategy = "anchor_priority"
-            
-        final_selected = selected
-        
+
     return final_selected

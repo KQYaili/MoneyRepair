@@ -461,6 +461,59 @@ def _support_for_state(state: frozenset[int], edge_lookup: dict[tuple[int, int],
     return support
 
 
+def _candidate_key(fragment_ids: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(fragment_ids))
+
+
+def _pair_key(left: str, right: str) -> tuple[str, str]:
+    return (left, right) if left <= right else (right, left)
+
+
+def _normalise_candidate_keys(values: Iterable[Iterable[str]] | None) -> set[tuple[str, ...]]:
+    if values is None:
+        return set()
+    return {_candidate_key(value) for value in values}
+
+
+def _normalise_index_pairs(
+    values: Iterable[tuple[str, str]] | None,
+    fragment_id_to_index: dict[str, int],
+) -> set[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    if values is None:
+        return pairs
+    for left_id, right_id in values:
+        if left_id == right_id:
+            continue
+        left = fragment_id_to_index.get(left_id)
+        right = fragment_id_to_index.get(right_id)
+        if left is None or right is None:
+            continue
+        pairs.add((left, right) if left <= right else (right, left))
+    return pairs
+
+
+def _state_has_pair(state: frozenset[int], pair: tuple[int, int]) -> bool:
+    return pair[0] in state and pair[1] in state
+
+
+def _state_has_forbidden_pair(state: frozenset[int], pairs: set[tuple[int, int]]) -> bool:
+    return any(_state_has_pair(state, pair) for pair in pairs)
+
+
+def _forced_pairs_satisfied(state: frozenset[int], pairs: set[tuple[int, int]]) -> bool:
+    for left, right in pairs:
+        if (left in state) != (right in state):
+            return False
+    return True
+
+
+def _pair_preference_bonus(state: frozenset[int], pairs: set[tuple[int, int]], bonus: float) -> float:
+    if not pairs:
+        return 0.0
+    return bonus * sum(1 for pair in pairs if _state_has_pair(state, pair))
+
+
 def _resolve_seed_strategy(seed_strategy: str, require_anchor: bool | None) -> str:
     if require_anchor is not None:
         return "anchor_priority"
@@ -524,6 +577,13 @@ def generate_assembly_candidates(
     beam_width: int = 64,
     seed_strategy: str = "anchor_priority",
     require_anchor: bool | None = None,
+    seed_whitelist: Iterable[str] | None = None,
+    seed_labels: Iterable[str] | None = None,
+    forced_pairs: Iterable[tuple[str, str]] | None = None,
+    preferred_pairs: Iterable[tuple[str, str]] | None = None,
+    forbidden_pairs: Iterable[tuple[str, str]] | None = None,
+    forbidden_candidates: Iterable[Iterable[str]] | None = None,
+    preferred_pair_bonus: float = 500.0,
     max_group_overlap_pixels: int = 0,
     time_limit_seconds: float | None = 20.0,
 ) -> list[AssemblyCandidate]:
@@ -539,8 +599,21 @@ def generate_assembly_candidates(
     if not fragments:
         return []
     seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
+    fragment_id_to_index = {fragment.id: index for index, fragment in enumerate(fragments)}
+    seed_whitelist_set = set(seed_whitelist or ())
+    seed_label_set = set(seed_labels or ())
+    forced_pair_indices = _normalise_index_pairs(forced_pairs, fragment_id_to_index)
+    preferred_pair_indices = _normalise_index_pairs(preferred_pairs, fragment_id_to_index) | forced_pair_indices
+    forbidden_pair_indices = _normalise_index_pairs(forbidden_pairs, fragment_id_to_index)
+    forbidden_candidate_keys = _normalise_candidate_keys(forbidden_candidates)
     graph, edge_lookup = _edge_graph(edges, len(fragments))
     starts = _seed_order(fragments, seed_strategy)
+    if seed_whitelist_set or seed_label_set:
+        starts = [
+            index
+            for index in starts
+            if fragments[index].id in seed_whitelist_set or (fragments[index].label and fragments[index].label in seed_label_set)
+        ]
     if not starts:
         return []
     total_area = fragments[0].mask.size
@@ -588,6 +661,8 @@ def generate_assembly_candidates(
                     new_state_set = frozenset((*state_info.state, neighbour))
                     if new_state_set in seen_states or len(new_state_set) > max_pieces:
                         continue
+                    if _state_has_forbidden_pair(new_state_set, forbidden_pair_indices):
+                        continue
                     
                     # Check labels incrementally
                     neighbour_label = fragments[neighbour].label
@@ -620,7 +695,8 @@ def generate_assembly_candidates(
                     else:
                         coverage = raw_coverage
 
-                    score = coverage * 10_000.0 + new_support + 100.0 * len(new_labels)
+                    preference_bonus = _pair_preference_bonus(new_state_set, preferred_pair_indices, preferred_pair_bonus)
+                    score = coverage * 10_000.0 + new_support + 100.0 * len(new_labels) + preference_bonus
 
                     new_info = StateInfo(
                         state=new_state_set,
@@ -639,6 +715,10 @@ def generate_assembly_candidates(
 
                     if coverage >= coverage_threshold:
                         ids = tuple(sorted(fragments[index].id for index in new_state_set))
+                        if ids in forbidden_candidate_keys:
+                            continue
+                        if not _forced_pairs_satisfied(new_state_set, forced_pair_indices):
+                            continue
                         existing_candidate = candidates.get(ids)
                         candidate = AssemblyCandidate(
                             fragment_ids=ids,
@@ -664,6 +744,10 @@ def select_exact_cover_candidates(
     *,
     time_limit_seconds: float | None = 10.0,
     objective: str = "score_then_count",
+    forbidden_candidates: Iterable[Iterable[str]] | None = None,
+    locked_candidates: Iterable[Iterable[str]] | None = None,
+    preferred_candidates: Iterable[Iterable[str]] | None = None,
+    preferred_candidate_bonus: float = 50_000.0,
 ) -> list[AssemblyCandidate]:
     """Globally choose disjoint confirmed candidates.
 
@@ -677,16 +761,51 @@ def select_exact_cover_candidates(
 
     if objective not in TEARFIT_COVER_OBJECTIVES:
         raise ValueError(f"objective must be one of: {', '.join(TEARFIT_COVER_OBJECTIVES)}")
-    ordered = sorted(candidates, key=lambda item: (-item.score, -len(item.fragment_ids), item.fragment_ids))
+    forbidden_keys = _normalise_candidate_keys(forbidden_candidates)
+    locked_keys = _normalise_candidate_keys(locked_candidates)
+    preferred_keys = _normalise_candidate_keys(preferred_candidates)
+
+    filtered = [candidate for candidate in candidates if _candidate_key(candidate.fragment_ids) not in forbidden_keys]
+
+    def adjusted_score(item: AssemblyCandidate) -> float:
+        score = item.score
+        if _candidate_key(item.fragment_ids) in preferred_keys:
+            score += preferred_candidate_bonus
+        return score
+
+    ordered = sorted(filtered, key=lambda item: (-adjusted_score(item), -len(item.fragment_ids), item.fragment_ids))
+    locked: list[AssemblyCandidate] = []
+    remaining: list[AssemblyCandidate] = []
+    used_locked_ids: set[str] = set()
+    used_locked_labels: set[str] = set()
+    locked_score = 0.0
+    available_locked_keys = {_candidate_key(candidate.fragment_ids) for candidate in ordered}
+    missing_locked = locked_keys - available_locked_keys
+    if missing_locked:
+        raise ValueError(f"locked candidates are unavailable: {sorted(missing_locked)}")
+    for candidate in ordered:
+        key = _candidate_key(candidate.fragment_ids)
+        if key in locked_keys:
+            item_ids = set(candidate.fragment_ids)
+            item_labels = set(candidate.labels)
+            if item_ids & used_locked_ids or item_labels & used_locked_labels:
+                raise ValueError("locked candidates conflict by fragment id or serial label")
+            locked.append(candidate)
+            used_locked_ids.update(item_ids)
+            used_locked_labels.update(item_labels)
+            locked_score += adjusted_score(candidate)
+        else:
+            remaining.append(candidate)
     
     # Pre-compute optimistic suffix scores for score_then_count DFS pruning
-    suffix_score = [0.0] * (len(ordered) + 1)
-    for i in range(len(ordered) - 1, -1, -1):
-        suffix_score[i] = suffix_score[i + 1] + max(0.0, ordered[i].score)
+    suffix_score = [0.0] * (len(remaining) + 1)
+    for i in range(len(remaining) - 1, -1, -1):
+        suffix_score[i] = suffix_score[i + 1] + max(0.0, adjusted_score(remaining[i]))
 
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
-    best_count = 0
-    best_score = float("-inf")
+    locked_count = len(locked)
+    best_count = locked_count
+    best_score = locked_score
     best_choice: tuple[int, ...] = ()
 
     def better(count: int, score: float) -> bool:
@@ -698,27 +817,27 @@ def select_exact_cover_candidates(
         nonlocal best_count, best_score, best_choice
         if deadline is not None and monotonic() >= deadline:
             return
-        if objective == "count_then_score" and len(chosen) + (len(ordered) - pos) < best_count:
+        if objective == "count_then_score" and locked_count + len(chosen) + (len(remaining) - pos) < best_count:
             return
         if objective == "score_then_count" and score + suffix_score[pos] < best_score:
             return
-        if pos >= len(ordered):
-            count = len(chosen)
+        if pos >= len(remaining):
+            count = locked_count + len(chosen)
             if better(count, score):
                 best_count = count
                 best_score = score
                 best_choice = chosen
             return
 
-        item = ordered[pos]
+        item = remaining[pos]
         item_ids = frozenset(item.fragment_ids)
         item_labels = frozenset(item.labels)
         if not (item_ids & used_ids) and not (item_labels & used_labels):
-            dfs(pos + 1, used_ids | item_ids, used_labels | item_labels, chosen + (pos,), score + item.score)
+            dfs(pos + 1, used_ids | item_ids, used_labels | item_labels, chosen + (pos,), score + adjusted_score(item))
         dfs(pos + 1, used_ids, used_labels, chosen, score)
 
-    dfs(0, frozenset(), frozenset(), (), 0.0)
-    return [ordered[index] for index in best_choice]
+    dfs(0, frozenset(used_locked_ids), frozenset(used_locked_labels), (), locked_score)
+    return locked + [remaining[index] for index in best_choice]
 
 
 def diagnose_confirmed_candidates(candidates: list[AssemblyCandidate], fragments: list[Fragment]) -> TearFitDiagnostics:
@@ -865,10 +984,10 @@ def run_tearfit_sweep(
     coverage_threshold: float = 0.93,
     gap_fill_radius: int = 2,
     beam_width: int = 64,
-    serial_ocr_rate: float = 1.0,
+    serial_ocr_rate: float = 0.6,
     seed_strategy: str = "anchor_priority",
     require_anchor: bool | None = None,
-    ensure_serial_anchor: bool = True,
+    ensure_serial_anchor: bool = False,
     candidate_time_limit_seconds: float | None = 20.0,
     cover_time_limit_seconds: float | None = 10.0,
     cover_objective: str = "score_then_count",
@@ -1083,9 +1202,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--coverage-threshold", type=float, default=0.93)
     parser.add_argument("--gap-fill-radius", type=int, default=2)
     parser.add_argument("--beam-width", type=int, default=64)
-    parser.add_argument("--serial-ocr-rate", type=float, default=1.0)
+    parser.add_argument("--serial-ocr-rate", type=float, default=0.6)
     parser.add_argument("--seed-strategy", choices=TEARFIT_SEED_STRATEGIES, default="anchor_priority")
     parser.add_argument("--ensure-serial-anchor", action="store_true")
+    parser.add_argument("--ideal-serial-upper-bound", action="store_true")
     parser.add_argument("--candidate-time-limit", type=float, default=20.0)
     parser.add_argument("--cover-time-limit", type=float, default=10.0)
     parser.add_argument("--cover-objective", choices=TEARFIT_COVER_OBJECTIVES, default="score_then_count")
@@ -1102,9 +1222,9 @@ def main(argv: list[str] | None = None) -> int:
         coverage_threshold=args.coverage_threshold,
         gap_fill_radius=args.gap_fill_radius,
         beam_width=args.beam_width,
-        serial_ocr_rate=args.serial_ocr_rate,
+        serial_ocr_rate=1.0 if args.ideal_serial_upper_bound else args.serial_ocr_rate,
         seed_strategy=args.seed_strategy,
-        ensure_serial_anchor=args.ensure_serial_anchor,
+        ensure_serial_anchor=True if args.ideal_serial_upper_bound else args.ensure_serial_anchor,
         candidate_time_limit_seconds=args.candidate_time_limit,
         cover_time_limit_seconds=args.cover_time_limit,
         cover_objective=args.cover_objective,

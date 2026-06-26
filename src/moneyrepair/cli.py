@@ -760,6 +760,8 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
 
 def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
     seed_strategy = "anchor_priority" if args.no_require_anchor else args.seed_strategy
+    serial_ocr_rate = 1.0 if args.ideal_serial_upper_bound else args.serial_ocr_rate
+    ensure_serial_anchor = True if args.ideal_serial_upper_bound else args.ensure_serial_anchor
     rows = run_tearfit_sweep(
         _parse_int_list(args.notes_list),
         pieces_per_note=args.pieces_per_note,
@@ -771,9 +773,9 @@ def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
         coverage_threshold=args.coverage_threshold,
         gap_fill_radius=args.gap_fill_radius,
         beam_width=args.beam_width,
-        serial_ocr_rate=args.serial_ocr_rate,
+        serial_ocr_rate=serial_ocr_rate,
         seed_strategy=seed_strategy,
-        ensure_serial_anchor=args.ensure_serial_anchor,
+        ensure_serial_anchor=ensure_serial_anchor,
         candidate_time_limit_seconds=args.candidate_time_limit,
         cover_time_limit_seconds=args.cover_time_limit,
         cover_objective=args.cover_objective,
@@ -1234,9 +1236,10 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit.add_argument("--coverage-threshold", type=float, default=0.93)
     tearfit.add_argument("--gap-fill-radius", type=int, default=2)
     tearfit.add_argument("--beam-width", type=int, default=64)
-    tearfit.add_argument("--serial-ocr-rate", type=float, default=1.0, help="probability that a note has a readable serial anchor")
+    tearfit.add_argument("--serial-ocr-rate", type=float, default=0.6, help="probability that a note has a readable serial anchor")
     tearfit.add_argument("--seed-strategy", choices=TEARFIT_SEED_STRATEGIES, default="anchor_priority", help="how candidate generation chooses search starts")
     tearfit.add_argument("--ensure-serial-anchor", action="store_true", help="force at least one serial-labelled fragment for every note before OCR dropout")
+    tearfit.add_argument("--ideal-serial-upper-bound", action="store_true", help="shortcut for --serial-ocr-rate 1.0 --ensure-serial-anchor")
     tearfit.add_argument("--candidate-time-limit", type=float, default=20.0)
     tearfit.add_argument("--cover-time-limit", type=float, default=10.0)
     tearfit.add_argument("--cover-objective", choices=TEARFIT_COVER_OBJECTIVES, default="score_then_count")
