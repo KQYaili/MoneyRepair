@@ -31,9 +31,8 @@ def fragment_appearance(fragment: Fragment, template: np.ndarray) -> np.ndarray:
     gain = np.ones(3, dtype=np.float64)
     for channel in range(3):
         ref = reference[:, channel]
-        denom = float(np.dot(ref, ref))
-        if denom > 1e-6:
-            gain[channel] = float(np.dot(observed[:, channel], ref) / denom)
+        denom = float(np.dot(ref, ref)) + 1e-9
+        gain[channel] = float(np.dot(observed[:, channel], ref) / denom)
     return gain
 
 

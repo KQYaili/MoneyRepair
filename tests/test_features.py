@@ -56,3 +56,9 @@ def test_match_raw_crop_contours_finds_subsegment_match():
     assert matches[0]["left"] == "a"
     assert matches[0]["right"] == "b"
     assert matches[0]["distance"] < 0.2
+    assert "left_start" in matches[0]
+    assert "right_start" in matches[0]
+    assert isinstance(matches[0]["reversed"], bool)
+    assert isinstance(matches[0]["estimated_rotation"], float)
+    assert isinstance(matches[0]["estimated_translation"], list)
+    assert len(matches[0]["estimated_translation"]) == 2

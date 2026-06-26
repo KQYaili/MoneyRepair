@@ -73,6 +73,7 @@ def run_production_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    pipeline_started = perf_counter()
     timings: dict[str, float] = {}
 
     started = perf_counter()
@@ -239,6 +240,14 @@ def run_production_pipeline(
     matrix.save(matrix_path)
     timings["build_matrix"] = perf_counter() - started
 
+    # Graceful degradation fallback: if OCR confidence is zero, switch order_strategy to max_degree
+    has_any_label = any(fragment.label for fragment in active_search)
+    actual_order_strategy = order_strategy
+    if not has_any_label:
+        print("Warning: All fragment labels are empty (OCR/serial confidence is zero). "
+              "Falling back to pure topological drive: Max-Contiguity Degree (max_degree) for DFS root selection.")
+        actual_order_strategy = "max_degree"
+
     started = perf_counter()
     solutions = solve_covering_sets(
         active_search,
@@ -246,12 +255,13 @@ def run_production_pipeline(
         target_coverage=target_coverage,
         max_solutions=max_solutions,
         time_limit_seconds=time_limit_seconds,
-        order_strategy=order_strategy,
+        order_strategy=actual_order_strategy,
         precise_bound_threshold=precise_bound_threshold,
         touch_priority=touch_priority,
     )
     timings["solve"] = perf_counter() - started
-    timings["total"] = sum(value for key, value in timings.items() if key not in ("total", "total_without_jit_warmup"))
+    timings["search_total"] = sum(value for key, value in timings.items() if key not in ("total", "total_without_jit_warmup", "search_total", "pipeline_total"))
+    timings["total"] = timings["search_total"]
     timings["total_without_jit_warmup"] = timings["total"] - timings.get("jit_warmup", 0.0)
 
     candidates_path = output_dir / "candidates.json"
@@ -291,15 +301,20 @@ def run_production_pipeline(
             ref_info["back"] = "numpy_array"
             ref_info["back_sha256"] = hashlib.sha256(np.ascontiguousarray(reference_back).tobytes()).hexdigest()
 
+    manifest_path = output_dir / "run_manifest.json"
     manifest_outputs = {
         "matrix": str(matrix_path),
         "candidates": str(candidates_path),
         "quality_report": str(quality_path),
         "report": str(report_path),
         "visualizations": str(vis_dir),
+        "run_manifest": str(manifest_path),
     }
     if auto_locate:
         manifest_outputs["pose_candidates"] = str(pose_candidates_path)
+
+    # Compute final pipeline total time
+    timings["pipeline_total"] = perf_counter() - pipeline_started
 
     manifest = {
         "tool": "moneyrepair",
@@ -353,7 +368,5 @@ def run_production_pipeline(
         "timings_seconds": timings,
         "outputs": manifest_outputs,
     }
-    manifest_path = output_dir / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    manifest["outputs"]["run_manifest"] = str(manifest_path)
     return manifest

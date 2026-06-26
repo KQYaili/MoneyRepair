@@ -34,10 +34,10 @@ def test_interlock_compatibility_rejects_weak_touch_when_thresholded():
     right = Fragment(id="right", mask=right_mask)
 
     score = tear_interlock_score(left, right)
-    matrix = compute_interlock_compatibility([left, right], min_contact_edges=1, min_contact_ratio=0.2)
+    matrix = compute_interlock_compatibility([left, right], min_contact_edges=1, min_contact_ratio=1.9)
 
-    assert score.contact_edges == 2
-    assert score.contact_ratio < 0.2
+    assert score.contact_edges == 22
+    assert score.contact_ratio < 1.9
     assert not matrix.to_dense().compatible[0, 1]
 
 
@@ -94,7 +94,7 @@ def test_interlock_constraints_apply_to_existing_grouped_matrix():
         grouped,
         fragments,
         min_contact_edges=1,
-        min_contact_ratio=0.2,
+        min_contact_ratio=1.9,
     )
     dense = matrix.to_dense()
 

@@ -26,6 +26,23 @@ class InterlockCompatibilityStats:
     rejected_pairs: int
 
 
+def binary_dilation_3x3(mask: np.ndarray) -> np.ndarray:
+    """Dilate a binary 2D array with a 3x3 structuring element (all ones) using numpy shifts."""
+    if mask.size == 0 or mask.ndim != 2:
+        return mask
+    mask = mask.astype(bool)
+    dilated = mask.copy()
+    dilated[1:, :] |= mask[:-1, :]
+    dilated[:-1, :] |= mask[1:, :]
+    dilated[:, 1:] |= mask[:, :-1]
+    dilated[:, :-1] |= mask[:, 1:]
+    dilated[1:, 1:] |= mask[:-1, :-1]
+    dilated[:-1, :-1] |= mask[1:, 1:]
+    dilated[1:, :-1] |= mask[:-1, 1:]
+    dilated[:-1, 1:] |= mask[1:, :-1]
+    return dilated
+
+
 def boundary_edge_count(mask: np.ndarray) -> int:
     """Count foreground-to-background 4-neighbour boundary edges."""
 
@@ -62,7 +79,9 @@ def tear_interlock_score(left: Fragment, right: Fragment) -> TearInterlockScore:
     this local test.
     """
 
-    contact = contact_edge_count(left.mask, right.mask)
+    dilated_left = binary_dilation_3x3(left.mask)
+    dilated_right = binary_dilation_3x3(right.mask)
+    contact = contact_edge_count(dilated_left, dilated_right)
     if contact == 0:
         return TearInterlockScore(contact_edges=0, contact_ratio=0.0)
     denom = max(1, min(boundary_edge_count(left.mask), boundary_edge_count(right.mask)))
@@ -165,23 +184,33 @@ def apply_interlock_constraints_with_stats(
         raise ValueError("fragment order must match compatibility ids")
     packed = PackedCompatibilityMatrix(ids=base.ids, packed=base.packed.copy(), n=base.n)
 
+    bboxes = [fragment.bbox for fragment in fragments]
+    expanded = [_expanded_bbox(bbox) for bbox in bboxes]
+
+    # NumPy extract active compatible pairs
+    dense_compat = base.to_dense().compatible
+    left_indices, right_indices = np.where(dense_compat)
+    valid_mask = right_indices > left_indices
+    left_active = left_indices[valid_mask]
+    right_active = right_indices[valid_mask]
+
     bbox_candidate_pairs = 0
     scored_contact_pairs = 0
     rejected_pairs = 0
 
-    for left_index, right_index in iter_contact_candidate_pairs(fragments, cell=cell):
+    for k in range(len(left_active)):
+        i, j = int(left_active[k]), int(right_active[k])
+        if not _bbox_intersects(expanded[i], expanded[j]):
+            continue
         bbox_candidate_pairs += 1
 
-        if not packed.is_compatible(left_index, right_index):
-            continue
-
-        score = tear_interlock_score(fragments[left_index], fragments[right_index])
+        score = tear_interlock_score(fragments[i], fragments[j])
         if score.contact_edges < min_contact_edges:
             continue
 
         scored_contact_pairs += 1
         if score.contact_ratio < min_contact_ratio:
-            packed.set_pair_compatible(left_index, right_index, False)
+            packed.set_pair_compatible(i, j, False)
             rejected_pairs += 1
 
     return packed, InterlockCompatibilityStats(

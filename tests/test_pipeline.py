@@ -98,3 +98,26 @@ def test_run_production_pipeline_with_interlock(tmp_path):
     assert manifest["search"]["interlock_stats"] is not None
     assert "bbox_candidate_pairs" in manifest["search"]["interlock_stats"]
 
+
+def test_run_production_pipeline_graceful_degradation_fallback(tmp_path):
+    import dataclasses
+    template, fragments = make_synthetic_fragments(pieces=4, width=140, height=70, seed=5)
+    # Strip all labels to trigger graceful degradation
+    fragments = [dataclasses.replace(f, label="") for f in fragments]
+
+    dataset_path = tmp_path / "dataset_no_labels.npz"
+    save_dataset(dataset_path, template, fragments)
+
+    output_dir = tmp_path / "run_fallback"
+    manifest = run_production_pipeline(
+        dataset_path,
+        output_dir,
+        target_coverage=0.9,
+        max_solutions=3,
+        time_limit_seconds=10,
+        order_strategy="area_degree",
+    )
+
+    assert manifest["version"] == moneyrepair.__version__
+    assert manifest["search"]["solutions_found"] >= 1
+

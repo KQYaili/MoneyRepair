@@ -93,8 +93,8 @@ def solve_covering_sets(
     if not allowed_indices:
         return []
 
-    if order_strategy not in {"area", "degree", "area_degree"}:
-        raise ValueError("order_strategy must be one of: area, degree, area_degree")
+    if order_strategy not in {"area", "degree", "area_degree", "max_degree", "max_variance"}:
+        raise ValueError("order_strategy must be one of: area, degree, area_degree, max_degree, max_variance")
 
     total_area = fragments[0].mask.size
     target_area = int(np.ceil(total_area * target_coverage))
@@ -108,6 +108,17 @@ def solve_covering_sets(
         order = tuple(index for index in np.argsort(-areas).tolist() if index in allowed_indices)
     elif order_strategy == "degree":
         order = tuple(sorted(allowed_tuple, key=lambda index: (degrees[index], -areas[index], index)))
+    elif order_strategy == "max_degree":
+        order = tuple(sorted(allowed_tuple, key=lambda index: (-degrees[index], -areas[index], index)))
+    elif order_strategy == "max_variance":
+        variances = []
+        for f in fragments:
+            if f.image is not None and int(f.mask.sum()) > 0:
+                variances.append(float(np.var(f.image[f.mask])))
+            else:
+                variances.append(0.0)
+        variances_arr = np.array(variances)
+        order = tuple(index for index in np.argsort(-variances_arr).tolist() if index in allowed_indices)
     else:
         order = tuple(sorted(allowed_tuple, key=lambda index: (-areas[index], degrees[index], index)))
     order_rank = {index: rank for rank, index in enumerate(order)}

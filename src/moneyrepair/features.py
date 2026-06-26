@@ -113,8 +113,10 @@ def match_raw_crop_contours(
 
             c_j_complex = c_j[:, 0] + 1j * c_j[:, 1]
             best_dist = float("inf")
+            best_match_info = {}
 
-            for direction in (c_j_complex, c_j_complex[::-1]):
+            for dir_idx, direction in enumerate((c_j_complex, c_j_complex[::-1])):
+                is_reversed = (dir_idx == 1)
                 windows_j = []
                 c_j_wrapped = np.concatenate([direction, direction[:segment_length-1]])
                 for start in range(len(c_j)):
@@ -126,18 +128,49 @@ def match_raw_crop_contours(
 
                 W_j = np.vstack(windows_j)
 
-                # Vectorized dot products: shape (64, 64)
-                dots = np.abs(W_i @ W_j.conj().T)
-                max_dot = dots.max()
-                dist = np.sqrt(max(0.0, 2.0 - 2.0 * max_dot))
+                # Vectorized dot products: shape (len(c_i), len(c_j))
+                dots = W_i @ W_j.conj().T
+                abs_dots = np.abs(dots)
+                max_idx = np.argmax(abs_dots)
+                idx_i, idx_j = np.unravel_index(max_idx, abs_dots.shape)
+                max_abs_dot = abs_dots[idx_i, idx_j]
+                dist = np.sqrt(max(0.0, 2.0 - 2.0 * max_abs_dot))
+
                 if dist < best_dist:
                     best_dist = dist
+                    dot_val = dots[idx_i, idx_j]
+                    theta = np.angle(dot_val)
+                    
+                    sub_A = c_i_wrapped[idx_i : idx_i + segment_length]
+                    sub_B = c_j_wrapped[idx_j : idx_j + segment_length]
+                    mean_A = sub_A.mean()
+                    mean_B = sub_B.mean()
+                    t = mean_A - mean_B * np.exp(1j * theta)
+
+                    left_start = int(idx_i)
+                    if is_reversed:
+                        right_start = int((len(c_j) - 1 - idx_j) % len(c_j))
+                    else:
+                        right_start = int(idx_j)
+
+                    best_match_info = {
+                        "left_start": left_start,
+                        "right_start": right_start,
+                        "reversed": is_reversed,
+                        "estimated_rotation": float(theta),
+                        "estimated_translation": [float(t.real), float(t.imag)],
+                    }
 
             if best_dist <= max_distance:
                 matches.append(
                     {
                         "left": fragments[i].id,
                         "right": fragments[j].id,
+                        "left_start": best_match_info["left_start"],
+                        "right_start": best_match_info["right_start"],
+                        "reversed": best_match_info["reversed"],
+                        "estimated_rotation": best_match_info["estimated_rotation"],
+                        "estimated_translation": best_match_info["estimated_translation"],
                         "distance": float(best_dist),
                     }
                 )
