@@ -32,6 +32,7 @@ from moneyrepair.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
+from moneyrepair.pressure import run_pressure_sweep
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
@@ -159,6 +160,37 @@ def _solutions_from_json(raw: list[dict]) -> list[CoverageSolution]:
         )
         for item in raw
     ]
+
+
+def _parse_int_list(value: str) -> list[int]:
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def _parse_float_list(value: str) -> list[float]:
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def _print_pressure_summary(summary: list[dict]) -> None:
+    columns = (
+        "notes",
+        "appearance_spread",
+        "cluster_count",
+        "mixed_note_count",
+        "cluster_exact_recoverable_rate",
+        "overlap_chimeras",
+        "disc_chimeras",
+        "disc_uniquely_exact_recovered_rate",
+    )
+    print("\t".join(columns))
+    for row in summary:
+        values = []
+        for column in columns:
+            value = row.get(column, "")
+            if isinstance(value, float):
+                values.append(f"{value:.4g}")
+            else:
+                values.append(str(value))
+        print("\t".join(values))
 
 
 def _cmd_solve(args: argparse.Namespace) -> None:
@@ -497,13 +529,33 @@ def _cmd_simulate_multi_note(args: argparse.Namespace) -> None:
         side=args.side,
         appearance_spread=args.appearance_spread,
         noise_sigma=args.noise_sigma,
+        wear_model=args.wear_model,
+        local_wear_strength=args.local_wear_strength,
+        gamma_spread=args.gamma_spread,
+        stain_count=args.stain_count,
+        stain_strength=args.stain_strength,
     )
     save_dataset(args.output, template, fragments)
     print(f"wrote {len(fragments)} fragments from {args.notes} notes to {args.output}")
 
 
 def _diagnosis_summary(diagnosis: dict) -> dict:
-    keys = ("solutions", "chimeras", "pure", "chimera_rate", "true_notes", "pure_notes_found", "exactly_recovered_notes")
+    keys = (
+        "solutions",
+        "chimeras",
+        "pure",
+        "chimera_rate",
+        "true_notes",
+        "pure_notes_found",
+        "pure_notes_found_count",
+        "pure_notes_found_rate",
+        "exactly_recovered_notes",
+        "exactly_recovered_count",
+        "exactly_recovered_rate",
+        "uniquely_exact_recovered_notes",
+        "uniquely_exact_recovered_count",
+        "uniquely_exact_recovered_rate",
+    )
     return {key: diagnosis[key] for key in keys}
 
 
@@ -565,6 +617,62 @@ def _cmd_diagnose_chimeras(args: argparse.Namespace) -> None:
         output.write_text(json.dumps({**report, "detail": {"overlap_only": overlap_diag, "discriminative": disc_diag}}, indent=2), encoding="utf-8")
 
     print(json.dumps(report, indent=2))
+
+
+def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
+    if args.mode == "n-sweep":
+        notes_values = _parse_int_list(args.notes_list)
+        spread_values = [args.appearance_spread]
+    elif args.mode == "spread-sweep":
+        notes_values = [args.notes]
+        spread_values = _parse_float_list(args.spread_list)
+    else:
+        raise ValueError("mode must be n-sweep or spread-sweep")
+    seeds = _parse_int_list(args.seeds)
+
+    result = run_pressure_sweep(
+        notes_values=notes_values,
+        spread_values=spread_values,
+        seeds=seeds,
+        pieces_per_note=args.pieces_per_note,
+        width=args.width,
+        height=args.height,
+        coverage=args.coverage,
+        max_solutions=args.max_solutions,
+        time_limit=args.time_limit,
+        order_strategy=args.order_strategy,
+        discriminate_tolerance=args.discriminate_tolerance,
+        wear_model=args.wear_model,
+        noise_sigma=args.noise_sigma,
+        local_wear_strength=args.local_wear_strength,
+        gamma_spread=args.gamma_spread,
+        stain_count=args.stain_count,
+        stain_strength=args.stain_strength,
+    )
+    payload = {
+        "config": {
+            "mode": args.mode,
+            "notes_values": notes_values,
+            "spread_values": spread_values,
+            "seeds": seeds,
+            "pieces_per_note": args.pieces_per_note,
+            "width": args.width,
+            "height": args.height,
+            "coverage": args.coverage,
+            "max_solutions": args.max_solutions,
+            "time_limit": args.time_limit,
+            "order_strategy": args.order_strategy,
+            "discriminate_tolerance": args.discriminate_tolerance,
+            "wear_model": args.wear_model,
+        },
+        **result,
+    }
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"wrote pressure report to {output}")
+    _print_pressure_summary(payload["summary"])
 
 
 def _cmd_report_figures(args: argparse.Namespace) -> None:
@@ -698,6 +806,11 @@ def build_parser() -> argparse.ArgumentParser:
     multi.add_argument("--side", default="front")
     multi.add_argument("--appearance-spread", type=float, default=0.18)
     multi.add_argument("--noise-sigma", type=float, default=4.0)
+    multi.add_argument("--wear-model", choices=("global_gain", "spatial"), default="global_gain")
+    multi.add_argument("--local-wear-strength", type=float, default=0.0)
+    multi.add_argument("--gamma-spread", type=float, default=0.0)
+    multi.add_argument("--stain-count", type=int, default=0)
+    multi.add_argument("--stain-strength", type=float, default=0.0)
     multi.set_defaults(func=_cmd_simulate_multi_note)
 
     matrix = sub.add_parser("build-matrix", help="build packed compatibility matrix")
@@ -909,6 +1022,30 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--vis-dir", help="render overlap-only and discriminative candidates here for visual inspection")
     diagnose.add_argument("--output", help="write the full diagnosis JSON here")
     diagnose.set_defaults(func=_cmd_diagnose_chimeras)
+
+    pressure = sub.add_parser("pressure-chimeras", help="sweep N or appearance spread against chimera recovery metrics")
+    pressure.add_argument("--mode", choices=("n-sweep", "spread-sweep"), required=True)
+    pressure.add_argument("--notes-list", default="3,8,20,40,80,150", help="comma-separated N values for --mode n-sweep")
+    pressure.add_argument("--notes", type=int, default=30, help="fixed note count for --mode spread-sweep")
+    pressure.add_argument("--appearance-spread", type=float, default=0.18, help="fixed spread for --mode n-sweep")
+    pressure.add_argument("--spread-list", default="0.18,0.10,0.06,0.04,0.02", help="comma-separated spread values for --mode spread-sweep")
+    pressure.add_argument("--seeds", default="7,8,9")
+    pressure.add_argument("--pieces-per-note", type=int, default=8)
+    pressure.add_argument("--width", type=int, default=160)
+    pressure.add_argument("--height", type=int, default=90)
+    pressure.add_argument("--coverage", type=float, default=0.95)
+    pressure.add_argument("--max-solutions", type=int, default=20)
+    pressure.add_argument("--time-limit", type=float, default=30.0)
+    pressure.add_argument("--order-strategy", choices=("area", "degree", "area_degree"), default="area_degree")
+    pressure.add_argument("--discriminate-tolerance", type=float, default=0.05)
+    pressure.add_argument("--wear-model", choices=("global_gain", "spatial"), default="global_gain")
+    pressure.add_argument("--noise-sigma", type=float, default=4.0)
+    pressure.add_argument("--local-wear-strength", type=float, default=0.0)
+    pressure.add_argument("--gamma-spread", type=float, default=0.0)
+    pressure.add_argument("--stain-count", type=int, default=0)
+    pressure.add_argument("--stain-strength", type=float, default=0.0)
+    pressure.add_argument("--output", help="write raw rows and averaged summary as JSON")
+    pressure.set_defaults(func=_cmd_pressure_chimeras)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)

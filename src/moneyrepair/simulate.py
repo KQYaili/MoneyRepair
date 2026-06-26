@@ -90,6 +90,58 @@ def _serial_roi(height: int, width: int) -> tuple[int, int, int, int]:
     return int(width * 0.06), int(height * 0.62), int(width * 0.42), int(height * 0.92)
 
 
+def _smooth_field(height: int, width: int, rng: np.random.Generator, grid: int = 6) -> np.ndarray:
+    """Low-frequency random field in [-1, 1]."""
+
+    grid = max(2, int(grid))
+    low = rng.normal(0, 1, (grid, grid)).astype(np.float32)
+    low = (low - low.mean()) / (low.std() + 1e-6)
+    image = Image.fromarray(np.clip((low + 3.0) / 6.0 * 255, 0, 255).astype(np.uint8), mode="L")
+    resampling = getattr(Image, "Resampling", Image)
+    field = np.asarray(image.resize((width, height), resample=resampling.BICUBIC), dtype=np.float32) / 255.0
+    field = (field - field.mean()) / (field.std() + 1e-6)
+    return np.clip(field / 3.0, -1.0, 1.0)
+
+
+def _apply_spatial_wear(
+    template: np.ndarray,
+    rng: np.random.Generator,
+    global_gain: np.ndarray,
+    local_strength: float,
+    gamma_spread: float,
+    stain_count: int,
+    stain_strength: float,
+) -> np.ndarray:
+    """Apply non-uniform note wear that a global gain fingerprint cannot invert."""
+
+    height, width = template.shape[:2]
+    image = template.astype(np.float32) / 255.0
+    gamma = float(1.0 + rng.uniform(-gamma_spread, gamma_spread))
+    image = np.power(np.clip(image, 0, 1), gamma)
+
+    yy, xx = np.mgrid[0:height, 0:width]
+    vignette_cx = rng.uniform(0.35, 0.65) * width
+    vignette_cy = rng.uniform(0.35, 0.65) * height
+    radius = np.sqrt(((xx - vignette_cx) / max(width, 1)) ** 2 + ((yy - vignette_cy) / max(height, 1)) ** 2)
+    vignette = 1.0 - local_strength * 0.55 * radius / (radius.max() + 1e-6)
+
+    field = _smooth_field(height, width, rng, grid=6)
+    local = 1.0 + local_strength * field
+    image = image * vignette[..., None] * local[..., None]
+
+    for _ in range(max(0, int(stain_count))):
+        cx = rng.uniform(0, width)
+        cy = rng.uniform(0, height)
+        sx = rng.uniform(width * 0.05, width * 0.22)
+        sy = rng.uniform(height * 0.05, height * 0.22)
+        blob = np.exp(-(((xx - cx) / sx) ** 2 + ((yy - cy) / sy) ** 2) / 2.0)
+        tint = rng.uniform(-stain_strength, stain_strength, size=3)
+        image = image * (1.0 + blob[..., None] * tint)
+
+    image = image * global_gain.reshape(1, 1, 3)
+    return np.clip(image * 255.0, 0, 255).astype(np.uint8)
+
+
 def make_multi_note_fragments(
     notes: int = 3,
     pieces_per_note: int = 12,
@@ -99,14 +151,19 @@ def make_multi_note_fragments(
     side: str = "front",
     appearance_spread: float = 0.18,
     noise_sigma: float = 4.0,
+    wear_model: str = "global_gain",
+    local_wear_strength: float = 0.0,
+    gamma_spread: float = 0.0,
+    stain_count: int = 0,
+    stain_strength: float = 0.0,
 ) -> tuple[np.ndarray, list[Fragment]]:
     """Generate fragments from ``notes`` distinct banknotes of one denomination.
 
-    Every note is the same template with its own per-channel appearance gain
-    (wear / yellowing / ink density) and a serial number; each note is cut into
-    non-overlapping Voronoi pieces. All pieces share the single note coordinate
-    frame and are mixed into one pool, with the true ``note_id`` recorded in
-    ``meta`` for diagnosis only.
+    The default ``global_gain`` wear model is the friendly red/green testbed:
+    every note is the same template with one per-channel appearance gain and a
+    serial number. ``spatial`` adds local gamma, vignetting, stains, and
+    low-frequency wear so the global-gain fingerprint no longer perfectly
+    inverts the simulator.
 
     This is the honest testbed: pieces from different notes that cover disjoint
     regions do not overlap, so an overlap-only compatibility matrix will happily
@@ -116,6 +173,8 @@ def make_multi_note_fragments(
 
     if notes < 1:
         raise ValueError("notes must be >= 1")
+    if wear_model not in {"global_gain", "spatial"}:
+        raise ValueError("wear_model must be 'global_gain' or 'spatial'")
     template = synthetic_banknote(width=width, height=height, seed=seed)
     rng = np.random.default_rng(seed + 5_000)
     x0, y0, x1, y1 = _serial_roi(height, width)
@@ -131,7 +190,14 @@ def make_multi_note_fragments(
         gain = 1.0 + rng.uniform(-appearance_spread, appearance_spread, size=3)
         serial = f"SN{note_index:08d}"
         note_id = f"note-{note_index:03d}"
-        toned = np.clip(template.astype(np.float32) * gain, 0, 255)
+        if wear_model == "spatial":
+            strength = local_wear_strength if local_wear_strength > 0 else 0.10
+            gamma = gamma_spread if gamma_spread > 0 else 0.04
+            stains = stain_count if stain_count > 0 else 3
+            stain = stain_strength if stain_strength > 0 else 0.10
+            toned = _apply_spatial_wear(template, rng, gain, strength, gamma, stains, stain)
+        else:
+            toned = np.clip(template.astype(np.float32) * gain, 0, 255)
         toned = np.clip(toned + rng.normal(0, noise_sigma, toned.shape), 0, 255).astype(np.uint8)
 
         for piece in range(pieces_per_note):
@@ -147,7 +213,12 @@ def make_multi_note_fragments(
                     side=side,
                     mask=mask,
                     image=image,
-                    meta={"note_id": note_id, "serial": serial, "gain": [round(float(value), 4) for value in gain]},
+                    meta={
+                        "note_id": note_id,
+                        "serial": serial,
+                        "gain": [round(float(value), 4) for value in gain],
+                        "wear_model": wear_model,
+                    },
                 )
             )
     return template, fragments

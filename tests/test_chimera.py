@@ -1,6 +1,9 @@
+import numpy as np
+
 from moneyrepair.compat import compute_compatibility_fast
-from moneyrepair.diagnostics import diagnose_solutions
-from moneyrepair.fingerprint import cluster_fragments_by_appearance, discriminative_compatibility
+from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
+from moneyrepair.fingerprint import cluster_fragments_by_appearance, discriminative_compatibility, fragment_appearances
+from moneyrepair.pressure import run_pressure_case
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, save_dataset
 from moneyrepair.solver import solve_covering_sets
 
@@ -103,3 +106,71 @@ def test_dbscan_clustering_order_independent_and_no_drift():
 
     finally:
         fp.fragment_appearances = orig_appearances
+
+
+def test_spatial_wear_breaks_perfect_global_gain_inverse():
+    global_template, global_fragments = make_multi_note_fragments(
+        notes=1,
+        pieces_per_note=10,
+        width=160,
+        height=90,
+        seed=11,
+        appearance_spread=0.02,
+        noise_sigma=0.0,
+    )
+    spatial_template, spatial_fragments = make_multi_note_fragments(
+        notes=1,
+        pieces_per_note=10,
+        width=160,
+        height=90,
+        seed=11,
+        appearance_spread=0.02,
+        noise_sigma=0.0,
+        wear_model="spatial",
+        local_wear_strength=0.18,
+        gamma_spread=0.06,
+        stain_count=4,
+        stain_strength=0.12,
+    )
+
+    global_gains = np.array(list(fragment_appearances(global_fragments, global_template).values()))
+    spatial_gains = np.array(list(fragment_appearances(spatial_fragments, spatial_template).values()))
+
+    assert spatial_fragments[0].meta["wear_model"] == "spatial"
+    assert float(spatial_gains.std(axis=0).mean()) > float(global_gains.std(axis=0).mean()) + 0.005
+
+
+def test_group_diagnosis_reports_mixed_and_exact_recoverable_notes():
+    _, fragments = _pool(notes=2, pieces_per_note=4)
+    exact_groups = {fragment.id: int(fragment.meta["note_id"].split("-")[-1]) for fragment in fragments}
+    exact = diagnose_groups(fragments, exact_groups)
+    assert exact["exact_recoverable_count"] == 2
+    assert exact["exact_recoverable_rate"] == 1.0
+
+    merged = diagnose_groups(fragments, {fragment.id: 0 for fragment in fragments})
+    assert merged["mixed_note_count"] == 2
+    assert merged["exact_recoverable_count"] == 0
+
+
+def test_pressure_case_reports_uncapped_grouping_metrics():
+    row = run_pressure_case(
+        notes=3,
+        pieces_per_note=5,
+        width=120,
+        height=70,
+        seed=13,
+        appearance_spread=0.04,
+        wear_model="spatial",
+        local_wear_strength=0.12,
+        gamma_spread=0.04,
+        stain_count=2,
+        stain_strength=0.08,
+        coverage=0.9,
+        max_solutions=5,
+        time_limit=5.0,
+    )
+
+    assert row["wear_model"] == "spatial"
+    assert row["cluster_count"] >= 1
+    assert "cluster_exact_recoverable_rate" in row
+    assert "disc_uniquely_exact_recovered_rate" in row

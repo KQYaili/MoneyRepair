@@ -10,7 +10,7 @@ from moneyrepair.compat import (
     compute_compatibility_fast,
     write_incompatible_pairs,
 )
-from moneyrepair.diagnostics import diagnose_solutions, solution_purity
+from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions, solution_purity
 from moneyrepair.diagrams import DiagramSpec, production_pipeline_spec, write_diagram
 from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.fingerprint import (
@@ -21,6 +21,7 @@ from moneyrepair.fingerprint import (
 from moneyrepair.ingest import fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
+from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
 from moneyrepair.quality import FrameQuality, QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import ReferenceScore, score_best_reference_side, score_fragments_by_side
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
@@ -30,7 +31,7 @@ from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragm
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.types import Fragment
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 
 __all__ = [
     "AuditEvent",
@@ -57,6 +58,7 @@ __all__ = [
     "compute_compatibility_clustered",
     "compute_compatibility_fast",
     "connected_components",
+    "diagnose_groups",
     "diagnose_solutions",
     "discriminative_compatibility",
     "fragment_appearance",
@@ -68,6 +70,8 @@ __all__ = [
     "production_pipeline_spec",
     "solution_purity",
     "render_report_figure",
+    "run_pressure_case",
+    "run_pressure_sweep",
     "run_production_pipeline",
     "run_synthetic_benchmark",
     "segment_scan_to_manifest",

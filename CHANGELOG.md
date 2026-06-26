@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.1.0
+
+Chimera pressure realism:
+
+- adds `spatial` wear to `make_multi_note_fragments`, with local low-frequency wear, gamma drift, vignetting, and stains so the global RGB-gain fingerprint no longer perfectly inverts the simulator;
+- adds uncapped grouping diagnosis (`diagnose_groups`) with `cluster_exact_recoverable_rate`, `mixed_note_count`, and split-note counts;
+- adds `pressure-chimeras` for N-sweeps and appearance-spread sweeps over overlap-only vs discriminative matrices;
+- extends `diagnose_solutions` with count/rate fields and `uniquely_exact_recovered_rate`;
+- documents why top-20 chimera counts can hide large-N identity merges, and why serial/OCR must anchor the industrial algorithm while appearance acts as a tie-breaker.
+
 ## 4.0.0
 
 Industrialized banknote reconstruction with automated pose estimation, JIT-acceleration, and flowchart diagrams:

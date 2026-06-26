@@ -254,6 +254,22 @@ template (so it depends on the note, not the region), or serial labels with
 `--discriminate serial`. Limits and the residual hard tail are documented in the
 [v3.0 note](docs/v3_0_chimera_discrimination.md).
 
+## Chimera pressure realism (v4.1)
+
+v4.1 adds the pressure tests that the friendly v3.0 case could not answer:
+larger note pools, realistic low appearance spread, and a spatial wear model
+that a global RGB-gain fingerprint cannot perfectly invert. See
+[docs/v4.1 pressure realism](docs/v4_1_pressure_realism.md).
+
+```bash
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20,40,80,150 --appearance-spread 0.18 --seeds 7,8,9 --output runs/pressure_n.json
+moneyrepair pressure-chimeras --mode spread-sweep --notes 30 --spread-list 0.18,0.10,0.06,0.04,0.02 --wear-model spatial --seeds 7,8,9 --output runs/pressure_spread.json
+```
+
+The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
+so it is not hidden by the `max_solutions=20` top-k cap. `cluster_count` and
+`mixed_note_count` expose the identity merges that create chimeras at scale.
+
 ## Production-grade auto-locator & pose solver (v4.0)
 
 v4.0 shifts the system from a pipeline where approximate fragment placement is given beforehand to a simulation-backed end-to-end prototype that automatically estimates translation, rotation, and side placement candidate poses, and solves them using JIT-accelerated algorithms. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
@@ -318,4 +334,5 @@ Version planning:
 [v2.0 industrial algorithm](docs/v2_0_industrial_algorithm.md),
 [v2.5 scientific reporting](docs/v2_5_scientific_reporting.md),
 [v3.0 chimera discrimination](docs/v3_0_chimera_discrimination.md), and
-[v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) (with [algorithm deduction](docs/v4_0_algorithm_deduction.md) and [performance convergence report](docs/stage4_convergence_report.md)).
+[v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) (with [algorithm deduction](docs/v4_0_algorithm_deduction.md) and [performance convergence report](docs/stage4_convergence_report.md)),
+plus [v4.1 pressure realism](docs/v4_1_pressure_realism.md).
