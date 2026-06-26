@@ -238,4 +238,42 @@ def test_clustered_pose_compatibility_matrix():
     assert matrix_normal.compatible[idx_a, idx_b]
 
 
+def test_pose_compatibility_matrix_forwards_overlap_tolerance():
+    from moneyrepair.locator import build_pose_compatibility_matrix
+
+    mask_a = np.zeros((4, 4), dtype=bool)
+    mask_a[0:2, 0:2] = True
+    mask_b = np.zeros((4, 4), dtype=bool)
+    mask_b[1:3, 1:3] = True
+    frag_a = Fragment(id="f0_p0", mask=mask_a, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f0"})
+    frag_b = Fragment(id="f1_p0", mask=mask_b, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f1"})
+
+    strict = build_pose_compatibility_matrix([frag_a, frag_b])
+    tolerant = build_pose_compatibility_matrix([frag_a, frag_b], max_overlap_pixels=1)
+    idx_a = strict.index("f0_p0")
+    idx_b = strict.index("f1_p0")
+
+    assert not strict.compatible[idx_a, idx_b]
+    assert tolerant.compatible[idx_a, idx_b]
+
+
+def test_clustered_pose_compatibility_matrix_forwards_overlap_tolerance():
+    from moneyrepair.locator import build_pose_compatibility_matrix
+
+    mask_a = np.zeros((4, 4), dtype=bool)
+    mask_a[0:2, 0:2] = True
+    mask_b = np.zeros((4, 4), dtype=bool)
+    mask_b[1:3, 1:3] = True
+    frag_a = Fragment(id="f0_p0", mask=mask_a, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f0"})
+    frag_b = Fragment(id="f1_p0", mask=mask_b, image=np.zeros((4, 4, 3), dtype=np.uint8), meta={"original_id": "f1"})
+    groups = {"f0": 0, "f1": 0}
+
+    strict = build_pose_compatibility_matrix([frag_a, frag_b], groups=groups)
+    tolerant = build_pose_compatibility_matrix([frag_a, frag_b], groups=groups, max_overlap_pixels=1)
+    idx_a = strict.index("f0_p0")
+    idx_b = strict.index("f1_p0")
+
+    assert not strict.compatible[idx_a, idx_b]
+    assert tolerant.compatible[idx_a, idx_b]
+
 

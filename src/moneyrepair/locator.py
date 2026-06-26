@@ -402,6 +402,8 @@ def build_pose_compatibility_matrix(
     placed_fragments: list[Fragment],
     cell: int | None = None,
     groups: dict[str, int] | None = None,
+    max_overlap_pixels: int = 0,
+    max_overlap_ratio: float = 0.0,
     max_boundary_diff: float = -1.0,
 ) -> CompatibilityMatrix:
     """Build compatibility matrix for placed fragments, enforcing appearance clustering, mutual exclusion, and boundary continuity."""
@@ -414,9 +416,19 @@ def build_pose_compatibility_matrix(
             orig_id = pf.meta.get("original_id", pf.id)
             if orig_id in groups:
                 placed_groups[pf.id] = groups[orig_id]
-        packed = compute_compatibility_clustered(placed_fragments, placed_groups)
+        packed = compute_compatibility_clustered(
+            placed_fragments,
+            placed_groups,
+            max_overlap_pixels=max_overlap_pixels,
+            max_overlap_ratio=max_overlap_ratio,
+        )
     else:
-        packed = compute_compatibility_fast(placed_fragments, cell=cell)
+        packed = compute_compatibility_fast(
+            placed_fragments,
+            cell=cell,
+            max_overlap_pixels=max_overlap_pixels,
+            max_overlap_ratio=max_overlap_ratio,
+        )
 
     matrix = packed.to_dense()
     n = len(placed_fragments)

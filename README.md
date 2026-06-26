@@ -288,7 +288,7 @@ poses = locate_fragment_poses(fragment, template_front, template_back, top_k=3, 
 ```
 
 ### 2. Zero-Allocation Two-Tier Solver
-To handle the combinatorial explosion of searching through multiple candidate poses for up to thousands of fragments, the branch-and-bound solver introduces:
+To reduce the combinatorial explosion of searching through multiple candidate poses, the branch-and-bound solver introduces:
 - **Numba-Accelerated Scalar Pruning**: Replaces high-overhead NumPy fancy indexing (`areas[candidates]`) with a zero-allocation flat sum helper (`sum_candidate_areas`).
 - **Precise Bounding Threshold**: Uses `--precise-bound-threshold` (default 24) to configure when the solver switches from fast scalar area estimation to precise pixel-accurate geometry check.
 - **Experimental Adjacency/Boundary Color Continuity**: Uses `--max-boundary-diff` (disabled by default at `-1.0`) to check color transitions across touching borders using a Numba JIT helper. Note that lighting variations and shadows on real photos make boundary color matches unstable; this should remain disabled (set to negative) in default production runs and treated purely as an experimental hard pruning option.

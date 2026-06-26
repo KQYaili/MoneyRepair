@@ -73,6 +73,13 @@ def run_production_pipeline(
     started = perf_counter()
     template, fragments = load_dataset(dataset_path)
     timings["load"] = perf_counter() - started
+    if auto_locate and discriminate_appearance:
+        template_shape = template.shape[:2]
+        if any(fragment.mask.shape != template_shape for fragment in fragments):
+            raise ValueError(
+                "--discriminate-appearance currently requires fragments already in template coordinates; "
+                "disable it for raw auto-locate crops or compute appearance after pose placement."
+            )
 
     # ====== JIT Warm-up ======
     started_warmup = perf_counter()
@@ -197,6 +204,8 @@ def run_production_pipeline(
             active_search,
             cell=cell,
             groups=groups,
+            max_overlap_pixels=max_overlap_pixels,
+            max_overlap_ratio=max_overlap_ratio,
             max_boundary_diff=max_boundary_diff,
         )
     else:

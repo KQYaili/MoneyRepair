@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 
 import moneyrepair
+import numpy as np
+import pytest
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.simulate import make_synthetic_fragments, save_dataset
+from moneyrepair.types import Fragment
 
 
 def test_run_production_pipeline_writes_auditable_manifest(tmp_path):
@@ -55,4 +58,23 @@ def test_run_production_pipeline_auto_locate(tmp_path):
     )
     assert manifest["version"] == moneyrepair.__version__
     assert manifest["outputs"]["run_manifest"]
+
+
+def test_auto_locate_discriminate_appearance_requires_template_coordinates(tmp_path):
+    template = np.zeros((20, 20, 3), dtype=np.uint8)
+    fragment = Fragment(
+        id="raw_crop",
+        mask=np.ones((8, 8), dtype=bool),
+        image=np.ones((8, 8, 3), dtype=np.uint8) * 128,
+    )
+    dataset_path = tmp_path / "raw_crop.npz"
+    save_dataset(dataset_path, template, [fragment])
+
+    with pytest.raises(ValueError, match="requires fragments already in template coordinates"):
+        run_production_pipeline(
+            dataset_path,
+            tmp_path / "run_raw",
+            auto_locate=True,
+            discriminate_appearance=True,
+        )
 

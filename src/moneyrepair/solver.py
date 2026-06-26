@@ -169,13 +169,14 @@ def solve_covering_sets(
         touching_offsets = offsets[is_touching]
         non_touching_offsets = offsets[~is_touching]
         reordered_offsets = np.concatenate((touching_offsets, non_touching_offsets))
+        ordered_candidates = candidates[reordered_offsets]
 
-        for offset in reordered_offsets:
+        for pos in range(len(ordered_candidates)):
             if timed_out() or len(solutions) >= max_solutions:
                 return
-            index = int(candidates[offset])
+            index = int(ordered_candidates[pos])
             next_union = union_mask | fragments[index].mask
-            remaining = candidates[offset + 1 :]
+            remaining = ordered_candidates[pos + 1 :]
             # Vectorized bitset intersect using boolean indexing over the pre-unpacked matrix
             next_candidates = remaining[compatibility.compatible[index, remaining]]
             dfs(selected + (index,), next_candidates, next_union)
