@@ -26,7 +26,7 @@ from moneyrepair.compat import (
 )
 from moneyrepair.diagnostics import diagnose_solutions
 from moneyrepair.diagrams import DIAGRAMS, write_diagram
-from moneyrepair.features import describe_contours, match_similar_contours
+from moneyrepair.features import describe_contours, match_similar_contours, match_raw_crop_contours
 from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
@@ -291,11 +291,19 @@ def _cmd_describe_contours(args: argparse.Namespace) -> None:
 
 def _cmd_match_contours(args: argparse.Namespace) -> None:
     _, fragments = load_dataset(args.dataset)
-    matches = match_similar_contours(
-        fragments,
-        max_distance=args.max_distance,
-        limit=args.limit,
-    )
+    if args.method == "raw-crop":
+        matches = match_raw_crop_contours(
+            fragments,
+            segment_length=args.segment_length,
+            max_distance=args.max_distance,
+            limit=args.limit,
+        )
+    else:
+        matches = match_similar_contours(
+            fragments,
+            max_distance=args.max_distance,
+            limit=args.limit,
+        )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(matches, indent=2), encoding="utf-8")
@@ -564,6 +572,9 @@ def _cmd_run_pipeline(args: argparse.Namespace) -> None:
         discriminate_appearance=args.discriminate_appearance,
         discriminate_tolerance=args.discriminate_tolerance,
         touch_priority=not args.no_touch_priority,
+        include_interlock=args.include_interlock,
+        min_interlock_contact=args.min_interlock_contact,
+        min_interlock_ratio=args.min_interlock_ratio,
     )
     print(json.dumps(manifest, indent=2))
 
@@ -933,6 +944,8 @@ def build_parser() -> argparse.ArgumentParser:
     match.add_argument("--output", required=True)
     match.add_argument("--max-distance", type=float, default=0.25)
     match.add_argument("--limit", type=int, default=100)
+    match.add_argument("--method", choices=("placed", "raw-crop"), default="placed", help="placed (aligned) or raw-crop (sub-segment rotation-tolerant) matching")
+    match.add_argument("--segment-length", type=int, default=16, help="sliding window segment length for raw-crop matching")
     match.set_defaults(func=_cmd_match_contours)
 
     import_pairs = sub.add_parser("import-pairs", help="import precomputed compatible or incompatible pair records")
@@ -1082,6 +1095,9 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--discriminate-appearance", action="store_true", help="enable appearance clustering discrimination in pose matrix")
     pipeline.add_argument("--discriminate-tolerance", type=float, default=0.05, help="appearance clustering tolerance")
     pipeline.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in the DFS")
+    pipeline.add_argument("--include-interlock", action="store_true", help="enable placed-fragment interlock constraints")
+    pipeline.add_argument("--min-interlock-contact", type=int, default=8, help="minimum overlapping boundary contact edges")
+    pipeline.add_argument("--min-interlock-ratio", type=float, default=0.03, help="minimum overlapping boundary contact ratio")
     _add_quality_args(pipeline)
     pipeline.set_defaults(func=_cmd_run_pipeline)
 

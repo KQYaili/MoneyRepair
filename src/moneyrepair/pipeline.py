@@ -55,13 +55,17 @@ def run_production_pipeline(
     discriminate_appearance: bool = False,
     discriminate_tolerance: float = 0.05,
     touch_priority: bool = True,
+    include_interlock: bool = False,
+    min_interlock_contact: int = 8,
+    min_interlock_ratio: float = 0.03,
 ) -> dict:
     """Run one auditable production reconstruction batch.
 
     The pipeline gates frames on the acquisition contract, prunes with the
-    grid-accelerated compatibility build, runs the branch-and-bound search, and
-    writes a run manifest with input hashes, parameters, timings, the QA summary,
-    and every output path so a batch can be reproduced and audited later.
+    grid-accelerated compatibility build, optionally applies interlock geometry
+    constraints, runs the branch-and-bound search, and writes a run manifest
+    with input hashes, parameters, timings, the QA summary, and every output
+    path so a batch can be reproduced and audited later.
     """
 
     thresholds = thresholds or QualityThresholds()
@@ -217,7 +221,20 @@ def run_production_pipeline(
             max_overlap_ratio=max_overlap_ratio,
             cell=cell,
         )
-        
+    interlock_stats = None
+    if include_interlock:
+        from moneyrepair.compat import CompatibilityMatrix, PackedCompatibilityMatrix
+        if isinstance(matrix, CompatibilityMatrix):
+            matrix = PackedCompatibilityMatrix.from_dense(matrix)
+        from moneyrepair.interlock import apply_interlock_constraints_with_stats
+        matrix, interlock_stats = apply_interlock_constraints_with_stats(
+            matrix,
+            active_search,
+            cell=cell,
+            min_contact_edges=min_interlock_contact,
+            min_contact_ratio=min_interlock_ratio,
+        )
+
     matrix_path = output_dir / "matrix.npz"
     matrix.save(matrix_path)
     timings["build_matrix"] = perf_counter() - started
@@ -312,6 +329,9 @@ def run_production_pipeline(
             "discriminate_appearance": discriminate_appearance,
             "discriminate_tolerance": discriminate_tolerance,
             "touch_priority": touch_priority,
+            "include_interlock": include_interlock,
+            "min_interlock_contact": min_interlock_contact,
+            "min_interlock_ratio": min_interlock_ratio,
         },
         "quality": {
             "accepted": quality_summary["accepted"],
@@ -324,6 +344,11 @@ def run_production_pipeline(
             "active_fragments": len(active),
             "solutions_found": len(solutions),
             "best_coverage": solutions[0].coverage if solutions else None,
+            "interlock_stats": {
+                "bbox_candidate_pairs": interlock_stats.bbox_candidate_pairs,
+                "scored_contact_pairs": interlock_stats.scored_contact_pairs,
+                "rejected_pairs": interlock_stats.rejected_pairs,
+            } if interlock_stats is not None else None,
         },
         "timings_seconds": timings,
         "outputs": manifest_outputs,

@@ -32,3 +32,27 @@ def test_match_similar_contours_uses_tag_compatible_pairs():
     )
 
     assert any({item["left"], item["right"]} == {"a", "b"} for item in matches)
+
+
+def test_match_raw_crop_contours_finds_subsegment_match():
+    from moneyrepair.features import match_raw_crop_contours
+
+    mask_a = np.zeros((32, 32), dtype=bool)
+    mask_a[5:15, 5:15] = True
+
+    mask_b = np.zeros((32, 32), dtype=bool)
+    mask_b[5:15, 14:24] = True
+
+    matches = match_raw_crop_contours(
+        [
+            Fragment("a", mask_a),
+            Fragment("b", mask_b),
+        ],
+        segment_length=8,
+        max_distance=0.2,
+    )
+
+    assert len(matches) == 1
+    assert matches[0]["left"] == "a"
+    assert matches[0]["right"] == "b"
+    assert matches[0]["distance"] < 0.2

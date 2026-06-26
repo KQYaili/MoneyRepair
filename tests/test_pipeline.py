@@ -78,3 +78,23 @@ def test_auto_locate_discriminate_appearance_requires_template_coordinates(tmp_p
             discriminate_appearance=True,
         )
 
+
+def test_run_production_pipeline_with_interlock(tmp_path):
+    template, fragments = make_synthetic_fragments(pieces=6, width=140, height=70, seed=5)
+    dataset_path = tmp_path / "dataset.npz"
+    save_dataset(dataset_path, template, fragments)
+
+    output_dir = tmp_path / "run_interlock"
+    manifest = run_production_pipeline(
+        dataset_path,
+        output_dir,
+        target_coverage=0.9,
+        max_solutions=3,
+        time_limit_seconds=10,
+        include_interlock=True,
+    )
+
+    assert manifest["parameters"]["include_interlock"] is True
+    assert manifest["search"]["interlock_stats"] is not None
+    assert "bbox_candidate_pairs" in manifest["search"]["interlock_stats"]
+
