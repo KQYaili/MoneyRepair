@@ -31,6 +31,10 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+ml = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+]
 ocr = [
     "pytesseract>=0.3.10",
 ]

@@ -23,3 +23,17 @@ jobs:
         run: python -m pytest -q
       - name: Compile
         run: python -m compileall -q src
+
+  test-ml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,ml]"
+      - name: Test ML
+        run: python -m pytest -q tests/test_v6_to_v10.py

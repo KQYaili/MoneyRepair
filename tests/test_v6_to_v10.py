@@ -49,9 +49,10 @@ def test_v6_gnas_forward_and_loss():
 
     # 4. Test Sinkhorn soft assignment
     P = torch.rand(4, 4)
-    A = sinkhorn_soft_assignment(P, tau=0.1, iterations=5)
+    A = sinkhorn_soft_assignment(P, tau=0.1, iterations=50)
     assert A.shape == (4, 4)
     assert torch.allclose(A.sum(dim=1), torch.ones(4), atol=1e-3)
+    assert torch.allclose(A.sum(dim=0), torch.ones(4), atol=1e-3)
 
     # 5. Test loss computation
     y_edge = torch.tensor([[1.0], [0.0]])
@@ -96,11 +97,17 @@ def test_v8_diffusion_forward_and_reverse():
     noisy_adj, noise_mask = diffusion.forward_diffusion(clean_adj, t=3)
     assert noisy_adj.shape == (6, 6)
     assert noise_mask.shape == (6, 6)
+    assert torch.allclose(noisy_adj, noisy_adj.T)
+    assert torch.allclose(noisy_adj.diagonal(), torch.zeros(6))
     
     # Reverse diffusion denoising
     random_noise_adj = torch.randint(0, 2, (6, 6)).float()
+    random_noise_adj = 0.5 * (random_noise_adj + random_noise_adj.T)
+    random_noise_adj.fill_diagonal_(0.0)
     denoised_adj = diffusion.reverse_diffusion(node_embeddings, random_noise_adj)
     assert denoised_adj.shape == (6, 6)
+    assert torch.allclose(denoised_adj, denoised_adj.T)
+    assert torch.allclose(denoised_adj.diagonal(), torch.zeros(6))
 
 
 def test_v9_neural_ilp_solver():

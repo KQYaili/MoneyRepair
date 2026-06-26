@@ -14,7 +14,7 @@ from moneyrepair.tearfit import (
 
 def test_fractal_tears_have_serial_anchor_per_note():
     _template, fragments = make_fractal_tear_fragments(
-        FractalTearConfig(notes=4, pieces_per_note=5, width=96, height=54, seed=3)
+        FractalTearConfig(notes=4, pieces_per_note=5, width=96, height=54, seed=3, ensure_serial_anchor=True, serial_ocr_rate=1.0)
     )
 
     labels_by_note = {}
@@ -86,7 +86,7 @@ def test_exact_cover_can_use_weighted_score_objective():
 
 def test_labelled_tearfit_trial_confirms_pure_candidates():
     result = run_tearfit_trial(
-        FractalTearConfig(notes=3, pieces_per_note=5, width=90, height=48, seed=11),
+        FractalTearConfig(notes=3, pieces_per_note=5, width=90, height=48, seed=11, ensure_serial_anchor=True, serial_ocr_rate=1.0),
         min_overlap_pixels=6,
         beam_width=24,
     )

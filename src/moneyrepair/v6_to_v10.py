@@ -134,8 +134,12 @@ class GraphAttentionLayer(nn.Module):
         e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2)) # (N, N)
 
         # Mask attention coefficients using adjacency structure
+        # Add self-loops to prevent uniform/NaN scores on zero-degree rows
+        adj_with_self = adj.clone()
+        adj_with_self.fill_diagonal_(1.0)
+
         zero_vec = -9e15 * torch.ones_like(e)
-        attention = torch.where(adj > 0, e, zero_vec)
+        attention = torch.where(adj_with_self > 0, e, zero_vec)
         attention = F.softmax(attention, dim=1)
         attention = F.dropout(attention, self.dropout, training=self.training)
         h_prime = torch.matmul(attention, Wh) # (N, out_features)
@@ -150,8 +154,9 @@ class EdgeModel(nn.Module):
 
     def __init__(self, embedding_dim: int = 256):
         super().__init__()
+        # Input features are symmetric (sum, absolute difference, product) -> 3 * D
         self.mlp = nn.Sequential(
-            nn.Linear(embedding_dim * 2, 512),
+            nn.Linear(embedding_dim * 3, 512),
             nn.ReLU(),
             nn.Linear(512, 128),
             nn.ReLU(),
@@ -164,7 +169,10 @@ class EdgeModel(nn.Module):
             fi: Embeddings of first fragment (B, D)
             fj: Embeddings of second fragment (B, D)
         """
-        x = torch.cat([fi, fj], dim=-1)
+        sum_feat = fi + fj
+        diff_feat = torch.abs(fi - fj)
+        prod_feat = fi * fj
+        x = torch.cat([sum_feat, diff_feat, prod_feat], dim=-1)
         return torch.sigmoid(self.mlp(x))
 
 
@@ -186,13 +194,13 @@ class AssemblyGNN(nn.Module):
         return self.conv2(h, adj)
 
 
-def sinkhorn_soft_assignment(P: torch.Tensor, tau: float = 0.1, iterations: int = 20) -> torch.Tensor:
+def sinkhorn_soft_assignment(P: torch.Tensor, tau: float = 0.1, iterations: int = 50, eps: float = 1e-9) -> torch.Tensor:
     """Continuous assignment matrix relaxation using standard Sinkhorn iterations."""
-    logits = P / tau
+    z = P / tau
     for _ in range(iterations):
-        logits = logits - torch.logsumexp(logits, dim=1, keepdim=True)
-        logits = logits - torch.logsumexp(logits, dim=0, keepdim=True)
-    return torch.exp(logits)
+        z = z - torch.logsumexp(z, dim=1, keepdim=True)
+        z = z - torch.logsumexp(z, dim=0, keepdim=True)
+    return torch.exp(z)
 
 
 def compute_v6_loss(
@@ -206,7 +214,7 @@ def compute_v6_loss(
     lambda_entropy: float = 0.1,
     margin: float = 0.5,
 ) -> torch.Tensor:
-    """Computes the combined loss to avoid collapse and respect set cover constraints."""
+    """Computes the combined loss for Sinkhorn soft matching / pair assignment relaxation."""
     # 1. Edge Loss (BCE)
     loss_edge = F.binary_cross_entropy(P, y_edge)
 
@@ -321,8 +329,9 @@ class DenoisingEdgeModel(nn.Module):
 
     def __init__(self, embedding_dim: int = 256):
         super().__init__()
+        # Input features: emb_i, emb_j, noisy_adj value, time step -> 2 * D + 2
         self.mlp = nn.Sequential(
-            nn.Linear(embedding_dim * 2 + 1, 256), # Features + time t
+            nn.Linear(embedding_dim * 2 + 2, 256),
             nn.ReLU(),
             nn.Linear(256, 128),
             nn.ReLU(),
@@ -334,9 +343,12 @@ class DenoisingEdgeModel(nn.Module):
         emb_i = node_embeddings.unsqueeze(1).repeat(1, N, 1) # (N, N, D)
         emb_j = node_embeddings.unsqueeze(0).repeat(N, 1, 1) # (N, N, D)
         
+        # Condition on current noisy adjacency edge state (N, N, 1)
+        edge_state = noisy_adj.unsqueeze(-1)
+        
         # Broadcast time step
         time_tensor = torch.tensor(t, device=node_embeddings.device).view(1, 1, 1).repeat(N, N, 1)
-        x = torch.cat([emb_i, emb_j, time_tensor], dim=-1) # (N, N, 2D + 1)
+        x = torch.cat([emb_i, emb_j, edge_state, time_tensor], dim=-1) # (N, N, 2D + 2)
         
         pred_clean = torch.sigmoid(self.mlp(x).squeeze(-1))
         return pred_clean
@@ -359,9 +371,22 @@ class GraphDiffusionAssembly:
         alpha_bar = self.alphas_cumprod[t]
         flip_prob = 0.5 * (1.0 - math.sqrt(alpha_bar))
         
-        noise_mask = torch.rand_like(clean_adj) < flip_prob
+        # Mirroring and preventing diagonal flipping for undirected graphs
+        N = clean_adj.size(0)
+        triu_indices = torch.triu_indices(N, N, offset=1)
+        
         noisy_adj = clean_adj.clone()
-        noisy_adj[noise_mask] = 1.0 - noisy_adj[noise_mask]
+        num_edges = triu_indices.size(1)
+        noise_mask_triu = torch.rand(num_edges, device=clean_adj.device) < flip_prob
+        
+        rows, cols = triu_indices
+        noisy_adj[rows, cols] = torch.where(noise_mask_triu, 1.0 - clean_adj[rows, cols], clean_adj[rows, cols])
+        noisy_adj[cols, rows] = noisy_adj[rows, cols]
+        noisy_adj.fill_diagonal_(0.0)
+        
+        noise_mask = torch.zeros_like(clean_adj, dtype=torch.bool)
+        noise_mask[rows, cols] = noise_mask_triu
+        noise_mask[cols, rows] = noise_mask_triu
         return noisy_adj, noise_mask
 
     def reverse_diffusion(self, node_embeddings: torch.Tensor, noisy_adj: torch.Tensor) -> torch.Tensor:
@@ -374,6 +399,10 @@ class GraphDiffusionAssembly:
             # Gradually update structure towards predictions
             alpha = self.alphas[t]
             current_adj = alpha * current_adj + (1.0 - alpha) * pred_clean
+            
+            # Symmetrize and zero-diagonal to preserve undirected invariants
+            current_adj = 0.5 * (current_adj + current_adj.T)
+            current_adj.fill_diagonal_(0.0)
         return current_adj
 
 

@@ -34,8 +34,8 @@ class FractalTearConfig:
     roughness: float = 4.0
     fray_layers: int = 2
     fray_probability: float = 0.18
-    ensure_serial_anchor: bool = True
-    serial_ocr_rate: float = 1.0
+    ensure_serial_anchor: bool = False
+    serial_ocr_rate: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -678,6 +678,12 @@ def select_exact_cover_candidates(
     if objective not in TEARFIT_COVER_OBJECTIVES:
         raise ValueError(f"objective must be one of: {', '.join(TEARFIT_COVER_OBJECTIVES)}")
     ordered = sorted(candidates, key=lambda item: (-item.score, -len(item.fragment_ids), item.fragment_ids))
+    
+    # Pre-compute optimistic suffix scores for score_then_count DFS pruning
+    suffix_score = [0.0] * (len(ordered) + 1)
+    for i in range(len(ordered) - 1, -1, -1):
+        suffix_score[i] = suffix_score[i + 1] + max(0.0, ordered[i].score)
+
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     best_count = 0
     best_score = float("-inf")
@@ -693,6 +699,8 @@ def select_exact_cover_candidates(
         if deadline is not None and monotonic() >= deadline:
             return
         if objective == "count_then_score" and len(chosen) + (len(ordered) - pos) < best_count:
+            return
+        if objective == "score_then_count" and score + suffix_score[pos] < best_score:
             return
         if pos >= len(ordered):
             count = len(chosen)
