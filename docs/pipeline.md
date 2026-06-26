@@ -8,7 +8,7 @@ MoneyRepair is built around one shared note coordinate frame. Below is the high-
 The system operates as an end-to-end batch processing pipeline:
 1. **Acquisition & Ingestion**: Raw scans or photos of fragments are captured and passed through automated quality gates.
 2. **Auto-Location**: Placements (X, Y, rotation, side) are automatically estimated against reference templates to generate candidate poses.
-3. **Compatibility Matrix Construction**: Pairwise compatibility is evaluated using spatial overlap checks, interlock contact criteria, and tone-based appearance clustering.
+3. **Compatibility Matrix Construction**: The supported default path builds pairwise compatibility from spatial overlap and geometry-first evidence. Superseded appearance and contact-count interlock checks remain available only as explicit diagnostic/baseline options; they are not the recommended production discriminator.
 4. **Assembly Solver**: A branch-and-bound DFS solver finds consistent, non-overlapping candidate note assemblies that satisfy serial and coverage requirements.
 5. **Interactive Review Loop**: Candidates are presented to operators who accept or reject them. Accepted fragments are permanently removed from the search pool.
 
@@ -130,7 +130,12 @@ Reconstructing a large fragment pool is an iterative, human-in-the-loop audit pr
    - The system logs the rejection reason and records the fragment subset signature in a blacklist to ensure **this specific chimera is never generated or shown again**.
 5. **Iteration**: The operator repeats the process on the remaining fragments. As confirmed fragments disappear, the search pool shrinks, accelerating subsequent solver runs.
 
-## Honest Multi-Note Discrimination (v3.0)
+## Historical Multi-Note Discrimination (v3.0)
+
+> Historical baseline. Appearance clustering was useful for exposing the
+> chimera failure in friendly simulations, but `STATUS.md` is authoritative:
+> spatially non-uniform wear makes appearance a weak tie-breaker rather than a
+> production discriminator.
 
 When reconstructing fragments from a pool containing multiple banknotes of the same denomination (a multi-note pool), a pure pixel-overlap compatibility matrix is insufficient. Since identical-denomination notes share the same spatial design and templates, fragments from different notes can easily tile a template without overlapping, producing "chimera" (縫合怪) solutions that mix different physical notes (resulting in ~90% chimeras in standard 5-note pools).
 
@@ -155,4 +160,3 @@ To align an input crop against the templates without given placement, the locato
 - **Virtual Placed Fragments**: Each candidate pose (specifying X, Y, rotation, side, and match score) is represented as a virtual placed fragment with a unique ID format `f{piece_index}_pose{pose_index}`.
 - **Mutual Exclusion Matrix**: When building the compatibility matrix, selecting pose $P_{i,j}$ for fragment $i$ must exclude all other poses of fragment $i$ from the candidate search pool. The matrix builder enforces this constraint by setting compatibility between different poses of the same fragment to `False`.
 - **CLI Support**: The `--auto-locate` command-line argument triggers candidate pose search inside `run-pipeline`, allowing end-to-end reconstruction from raw unaligned fragment crops.
-

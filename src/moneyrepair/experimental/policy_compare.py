@@ -1,4 +1,8 @@
-"""UNVERIFIED research scaffold. Comparison tool for llm_control. Not used by the supported pipeline."""
+"""UNVERIFIED research scaffold. Untrained / not benchmarked. Does NOT beat the deterministic exact-cover. To matter it must be trained and shown to win on the fine-fragment regime (pieces>=16), which has not been done.
+
+Comparison tool for the opt-in LLM search policy controller. Not used by the
+supported pipeline.
+"""
 
 from __future__ import annotations
 
