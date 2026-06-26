@@ -38,12 +38,24 @@ from moneyrepair.reports import write_strategy_report
 from moneyrepair.scan import connected_components, segment_scan_to_manifest
 from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragments
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
+from moneyrepair.tearfit import (
+    AssemblyCandidate,
+    FractalTearConfig,
+    TearFitDiagnostics,
+    TearFitEdge,
+    TearFitTrialResult,
+    make_fractal_tear_fragments,
+    run_tearfit_sweep,
+    run_tearfit_trial,
+    score_absolute_tear_pairs,
+)
 from moneyrepair.types import Fragment
 
 __version__ = "4.2.0"
 
 __all__ = [
     "AuditEvent",
+    "AssemblyCandidate",
     "BatchState",
     "CompatibilityMatrix",
     "ConfirmedNote",
@@ -51,6 +63,7 @@ __all__ = [
     "DiagramSpec",
     "FigurePanel",
     "Fragment",
+    "FractalTearConfig",
     "FrameQuality",
     "InterlockCompatibilityStats",
     "MatrixFootprint",
@@ -60,6 +73,9 @@ __all__ = [
     "RealismProfile",
     "SyntheticBenchmark",
     "TearInterlockScore",
+    "TearFitDiagnostics",
+    "TearFitEdge",
+    "TearFitTrialResult",
     "apply_interlock_constraints_with_stats",
     "__version__",
     "assemble_standard_panels",
@@ -80,6 +96,7 @@ __all__ = [
     "fragments_from_manifest",
     "estimate_matrix_footprint",
     "make_multi_note_fragments",
+    "make_fractal_tear_fragments",
     "make_synthetic_fragments",
     "make_realistic_synthetic_fragments",
     "production_pipeline_spec",
@@ -89,9 +106,12 @@ __all__ = [
     "run_pressure_case",
     "run_pressure_sweep",
     "run_production_pipeline",
+    "run_tearfit_sweep",
+    "run_tearfit_trial",
     "run_synthetic_benchmark",
     "segment_scan_to_manifest",
     "score_best_reference_side",
+    "score_absolute_tear_pairs",
     "score_fragments_by_side",
     "solve_covering_sets",
     "summarize_quality",

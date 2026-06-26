@@ -41,6 +41,7 @@ from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
+from moneyrepair.tearfit import run_tearfit_sweep
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -757,6 +758,45 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
     _print_pressure_summary(payload["summary"])
 
 
+def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
+    rows = run_tearfit_sweep(
+        _parse_int_list(args.notes_list),
+        pieces_per_note=args.pieces_per_note,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        min_overlap_pixels=args.min_overlap_pixels,
+        tolerance=args.tolerance,
+        coverage_threshold=args.coverage_threshold,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        serial_ocr_rate=args.serial_ocr_rate,
+        require_anchor=not args.no_require_anchor,
+    )
+    payload = {"rows": rows}
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote tearfit report to {output}")
+    for row in rows:
+        diag = row["diagnostics"]
+        print(
+            "N={notes} fragments={fragments} edges={edges} false_edge_rate={false_rate:.3f} "
+            "confirmed={confirmed} exact_precision={precision:.3f} exact_yield={yield_:.3f} "
+            "manual_remaining={manual}".format(
+                notes=row["config"]["notes"],
+                fragments=row["fragments"],
+                edges=row["accepted_edges"],
+                false_rate=row["false_edge_rate"],
+                confirmed=diag["confirmed"],
+                precision=diag["exact_precision"],
+                yield_=diag["exact_yield"],
+                manual=diag["manual_notes_remaining"],
+            )
+        )
+
+
 def _cmd_report_figures(args: argparse.Namespace) -> None:
     sources: dict[str, str] = {}
     strategy_results = None
@@ -1146,6 +1186,22 @@ def build_parser() -> argparse.ArgumentParser:
     pressure.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in solver calls")
     pressure.add_argument("--output", help="write raw rows and averaged summary as JSON")
     pressure.set_defaults(func=_cmd_pressure_chimeras)
+
+    tearfit = sub.add_parser("tearfit-demo", help="run placed-coordinate fractal tear-fit research trials")
+    tearfit.add_argument("--notes-list", default="20,50,100", help="comma-separated note counts")
+    tearfit.add_argument("--pieces-per-note", type=int, default=8)
+    tearfit.add_argument("--width", type=int, default=180)
+    tearfit.add_argument("--height", type=int, default=90)
+    tearfit.add_argument("--seed", type=int, default=7)
+    tearfit.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit.add_argument("--tolerance", type=int, default=2)
+    tearfit.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit.add_argument("--beam-width", type=int, default=64)
+    tearfit.add_argument("--serial-ocr-rate", type=float, default=1.0, help="probability that a note has a readable serial anchor")
+    tearfit.add_argument("--no-require-anchor", action="store_true", help="allow unlabelled notes to seed candidate generation")
+    tearfit.add_argument("--output", help="write full tearfit JSON report")
+    tearfit.set_defaults(func=_cmd_tearfit_demo)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)
