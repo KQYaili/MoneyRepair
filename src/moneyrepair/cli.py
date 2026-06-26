@@ -87,6 +87,7 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
     allowed_ids = None
     if args.reference_scores and args.max_reference_rmse is not None:
         allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
+        fragments = [f for f in fragments if f.id in allowed_ids]
 
     if args.discriminate == "interlock":
         packed, interlock_stats = compute_interlock_compatibility_with_stats(
@@ -239,6 +240,9 @@ def _print_pressure_summary(summary: list[dict]) -> None:
 def _cmd_solve(args: argparse.Namespace) -> None:
     _, fragments = load_dataset(args.dataset)
     matrix = PackedCompatibilityMatrix.load(args.matrix)
+    if len(fragments) != len(matrix.ids) or tuple(f.id for f in fragments) != matrix.ids:
+        id_to_fragment = {f.id: f for f in fragments}
+        fragments = [id_to_fragment[fid] for fid in matrix.ids if fid in id_to_fragment]
     allowed_ids = None
     if args.allowed_ids:
         allowed_ids = {line.strip() for line in Path(args.allowed_ids).read_text(encoding="utf-8-sig").splitlines() if line.strip()}
@@ -331,6 +335,9 @@ def _read_batch_candidates(path: str | Path) -> list[CoverageSolution]:
 def _cmd_batch_next(args: argparse.Namespace) -> None:
     template, fragments = load_dataset(args.dataset)
     matrix = PackedCompatibilityMatrix.load(args.matrix)
+    if len(fragments) != len(matrix.ids) or tuple(f.id for f in fragments) != matrix.ids:
+        id_to_fragment = {f.id: f for f in fragments}
+        fragments = [id_to_fragment[fid] for fid in matrix.ids if fid in id_to_fragment]
     state = load_batch_state(args.state)
     allowed_ids = state.active_fragment_ids(fragments)
     solutions = solve_covering_sets(

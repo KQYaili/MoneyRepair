@@ -202,6 +202,9 @@ def run_pressure_case(
             min_contact_ratio=min_interlock_ratio,
         )
         row["disc_interlock_build_seconds"] = perf_counter() - started
+        row["disc_interlock_total_build_seconds"] = (
+            row["disc_build_seconds"] + row["disc_interlock_build_seconds"]
+        )
         total_pairs = len(fragments) * (len(fragments) - 1) // 2
         _matrix_pair_summary("disc_interlock", row, disc_interlock_matrix, total_pairs)
         _interlock_stats_summary("disc_interlock", row, disc_interlock_stats)
