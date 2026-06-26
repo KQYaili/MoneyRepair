@@ -1,5 +1,7 @@
 # v4.0 Production Banknote Reconstruction
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 v4.0 targets the industrialization of the reconstruction algorithm, moving from "approximate placement is given" to "placements are automatically estimated, searched via candidate poses, and pruned using robust descriptors".
 
 ## 1. Candidate Pose Model & Locator

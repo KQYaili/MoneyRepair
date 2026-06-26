@@ -1,5 +1,7 @@
 # Stage 4 Performance Scaling & Convergence Report
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 This report presents the empirical benchmark results and scaling analysis for the Stage 4 banknote reconstruction pipeline featuring the JIT-accelerated candidate pose locator and the optimized Two-Tier Suffix/Scalar pruning DFS solver.
 
 ---

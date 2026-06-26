@@ -1,5 +1,7 @@
 # v1.5 Experiments
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 v1.5 extends the v1.0 simulation baseline in two directions: realistic data and
 measurable search optimization.
 

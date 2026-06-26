@@ -1,5 +1,7 @@
 # v3.0 Chimera Discrimination
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 ## The gap v1.0–v2.5 hid
 
 Every release through v2.5 simulated a **single** banknote: `make_synthetic_fragments`

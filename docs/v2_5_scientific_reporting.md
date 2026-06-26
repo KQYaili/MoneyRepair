@@ -1,5 +1,7 @@
 # v2.5 Scientific Reporting
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 v2.5 focuses on polished reporting for papers, technical reports, and internal
 reviews.
 

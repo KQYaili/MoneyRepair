@@ -1,5 +1,7 @@
 # v2.0 Industrial Algorithm
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 v2.0 should stop expanding every possible research idea and make production
 tradeoffs. The target is reliable reconstruction batches, not perfect academic
 puzzle solving.

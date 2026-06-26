@@ -1,5 +1,7 @@
 # Stage 4 Algorithm Deduction: Auto-Locator & Candidate Pose Search
 
+> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+
 This document presents a hardcore algorithm analysis, profiling report, mathematical proof, and optimization plan for the Stage 4 Auto-Locator (`locator.py`) candidate pose matching engine.
 
 ---
