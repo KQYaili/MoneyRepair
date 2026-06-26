@@ -349,11 +349,15 @@ weighted candidate set packing, and direct strategy comparison. See
 moneyrepair tearfit-compare --profile smoke --output runs/tearfit_compare_smoke.json
 moneyrepair tearfit-demo --notes-list 20,50,100 --seed-strategy anchor_priority --cover-objective score_then_count --output runs/tearfit_demo.json
 moneyrepair policy-compare --profile smoke --output runs/policy_compare_smoke.json
+moneyrepair architecture-compare --output runs/architecture_compare_smoke.json
 ```
 
 `policy-compare` runs static exact-cover policies and offline LLM-controller
 policy variants on the same tear-fit pressure cases, then reports `best_policy`
 from exact precision, exact yield, and chimera-rate summary metrics.
+`architecture-compare` smoke-tests the v6-v10 modelling routes on one synthetic
+latent graph and reports a proxy `best_architecture`; it checks structural
+interfaces before training, not production reconstruction accuracy.
 
 ## Current scope
 

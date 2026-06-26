@@ -14,6 +14,7 @@ from moneyrepair.v6_to_v10 import (
     GraphAttentionLayer,
     EdgeModel,
     AssemblyGNN,
+    V6_TO_V10_ARCHITECTURES,
     candidate_soft_exact_cover_loss,
     sinkhorn_soft_assignment,
     compute_v6_loss,
@@ -24,6 +25,7 @@ from moneyrepair.v6_to_v10 import (
     NeuralILPSolver,
     LatentWorldEncoder,
     LatentWorldDecoder,
+    run_v6_to_v10_architecture_comparison,
 )
 
 
@@ -151,3 +153,20 @@ def test_v10_latent_world_model():
     assert reconstructed_adj.shape == (10, 10)
     assert coordinates.shape == (10, 2)
     assert (reconstructed_adj >= 0.0).all() and (reconstructed_adj <= 1.0).all()
+
+
+def test_v6_to_v10_architecture_comparison_runs_all_routes():
+    payload = run_v6_to_v10_architecture_comparison(
+        nodes=6,
+        pieces_per_note=3,
+        embedding_dim=16,
+        seed=13,
+        mcmc_steps=5,
+        diffusion_steps=3,
+    )
+
+    assert payload["config"]["trained_weights"] is False
+    assert payload["best_architecture"] in V6_TO_V10_ARCHITECTURES
+    assert {row["architecture"] for row in payload["rows"]} == set(V6_TO_V10_ARCHITECTURES)
+    assert len(payload["summary"]) == len(V6_TO_V10_ARCHITECTURES)
+    assert all("proxy_score" in row for row in payload["summary"])

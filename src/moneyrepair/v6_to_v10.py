@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Tuple
+from time import monotonic
+from typing import Any, Iterable, Tuple
 
 import numpy as np
 
@@ -42,6 +43,14 @@ except ImportError:
 # =====================================================================
 # v6: Graph Neural Assembly System (GNAS)
 # =====================================================================
+
+V6_TO_V10_ARCHITECTURES = (
+    "v6_gnn_soft_cover",
+    "v7_energy_mcmc",
+    "v8_diffusion",
+    "v9_neural_ilp",
+    "v10_latent_world",
+)
 
 class FragmentEncoder(nn.Module):
     """Encodes fragment images and masks into high-dimensional embeddings."""
@@ -547,3 +556,274 @@ class LatentWorldDecoder(nn.Module):
         coords_flat = self.fc_coords(z)
         coords = coords_flat.view(self.num_nodes, 2)
         return adj, coords
+
+
+# =====================================================================
+# v6-v10 Architecture Smoke Comparison
+# =====================================================================
+
+def _require_torch() -> None:
+    if not HAS_TORCH:
+        raise RuntimeError("v6-v10 architecture comparison requires optional dependency torch")
+
+
+def _synthetic_clean_graph(nodes: int, pieces_per_note: int, embedding_dim: int, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Create a deterministic latent assembly graph for architecture smoke tests."""
+
+    _require_torch()
+    if nodes < 2:
+        raise ValueError("nodes must be at least 2")
+    if pieces_per_note < 2:
+        raise ValueError("pieces_per_note must be at least 2")
+    torch.manual_seed(seed)
+    embeddings = torch.randn(nodes, embedding_dim) * 0.15
+    clean_adj = torch.zeros(nodes, nodes)
+    for start in range(0, nodes, pieces_per_note):
+        end = min(nodes, start + pieces_per_note)
+        group_center = torch.randn(embedding_dim)
+        for index in range(start, end):
+            embeddings[index] += group_center
+        for index in range(start, end - 1):
+            clean_adj[index, index + 1] = 1.0
+            clean_adj[index + 1, index] = 1.0
+    clean_adj.fill_diagonal_(0.0)
+    return embeddings, clean_adj
+
+
+def _candidate_incidence(nodes: int, pieces_per_note: int) -> torch.Tensor:
+    rows = []
+    for start in range(0, nodes, pieces_per_note):
+        end = min(nodes, start + pieces_per_note)
+        row = torch.zeros(nodes)
+        row[start:end] = 1.0
+        rows.append(row)
+    if nodes >= 4:
+        mixed = torch.zeros(nodes)
+        mixed[0] = 1.0
+        mixed[pieces_per_note if pieces_per_note < nodes else nodes - 1] = 1.0
+        rows.append(mixed)
+    return torch.stack(rows, dim=0)
+
+
+def _edge_proxy_metrics(pred_adj: torch.Tensor, clean_adj: torch.Tensor) -> dict[str, float]:
+    pred_adj = pred_adj.detach().float().clamp(0.0, 1.0)
+    clean_adj = clean_adj.detach().float()
+    return {
+        "edge_mae": float(torch.mean(torch.abs(pred_adj - clean_adj)).item()),
+        "symmetry_error": float(torch.mean(torch.abs(pred_adj - pred_adj.T)).item()),
+        "diagonal_error": float(torch.mean(torch.abs(torch.diagonal(pred_adj))).item()),
+        "density": float(pred_adj.mean().item()),
+    }
+
+
+def _row(
+    architecture: str,
+    *,
+    elapsed: float,
+    metrics: dict[str, float],
+    notes: str,
+) -> dict[str, Any]:
+    proxy_score = (
+        metrics.get("edge_mae", 0.0)
+        + metrics.get("coverage_loss", 0.0)
+        + metrics.get("symmetry_error", 0.0)
+        + metrics.get("diagonal_error", 0.0)
+    )
+    return {
+        "architecture": architecture,
+        "proxy_score": float(proxy_score),
+        "timings_seconds": {"run": elapsed},
+        "metrics": metrics,
+        "notes": notes,
+    }
+
+
+def _run_v6_smoke(embeddings: torch.Tensor, clean_adj: torch.Tensor) -> dict[str, Any]:
+    start = monotonic()
+    model = EdgeModel(embedding_dim=embeddings.shape[1])
+    gnn = AssemblyGNN(embedding_dim=embeddings.shape[1])
+    model.eval()
+    gnn.eval()
+    with torch.no_grad():
+        left = embeddings.unsqueeze(1).repeat(1, embeddings.shape[0], 1).reshape(-1, embeddings.shape[1])
+        right = embeddings.unsqueeze(0).repeat(embeddings.shape[0], 1, 1).reshape(-1, embeddings.shape[1])
+        pred = model(left, right).reshape(embeddings.shape[0], embeddings.shape[0])
+        pred = 0.5 * (pred + pred.T)
+        pred.fill_diagonal_(0.0)
+        refined = gnn(embeddings, (pred > 0.5).float())
+        assignment = sinkhorn_soft_assignment(pred, tau=0.2, iterations=30)
+        loss = compute_v6_loss(
+            pred.reshape(-1, 1),
+            assignment,
+            clean_adj.reshape(-1, 1),
+            lambda_cover=0.1,
+        )
+    metrics = _edge_proxy_metrics(pred, clean_adj)
+    metrics.update(
+        {
+            "loss": float(loss.item()),
+            "assignment_row_error": float(torch.mean(torch.abs(assignment.sum(dim=1) - 1.0)).item()),
+            "refined_embedding_norm": float(refined.norm(dim=1).mean().item()),
+        }
+    )
+    return _row(
+        "v6_gnn_soft_cover",
+        elapsed=monotonic() - start,
+        metrics=metrics,
+        notes="Untrained GNN edge scorer plus Sinkhorn pair-assignment smoke pass.",
+    )
+
+
+def _run_v7_smoke(embeddings: torch.Tensor, clean_adj: torch.Tensor, seed: int, steps: int) -> dict[str, Any]:
+    start = monotonic()
+    np.random.seed(seed)
+    model = EnergyNetwork(embedding_dim=embeddings.shape[1])
+    model.eval()
+    initial = torch.zeros_like(clean_adj)
+    with torch.no_grad():
+        initial_energy = float(model(embeddings, initial).item())
+        pred = mcmc_annealing_search(model, embeddings, initial, steps=steps, temp_start=1.0, temp_end=0.1)
+        final_energy = float(model(embeddings, pred).item())
+    metrics = _edge_proxy_metrics(pred, clean_adj)
+    metrics.update({"initial_energy": initial_energy, "final_energy": final_energy})
+    return _row(
+        "v7_energy_mcmc",
+        elapsed=monotonic() - start,
+        metrics=metrics,
+        notes="Untrained global energy model with MCMC graph rewiring smoke pass.",
+    )
+
+
+def _run_v8_smoke(embeddings: torch.Tensor, clean_adj: torch.Tensor, seed: int, diffusion_steps: int) -> dict[str, Any]:
+    start = monotonic()
+    torch.manual_seed(seed)
+    model = DenoisingEdgeModel(embedding_dim=embeddings.shape[1])
+    diffusion = GraphDiffusionAssembly(model, num_steps=diffusion_steps)
+    model.eval()
+    with torch.no_grad():
+        noisy, noise_mask = diffusion.forward_diffusion(clean_adj, t=max(0, diffusion_steps - 1))
+        pred = diffusion.reverse_diffusion(embeddings, noisy)
+    metrics = _edge_proxy_metrics(pred, clean_adj)
+    metrics.update({"noise_flip_rate": float(noise_mask.float().mean().item())})
+    return _row(
+        "v8_diffusion",
+        elapsed=monotonic() - start,
+        metrics=metrics,
+        notes="Untrained graph diffusion denoiser conditioned on noisy adjacency.",
+    )
+
+
+def _run_v9_smoke(embeddings: torch.Tensor, pieces_per_note: int) -> dict[str, Any]:
+    start = monotonic()
+    incidence = _candidate_incidence(embeddings.shape[0], pieces_per_note)
+    solver = NeuralILPSolver(embedding_dim=embeddings.shape[1])
+    solver.eval()
+    candidate_embeddings = incidence @ embeddings / incidence.sum(dim=1, keepdim=True).clamp_min(1.0)
+    with torch.no_grad():
+        selection_probs = solver(candidate_embeddings).squeeze(-1)
+        coverage_loss = candidate_soft_exact_cover_loss(incidence, selection_probs, lambda_entropy=0.0)
+        coverage = incidence.T @ selection_probs
+    metrics = {
+        "coverage_loss": float(coverage_loss.item()),
+        "coverage_mae": float(torch.mean(torch.abs(coverage - 1.0)).item()),
+        "selection_mean": float(selection_probs.mean().item()),
+        "selection_std": float(selection_probs.std(unbiased=False).item()),
+        "symmetry_error": 0.0,
+        "diagonal_error": 0.0,
+    }
+    return _row(
+        "v9_neural_ilp",
+        elapsed=monotonic() - start,
+        metrics=metrics,
+        notes="Untrained Transformer set-cover selector over candidate assemblies.",
+    )
+
+
+def _run_v10_smoke(embeddings: torch.Tensor, clean_adj: torch.Tensor) -> dict[str, Any]:
+    start = monotonic()
+    encoder = LatentWorldEncoder(embedding_dim=embeddings.shape[1], latent_dim=max(8, embeddings.shape[1] // 2))
+    decoder = LatentWorldDecoder(latent_dim=max(8, embeddings.shape[1] // 2), num_nodes=embeddings.shape[0])
+    encoder.eval()
+    decoder.eval()
+    with torch.no_grad():
+        mu, _logvar = encoder(embeddings)
+        pred, coords = decoder(mu)
+        pred = 0.5 * (pred + pred.T)
+        pred.fill_diagonal_(0.0)
+    metrics = _edge_proxy_metrics(pred, clean_adj)
+    metrics.update({"coord_abs_mean": float(torch.abs(coords).mean().item())})
+    return _row(
+        "v10_latent_world",
+        elapsed=monotonic() - start,
+        metrics=metrics,
+        notes="Untrained latent world encoder/decoder inverse-graphics smoke pass.",
+    )
+
+
+def run_v6_to_v10_architecture_comparison(
+    *,
+    architectures: Iterable[str] = V6_TO_V10_ARCHITECTURES,
+    nodes: int = 8,
+    pieces_per_note: int = 4,
+    embedding_dim: int = 32,
+    seed: int = 7,
+    mcmc_steps: int = 20,
+    diffusion_steps: int = 6,
+) -> dict[str, Any]:
+    """Run a deterministic smoke comparison across the v6-v10 model families.
+
+    The returned ``best_architecture`` is a proxy smoke-test winner, not a claim
+    of trained reconstruction accuracy. It is useful for checking that every
+    modelling route can ingest the same latent graph and emit comparable
+    structural metrics before expensive training or real-data evaluation.
+    """
+
+    _require_torch()
+    requested = tuple(str(item).strip() for item in architectures if str(item).strip())
+    unknown = sorted(set(requested) - set(V6_TO_V10_ARCHITECTURES))
+    if unknown:
+        raise ValueError(f"unknown architectures: {', '.join(unknown)}")
+
+    torch.manual_seed(seed)
+    embeddings, clean_adj = _synthetic_clean_graph(nodes, pieces_per_note, embedding_dim, seed)
+    rows: list[dict[str, Any]] = []
+    for index, architecture in enumerate(requested):
+        torch.manual_seed(seed + index * 101)
+        if architecture == "v6_gnn_soft_cover":
+            rows.append(_run_v6_smoke(embeddings, clean_adj))
+        elif architecture == "v7_energy_mcmc":
+            rows.append(_run_v7_smoke(embeddings, clean_adj, seed + index * 101, mcmc_steps))
+        elif architecture == "v8_diffusion":
+            rows.append(_run_v8_smoke(embeddings, clean_adj, seed + index * 101, diffusion_steps))
+        elif architecture == "v9_neural_ilp":
+            rows.append(_run_v9_smoke(embeddings, pieces_per_note))
+        elif architecture == "v10_latent_world":
+            rows.append(_run_v10_smoke(embeddings, clean_adj))
+
+    summary = sorted(
+        [
+            {
+                "architecture": row["architecture"],
+                "proxy_score": row["proxy_score"],
+                "run_seconds": row["timings_seconds"]["run"],
+            }
+            for row in rows
+        ],
+        key=lambda item: (item["proxy_score"], item["run_seconds"], item["architecture"]),
+    )
+    return {
+        "config": {
+            "architectures": requested,
+            "nodes": nodes,
+            "pieces_per_note": pieces_per_note,
+            "embedding_dim": embedding_dim,
+            "seed": seed,
+            "mcmc_steps": mcmc_steps,
+            "diffusion_steps": diffusion_steps,
+            "trained_weights": False,
+            "score_interpretation": "lower proxy_score is better for smoke-test structural validity only",
+        },
+        "rows": rows,
+        "summary": summary,
+        "best_architecture": summary[0]["architecture"] if summary else None,
+    }

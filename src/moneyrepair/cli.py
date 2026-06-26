@@ -43,6 +43,7 @@ from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import TEARFIT_COVER_OBJECTIVES, TEARFIT_SEED_STRATEGIES, run_tearfit_strategy_comparison, run_tearfit_sweep
+from moneyrepair.v6_to_v10 import V6_TO_V10_ARCHITECTURES, run_v6_to_v10_architecture_comparison
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -867,6 +868,28 @@ def _cmd_policy_compare(args: argparse.Namespace) -> None:
         )
 
 
+def _cmd_architecture_compare(args: argparse.Namespace) -> None:
+    payload = run_v6_to_v10_architecture_comparison(
+        architectures=args.architectures.split(","),
+        nodes=args.nodes,
+        pieces_per_note=args.pieces_per_note,
+        embedding_dim=args.embedding_dim,
+        seed=args.seed,
+        mcmc_steps=args.mcmc_steps,
+        diffusion_steps=args.diffusion_steps,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote architecture comparison to {output}")
+    print(f"best_architecture={payload['best_architecture']}")
+    for row in payload["summary"]:
+        print(
+            "{architecture}: proxy_score={proxy_score:.4f} run_seconds={run_seconds:.4f}".format(**row)
+        )
+
+
 def _cmd_report_figures(args: argparse.Namespace) -> None:
     sources: dict[str, str] = {}
     strategy_results = None
@@ -1315,6 +1338,17 @@ def build_parser() -> argparse.ArgumentParser:
     policy_compare.add_argument("--cover-time-limit", type=float, default=5.0)
     policy_compare.add_argument("--output", help="write full policy comparison JSON")
     policy_compare.set_defaults(func=_cmd_policy_compare)
+
+    architecture_compare = sub.add_parser("architecture-compare", help="run v6-v10 architecture smoke comparison")
+    architecture_compare.add_argument("--architectures", default=",".join(V6_TO_V10_ARCHITECTURES))
+    architecture_compare.add_argument("--nodes", type=int, default=8)
+    architecture_compare.add_argument("--pieces-per-note", type=int, default=4)
+    architecture_compare.add_argument("--embedding-dim", type=int, default=32)
+    architecture_compare.add_argument("--seed", type=int, default=7)
+    architecture_compare.add_argument("--mcmc-steps", type=int, default=20)
+    architecture_compare.add_argument("--diffusion-steps", type=int, default=6)
+    architecture_compare.add_argument("--output", help="write full architecture comparison JSON")
+    architecture_compare.set_defaults(func=_cmd_architecture_compare)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)
