@@ -24,9 +24,12 @@ masks in one template coordinate frame.
 - Absolute-coordinate tear overlap: two pieces get an edge when their internal
   tear boundaries occupy the same note coordinates within a small tolerance.
 - Serial-label hard anchors: groups cannot contain conflicting labels, and the
-  final selection cannot confirm two candidates with the same serial.
+  final selection cannot confirm two candidates with the same serial. Labels
+  are priority seeds and constraints, not the only legal search starts.
 - A global candidate set-packing pass over full-note candidates, replacing the
-  fragile "connected component equals one note" assumption.
+  fragile "connected component equals one note" assumption. The default
+  objective is weighted (`score_then_count`) because pressure sweeps favoured
+  precision over blindly maximising candidate count.
 
 ## Run
 
@@ -35,6 +38,8 @@ moneyrepair tearfit-demo \
   --notes-list 20,50,100 \
   --pieces-per-note 8 \
   --min-overlap-pixels 14 \
+  --seed-strategy anchor_priority \
+  --cover-objective score_then_count \
   --serial-ocr-rate 0.6 \
   --output runs/tearfit_demo.json
 ```
@@ -50,10 +55,22 @@ moneyrepair tearfit-demo \
   --min-overlap-pixels 6
 ```
 
-Use `--serial-ocr-rate 1.0` for the ideal upper bound where every note has a
-readable serial anchor. Use `--serial-ocr-rate 0 --no-require-anchor` to probe
-geometry-only assembly; that is useful as a stress test, but it is not the safer
-production mode.
+Use `--serial-ocr-rate 1.0 --ensure-serial-anchor` for the ideal upper bound
+where every note has a readable serial anchor. Use `--serial-ocr-rate 0` to
+probe geometry-only assembly. The old `anchor_only` behaviour can be reproduced
+with `--seed-strategy anchor_only`, but it makes OCR coverage a hard yield
+ceiling and is kept mainly as a comparison baseline.
+
+Compare seed and exact-cover objectives directly:
+
+```bash
+moneyrepair tearfit-compare \
+  --profile pressure \
+  --seed-strategies anchor_priority,all \
+  --cover-objectives count_then_score,score_then_count \
+  --serial-ocr-rates 0,0.6,1 \
+  --output runs/tearfit_compare_pressure.json
+```
 
 ## How To Read The Report
 

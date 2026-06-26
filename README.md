@@ -338,6 +338,18 @@ The interlock path is placed-fragment local validation: candidate masks must
 already share note coordinates; non-contacting pairs are not penalised, and it
 is not a raw-crop torn-edge searcher over arbitrary translation or rotation.
 
+## Tear-fit assembly research (v5 sandbox)
+
+The placed-coordinate tear-fit sandbox tests the next assembly layer:
+fractal tear simulation, serial labels as constraints and priority seeds,
+weighted candidate set packing, and direct strategy comparison. See
+[docs/tearfit research](docs/tearfit_research.md).
+
+```bash
+moneyrepair tearfit-compare --profile smoke --output runs/tearfit_compare_smoke.json
+moneyrepair tearfit-demo --notes-list 20,50,100 --seed-strategy anchor_priority --cover-objective score_then_count --output runs/tearfit_demo.json
+```
+
 ## Current scope
 
 This is intentionally a software simulation first. Real scan/photo ingestion can

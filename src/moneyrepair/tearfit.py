@@ -13,6 +13,9 @@ from moneyrepair.interlock import binary_dilation_3x3
 from moneyrepair.simulate import synthetic_banknote
 from moneyrepair.types import Fragment
 
+TEARFIT_SEED_STRATEGIES = ("anchor_only", "anchor_priority", "all")
+TEARFIT_COVER_OBJECTIVES = ("count_then_score", "score_then_count")
+
 
 @dataclass(frozen=True)
 class FractalTearConfig:
@@ -121,6 +124,15 @@ class TearFitTrialResult:
                 ],
             },
         }
+
+
+@dataclass(frozen=True)
+class TearFitComparisonCase:
+    name: str
+    notes: int
+    pieces_per_note: int
+    fray_probability: float = 0.18
+    roughness: float = 4.0
 
 
 def _serial_roi(height: int, width: int) -> tuple[int, int, int, int]:
@@ -449,6 +461,26 @@ def _support_for_state(state: frozenset[int], edge_lookup: dict[tuple[int, int],
     return support
 
 
+def _resolve_seed_strategy(seed_strategy: str, require_anchor: bool | None) -> str:
+    if require_anchor is not None:
+        return "anchor_only" if require_anchor else "anchor_priority"
+    if seed_strategy not in TEARFIT_SEED_STRATEGIES:
+        raise ValueError(f"seed_strategy must be one of: {', '.join(TEARFIT_SEED_STRATEGIES)}")
+    return seed_strategy
+
+
+def _seed_order(fragments: list[Fragment], seed_strategy: str) -> list[int]:
+    labelled = [index for index, fragment in enumerate(fragments) if fragment.label]
+    unlabelled = [index for index, fragment in enumerate(fragments) if not fragment.label]
+    if seed_strategy == "anchor_only":
+        return labelled
+    if seed_strategy == "anchor_priority":
+        return labelled + unlabelled
+    if seed_strategy == "all":
+        return list(range(len(fragments)))
+    raise ValueError(f"seed_strategy must be one of: {', '.join(TEARFIT_SEED_STRATEGIES)}")
+
+
 def generate_assembly_candidates(
     fragments: list[Fragment],
     edges: list[TearFitEdge],
@@ -457,21 +489,25 @@ def generate_assembly_candidates(
     gap_fill_radius: int = 2,
     max_pieces: int = 12,
     beam_width: int = 64,
-    require_anchor: bool = True,
+    seed_strategy: str = "anchor_priority",
+    require_anchor: bool | None = None,
     max_group_overlap_pixels: int = 0,
     time_limit_seconds: float | None = 20.0,
 ) -> list[AssemblyCandidate]:
     """Generate full-note candidates by connected tear graph search.
 
-    The search is label-aware and overlap-constrained. It produces candidate
-    note groups; :func:`select_exact_cover_candidates` then performs the global
-    set-packing pass over those candidates.
+    The search is label-aware and overlap-constrained. Serial labels act as
+    constraints and priority seeds, not as the only legal entry point unless
+    ``seed_strategy="anchor_only"`` is explicitly requested for comparison.
+    It produces candidate note groups; :func:`select_exact_cover_candidates`
+    then performs the global set-packing pass over those candidates.
     """
 
     if not fragments:
         return []
+    seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
     graph, edge_lookup = _edge_graph(edges, len(fragments))
-    starts = [index for index, fragment in enumerate(fragments) if fragment.label] if require_anchor else list(range(len(fragments)))
+    starts = _seed_order(fragments, seed_strategy)
     if not starts:
         return []
     total_area = fragments[0].mask.size
@@ -532,29 +568,43 @@ def select_exact_cover_candidates(
     candidates: list[AssemblyCandidate],
     *,
     time_limit_seconds: float | None = 10.0,
+    objective: str = "score_then_count",
 ) -> list[AssemblyCandidate]:
     """Globally choose disjoint confirmed candidates.
 
     This is a maximum set-packing solver over generated full-note candidates:
     no fragment may appear twice and no serial label may be confirmed twice.
-    The primary objective is the number of confirmed notes; total candidate
-    score breaks ties.
+    ``score_then_count`` is the weighted set-packing variant: it maximises
+    total score first and uses count as the tie-breaker. ``count_then_score``
+    maximises confirmed note count first and uses total candidate score as a
+    tie-breaker.
     """
 
+    if objective not in TEARFIT_COVER_OBJECTIVES:
+        raise ValueError(f"objective must be one of: {', '.join(TEARFIT_COVER_OBJECTIVES)}")
     ordered = sorted(candidates, key=lambda item: (-item.score, -len(item.fragment_ids), item.fragment_ids))
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
-    best: tuple[int, float, tuple[int, ...]] = (0, float("-inf"), ())
+    best_count = 0
+    best_score = float("-inf")
+    best_choice: tuple[int, ...] = ()
+
+    def better(count: int, score: float) -> bool:
+        if objective == "count_then_score":
+            return count > best_count or (count == best_count and score > best_score)
+        return score > best_score or (score == best_score and count > best_count)
 
     def dfs(pos: int, used_ids: frozenset[str], used_labels: frozenset[str], chosen: tuple[int, ...], score: float) -> None:
-        nonlocal best
+        nonlocal best_count, best_score, best_choice
         if deadline is not None and monotonic() >= deadline:
             return
-        if len(chosen) + (len(ordered) - pos) < best[0]:
+        if objective == "count_then_score" and len(chosen) + (len(ordered) - pos) < best_count:
             return
         if pos >= len(ordered):
-            candidate_key = (len(chosen), score, chosen)
-            if candidate_key[0] > best[0] or (candidate_key[0] == best[0] and candidate_key[1] > best[1]):
-                best = candidate_key
+            count = len(chosen)
+            if better(count, score):
+                best_count = count
+                best_score = score
+                best_choice = chosen
             return
 
         item = ordered[pos]
@@ -565,7 +615,7 @@ def select_exact_cover_candidates(
         dfs(pos + 1, used_ids, used_labels, chosen, score)
 
     dfs(0, frozenset(), frozenset(), (), 0.0)
-    return [ordered[index] for index in best[2]]
+    return [ordered[index] for index in best_choice]
 
 
 def diagnose_confirmed_candidates(candidates: list[AssemblyCandidate], fragments: list[Fragment]) -> TearFitDiagnostics:
@@ -618,11 +668,16 @@ def run_tearfit_trial(
     max_pieces: int | None = None,
     beam_width: int = 64,
     use_labels: bool = True,
-    require_anchor: bool = True,
+    seed_strategy: str = "anchor_priority",
+    require_anchor: bool | None = None,
     serial_ocr_rate: float | None = None,
+    candidate_time_limit_seconds: float | None = 20.0,
+    cover_time_limit_seconds: float | None = 10.0,
+    cover_objective: str = "score_then_count",
 ) -> TearFitTrialResult:
     """Run one labelled exact-cover tear-fit trial."""
 
+    seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
     if serial_ocr_rate is not None:
         config = FractalTearConfig(**{**config.__dict__, "serial_ocr_rate": serial_ocr_rate})
     _template, fragments = make_fractal_tear_fragments(config)
@@ -645,9 +700,14 @@ def run_tearfit_trial(
         gap_fill_radius=gap_fill_radius,
         max_pieces=max_pieces or config.pieces_per_note + 2,
         beam_width=beam_width,
-        require_anchor=require_anchor,
+        seed_strategy=seed_strategy,
+        time_limit_seconds=candidate_time_limit_seconds,
     )
-    selected = select_exact_cover_candidates(candidates)
+    selected = select_exact_cover_candidates(
+        candidates,
+        time_limit_seconds=cover_time_limit_seconds,
+        objective=cover_objective,
+    )
     diagnostics = diagnose_confirmed_candidates(selected, fragments)
 
     true_scores = [
@@ -674,7 +734,10 @@ def run_tearfit_trial(
             "gap_fill_radius": gap_fill_radius,
             "beam_width": beam_width,
             "use_labels": use_labels,
-            "require_anchor": require_anchor,
+            "seed_strategy": seed_strategy,
+            "candidate_time_limit_seconds": candidate_time_limit_seconds,
+            "cover_time_limit_seconds": cover_time_limit_seconds,
+            "cover_objective": cover_objective,
         },
         fragments=len(fragments),
         pair_scores=len(all_scores),
@@ -700,8 +763,14 @@ def run_tearfit_sweep(
     gap_fill_radius: int = 2,
     beam_width: int = 64,
     serial_ocr_rate: float = 1.0,
-    require_anchor: bool = True,
+    seed_strategy: str = "anchor_priority",
+    require_anchor: bool | None = None,
+    ensure_serial_anchor: bool = True,
+    candidate_time_limit_seconds: float | None = 20.0,
+    cover_time_limit_seconds: float | None = 10.0,
+    cover_objective: str = "score_then_count",
 ) -> list[dict]:
+    seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
     rows = []
     for offset, notes in enumerate(notes_list):
         result = run_tearfit_trial(
@@ -712,16 +781,187 @@ def run_tearfit_sweep(
                 height=height,
                 seed=seed + offset * 997,
                 serial_ocr_rate=serial_ocr_rate,
+                ensure_serial_anchor=ensure_serial_anchor,
             ),
             min_overlap_pixels=min_overlap_pixels,
             tolerance=tolerance,
             coverage_threshold=coverage_threshold,
             gap_fill_radius=gap_fill_radius,
             beam_width=beam_width,
-            require_anchor=require_anchor,
+            seed_strategy=seed_strategy,
+            candidate_time_limit_seconds=candidate_time_limit_seconds,
+            cover_time_limit_seconds=cover_time_limit_seconds,
+            cover_objective=cover_objective,
         )
         rows.append(result.to_jsonable())
     return rows
+
+
+def tearfit_comparison_cases(profile: str = "smoke") -> tuple[TearFitComparisonCase, ...]:
+    if profile == "smoke":
+        return (
+            TearFitComparisonCase("small_n8_p5", notes=8, pieces_per_note=5),
+            TearFitComparisonCase("base_n20_p8", notes=20, pieces_per_note=8),
+        )
+    if profile == "pressure":
+        return (
+            TearFitComparisonCase("base_n20_p8", notes=20, pieces_per_note=8),
+            TearFitComparisonCase("scale_n50_p8", notes=50, pieces_per_note=8),
+            TearFitComparisonCase("scale_n100_p8", notes=100, pieces_per_note=8),
+            TearFitComparisonCase("fine_n50_p16", notes=50, pieces_per_note=16),
+            TearFitComparisonCase("fray_n50_p8", notes=50, pieces_per_note=8, fray_probability=0.40),
+        )
+    raise ValueError("profile must be 'smoke' or 'pressure'")
+
+
+def _strategy_score(rows: list[dict]) -> tuple[float, float, float, float]:
+    if not rows:
+        return (0.0, 0.0, 0.0, 0.0)
+    precisions = [float(row["exact_precision"]) for row in rows]
+    yields = [float(row["exact_yield"]) for row in rows]
+    chimera_rates = [
+        float(row["chimeras"]) / float(row["confirmed"]) if row["confirmed"] else 0.0
+        for row in rows
+    ]
+    return (
+        min(precisions),
+        sum(precisions) / len(precisions),
+        sum(yields) / len(yields),
+        -sum(chimera_rates) / len(chimera_rates),
+    )
+
+
+def run_tearfit_strategy_comparison(
+    *,
+    profile: str = "smoke",
+    seed_strategies: Iterable[str] = ("anchor_only", "anchor_priority", "all"),
+    cover_objectives: Iterable[str] = ("count_then_score",),
+    serial_ocr_rates: Iterable[float] = (0.0, 0.6, 1.0),
+    width: int = 120,
+    height: int = 64,
+    seed: int = 7,
+    min_overlap_pixels: int = 10,
+    tolerance: int = 2,
+    coverage_threshold: float = 0.93,
+    gap_fill_radius: int = 2,
+    beam_width: int = 48,
+    ensure_serial_anchor: bool = False,
+    candidate_time_limit_seconds: float | None = 10.0,
+    cover_time_limit_seconds: float | None = 5.0,
+) -> dict:
+    rows: list[dict] = []
+    cases = tearfit_comparison_cases(profile)
+    strategies = tuple(seed_strategies)
+    objectives = tuple(cover_objectives)
+    rates = tuple(float(rate) for rate in serial_ocr_rates)
+    for strategy in strategies:
+        _resolve_seed_strategy(strategy, None)
+    for objective in objectives:
+        if objective not in TEARFIT_COVER_OBJECTIVES:
+            raise ValueError(f"cover_objective must be one of: {', '.join(TEARFIT_COVER_OBJECTIVES)}")
+    for case_index, case in enumerate(cases):
+        for rate_index, rate in enumerate(rates):
+            for strategy in strategies:
+                for objective in objectives:
+                    result = run_tearfit_trial(
+                        FractalTearConfig(
+                            notes=case.notes,
+                            pieces_per_note=case.pieces_per_note,
+                            width=width,
+                            height=height,
+                            seed=seed + case_index * 1009 + rate_index * 131,
+                            roughness=case.roughness,
+                            fray_probability=case.fray_probability,
+                            ensure_serial_anchor=ensure_serial_anchor,
+                            serial_ocr_rate=rate,
+                        ),
+                        tolerance=tolerance,
+                        min_overlap_pixels=min_overlap_pixels,
+                        coverage_threshold=coverage_threshold,
+                        gap_fill_radius=gap_fill_radius,
+                        beam_width=beam_width,
+                        seed_strategy=strategy,
+                        candidate_time_limit_seconds=candidate_time_limit_seconds,
+                        cover_time_limit_seconds=cover_time_limit_seconds,
+                        cover_objective=objective,
+                    )
+                    diag = result.diagnostics
+                    rows.append(
+                        {
+                            "case": case.name,
+                            "notes": case.notes,
+                            "pieces_per_note": case.pieces_per_note,
+                            "fray_probability": case.fray_probability,
+                            "serial_ocr_rate": rate,
+                            "seed_strategy": strategy,
+                            "cover_objective": objective,
+                            "fragments": result.fragments,
+                            "accepted_edges": result.accepted_edges,
+                            "false_edge_rate": result.false_edge_rate,
+                            "candidates": result.candidates,
+                            "confirmed": diag.confirmed,
+                            "exact_confirmed": diag.exact_confirmed,
+                            "chimeras": diag.chimeras,
+                            "exact_precision": diag.exact_precision,
+                            "pure_precision": diag.pure_precision,
+                            "exact_yield": diag.exact_yield,
+                            "manual_notes_remaining": diag.manual_notes_remaining,
+                        }
+                    )
+
+    by_strategy: dict[tuple[str, str], list[dict]] = {
+        (strategy, objective): [] for strategy in strategies for objective in objectives
+    }
+    for row in rows:
+        by_strategy[(row["seed_strategy"], row["cover_objective"])].append(row)
+    summary = []
+    for (strategy, objective), strategy_rows in by_strategy.items():
+        score = _strategy_score(strategy_rows)
+        summary.append(
+            {
+                "seed_strategy": strategy,
+                "cover_objective": objective,
+                "min_exact_precision": score[0],
+                "mean_exact_precision": score[1],
+                "mean_exact_yield": score[2],
+                "mean_negative_chimera_rate": score[3],
+                "score_tuple": score,
+            }
+        )
+    summary.sort(key=lambda item: item["score_tuple"], reverse=True)
+    best = (
+        {
+            "seed_strategy": summary[0]["seed_strategy"],
+            "cover_objective": summary[0]["cover_objective"],
+        }
+        if summary
+        else None
+    )
+    for item in summary:
+        item.pop("score_tuple", None)
+    return {
+        "config": {
+            "profile": profile,
+            "seed_strategies": strategies,
+            "cover_objectives": objectives,
+            "serial_ocr_rates": rates,
+            "width": width,
+            "height": height,
+            "seed": seed,
+            "min_overlap_pixels": min_overlap_pixels,
+            "tolerance": tolerance,
+            "coverage_threshold": coverage_threshold,
+            "gap_fill_radius": gap_fill_radius,
+            "beam_width": beam_width,
+            "ensure_serial_anchor": ensure_serial_anchor,
+            "candidate_time_limit_seconds": candidate_time_limit_seconds,
+            "cover_time_limit_seconds": cover_time_limit_seconds,
+        },
+        "rows": rows,
+        "summary": summary,
+        "best_strategy": best,
+        "best_seed_strategy": best,
+    }
 
 
 def _parse_notes_list(value: str) -> list[int]:
@@ -741,7 +981,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gap-fill-radius", type=int, default=2)
     parser.add_argument("--beam-width", type=int, default=64)
     parser.add_argument("--serial-ocr-rate", type=float, default=1.0)
-    parser.add_argument("--no-require-anchor", action="store_true")
+    parser.add_argument("--seed-strategy", choices=TEARFIT_SEED_STRATEGIES, default="anchor_priority")
+    parser.add_argument("--ensure-serial-anchor", action="store_true")
+    parser.add_argument("--candidate-time-limit", type=float, default=20.0)
+    parser.add_argument("--cover-time-limit", type=float, default=10.0)
+    parser.add_argument("--cover-objective", choices=TEARFIT_COVER_OBJECTIVES, default="score_then_count")
     parser.add_argument("--output")
     args = parser.parse_args(argv)
     rows = run_tearfit_sweep(
@@ -756,7 +1000,11 @@ def main(argv: list[str] | None = None) -> int:
         gap_fill_radius=args.gap_fill_radius,
         beam_width=args.beam_width,
         serial_ocr_rate=args.serial_ocr_rate,
-        require_anchor=not args.no_require_anchor,
+        seed_strategy=args.seed_strategy,
+        ensure_serial_anchor=args.ensure_serial_anchor,
+        candidate_time_limit_seconds=args.candidate_time_limit,
+        cover_time_limit_seconds=args.cover_time_limit,
+        cover_objective=args.cover_objective,
     )
     payload = {"rows": rows}
     text = json.dumps(payload, indent=2)

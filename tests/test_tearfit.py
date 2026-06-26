@@ -6,6 +6,7 @@ from moneyrepair.tearfit import (
     diagnose_confirmed_candidates,
     make_fractal_tear_fragments,
     run_tearfit_trial,
+    run_tearfit_strategy_comparison,
     score_absolute_tear_pairs,
     select_exact_cover_candidates,
 )
@@ -69,6 +70,20 @@ def test_exact_cover_selection_reuses_no_fragment_or_serial():
     assert len(used_labels) == len(set(used_labels))
 
 
+def test_exact_cover_can_use_weighted_score_objective():
+    candidates = [
+        AssemblyCandidate(("a", "b"), coverage=0.99, raw_coverage=0.95, score=10.0, support_pixels=10),
+        AssemblyCandidate(("c", "d"), coverage=0.99, raw_coverage=0.95, score=10.0, support_pixels=10),
+        AssemblyCandidate(("a", "c"), coverage=0.99, raw_coverage=0.95, score=30.0, support_pixels=30),
+    ]
+
+    count_first = select_exact_cover_candidates(candidates, objective="count_then_score")
+    score_first = select_exact_cover_candidates(candidates, objective="score_then_count")
+
+    assert {item.fragment_ids for item in count_first} == {("a", "b"), ("c", "d")}
+    assert [item.fragment_ids for item in score_first] == [("a", "c")]
+
+
 def test_labelled_tearfit_trial_confirms_pure_candidates():
     result = run_tearfit_trial(
         FractalTearConfig(notes=3, pieces_per_note=5, width=90, height=48, seed=11),
@@ -80,6 +95,53 @@ def test_labelled_tearfit_trial_confirms_pure_candidates():
     assert result.diagnostics.confirmed > 0
     assert result.diagnostics.chimeras == 0
     assert result.diagnostics.pure_precision == 1.0
+
+
+def test_anchor_priority_does_not_make_ocr_coverage_a_hard_ceiling():
+    config = FractalTearConfig(
+        notes=3,
+        pieces_per_note=5,
+        width=90,
+        height=48,
+        seed=11,
+        serial_ocr_rate=0.0,
+    )
+
+    old_anchor_only = run_tearfit_trial(
+        config,
+        min_overlap_pixels=6,
+        beam_width=24,
+        seed_strategy="anchor_only",
+    )
+    anchor_priority = run_tearfit_trial(
+        config,
+        min_overlap_pixels=6,
+        beam_width=24,
+        seed_strategy="anchor_priority",
+    )
+
+    assert old_anchor_only.diagnostics.confirmed == 0
+    assert anchor_priority.diagnostics.confirmed > 0
+    assert anchor_priority.diagnostics.exact_precision == 1.0
+
+
+def test_strategy_comparison_reports_best_seed_strategy():
+    payload = run_tearfit_strategy_comparison(
+        profile="smoke",
+        seed_strategies=("anchor_only", "anchor_priority"),
+        serial_ocr_rates=(0.0,),
+        width=90,
+        height=48,
+        min_overlap_pixels=6,
+        beam_width=24,
+        candidate_time_limit_seconds=5.0,
+        cover_time_limit_seconds=2.0,
+    )
+
+    assert payload["best_seed_strategy"]["seed_strategy"] == "anchor_priority"
+    assert payload["best_seed_strategy"]["cover_objective"] in {"count_then_score", "score_then_count"}
+    assert len(payload["rows"]) == 2 * 2
+    assert payload["summary"][0]["mean_exact_yield"] > payload["summary"][1]["mean_exact_yield"]
 
 
 def test_diagnosis_counts_exact_and_chimera_candidates():

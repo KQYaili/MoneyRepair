@@ -41,7 +41,7 @@ from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
-from moneyrepair.tearfit import run_tearfit_sweep
+from moneyrepair.tearfit import TEARFIT_COVER_OBJECTIVES, TEARFIT_SEED_STRATEGIES, run_tearfit_strategy_comparison, run_tearfit_sweep
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -759,6 +759,7 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
 
 
 def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
+    seed_strategy = "anchor_priority" if args.no_require_anchor else args.seed_strategy
     rows = run_tearfit_sweep(
         _parse_int_list(args.notes_list),
         pieces_per_note=args.pieces_per_note,
@@ -771,7 +772,11 @@ def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
         gap_fill_radius=args.gap_fill_radius,
         beam_width=args.beam_width,
         serial_ocr_rate=args.serial_ocr_rate,
-        require_anchor=not args.no_require_anchor,
+        seed_strategy=seed_strategy,
+        ensure_serial_anchor=args.ensure_serial_anchor,
+        candidate_time_limit_seconds=args.candidate_time_limit,
+        cover_time_limit_seconds=args.cover_time_limit,
+        cover_objective=args.cover_objective,
     )
     payload = {"rows": rows}
     if args.output:
@@ -794,6 +799,37 @@ def _cmd_tearfit_demo(args: argparse.Namespace) -> None:
                 yield_=diag["exact_yield"],
                 manual=diag["manual_notes_remaining"],
             )
+        )
+
+
+def _cmd_tearfit_compare(args: argparse.Namespace) -> None:
+    payload = run_tearfit_strategy_comparison(
+        profile=args.profile,
+        seed_strategies=args.seed_strategies.split(","),
+        cover_objectives=args.cover_objectives.split(","),
+        serial_ocr_rates=_parse_float_list(args.serial_ocr_rates),
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        min_overlap_pixels=args.min_overlap_pixels,
+        tolerance=args.tolerance,
+        coverage_threshold=args.coverage_threshold,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        ensure_serial_anchor=args.ensure_serial_anchor,
+        candidate_time_limit_seconds=args.candidate_time_limit,
+        cover_time_limit_seconds=args.cover_time_limit,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote tearfit comparison to {output}")
+    print(f"best_strategy={payload['best_strategy']}")
+    for row in payload["summary"]:
+        print(
+            "{seed_strategy}/{cover_objective}: min_precision={min_exact_precision:.3f} "
+            "mean_precision={mean_exact_precision:.3f} mean_yield={mean_exact_yield:.3f}".format(**row)
         )
 
 
@@ -1199,9 +1235,33 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit.add_argument("--gap-fill-radius", type=int, default=2)
     tearfit.add_argument("--beam-width", type=int, default=64)
     tearfit.add_argument("--serial-ocr-rate", type=float, default=1.0, help="probability that a note has a readable serial anchor")
-    tearfit.add_argument("--no-require-anchor", action="store_true", help="allow unlabelled notes to seed candidate generation")
+    tearfit.add_argument("--seed-strategy", choices=TEARFIT_SEED_STRATEGIES, default="anchor_priority", help="how candidate generation chooses search starts")
+    tearfit.add_argument("--ensure-serial-anchor", action="store_true", help="force at least one serial-labelled fragment for every note before OCR dropout")
+    tearfit.add_argument("--candidate-time-limit", type=float, default=20.0)
+    tearfit.add_argument("--cover-time-limit", type=float, default=10.0)
+    tearfit.add_argument("--cover-objective", choices=TEARFIT_COVER_OBJECTIVES, default="score_then_count")
+    tearfit.add_argument("--no-require-anchor", action="store_true", help="deprecated alias for --seed-strategy anchor_priority")
     tearfit.add_argument("--output", help="write full tearfit JSON report")
     tearfit.set_defaults(func=_cmd_tearfit_demo)
+
+    tearfit_compare = sub.add_parser("tearfit-compare", help="compare tearfit seed/OCR strategies across pressure cases")
+    tearfit_compare.add_argument("--profile", choices=("smoke", "pressure"), default="smoke")
+    tearfit_compare.add_argument("--seed-strategies", default="anchor_only,anchor_priority,all")
+    tearfit_compare.add_argument("--cover-objectives", default="count_then_score,score_then_count")
+    tearfit_compare.add_argument("--serial-ocr-rates", default="0.0,0.6,1.0")
+    tearfit_compare.add_argument("--width", type=int, default=120)
+    tearfit_compare.add_argument("--height", type=int, default=64)
+    tearfit_compare.add_argument("--seed", type=int, default=7)
+    tearfit_compare.add_argument("--min-overlap-pixels", type=int, default=10)
+    tearfit_compare.add_argument("--tolerance", type=int, default=2)
+    tearfit_compare.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_compare.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_compare.add_argument("--beam-width", type=int, default=48)
+    tearfit_compare.add_argument("--ensure-serial-anchor", action="store_true")
+    tearfit_compare.add_argument("--candidate-time-limit", type=float, default=10.0)
+    tearfit_compare.add_argument("--cover-time-limit", type=float, default=5.0)
+    tearfit_compare.add_argument("--output", help="write full comparison JSON")
+    tearfit_compare.set_defaults(func=_cmd_tearfit_compare)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)
