@@ -15,7 +15,9 @@ from moneyrepair.v6_to_v10 import (
     EdgeModel,
     AssemblyGNN,
     V6_TO_V10_ARCHITECTURES,
+    V6TrainingSmokeConfig,
     candidate_soft_exact_cover_loss,
+    make_assembly_training_sample,
     sinkhorn_soft_assignment,
     compute_v6_loss,
     EnergyNetwork,
@@ -26,6 +28,7 @@ from moneyrepair.v6_to_v10 import (
     LatentWorldEncoder,
     LatentWorldDecoder,
     run_v6_to_v10_architecture_comparison,
+    run_v6_training_smoke,
 )
 
 
@@ -170,3 +173,34 @@ def test_v6_to_v10_architecture_comparison_runs_all_routes():
     assert {row["architecture"] for row in payload["rows"]} == set(V6_TO_V10_ARCHITECTURES)
     assert len(payload["summary"]) == len(V6_TO_V10_ARCHITECTURES)
     assert all("proxy_score" in row for row in payload["summary"])
+
+
+def test_v6_training_smoke_generates_hard_negatives_and_diagnostics():
+    sample = make_assembly_training_sample(
+        nodes=6,
+        pieces_per_note=3,
+        embedding_dim=16,
+        seed=19,
+        hard_negative_top_k=3,
+    )
+    assert sample.node_embeddings.shape == (6, 16)
+    assert sample.edge_labels.shape == (6, 6)
+    assert sample.candidate_fragment_incidence.shape[1] == 6
+    assert len(sample.hard_negative_edges) == 3
+
+    payload = run_v6_training_smoke(
+        V6TrainingSmokeConfig(
+            nodes=6,
+            pieces_per_note=3,
+            embedding_dim=16,
+            seed=19,
+            hard_negative_top_k=3,
+            steps=6,
+            lr=0.02,
+        )
+    )
+
+    assert len(payload["loss_curve"]) == 7
+    assert payload["final"]["loss"] < payload["initial"]["loss"]
+    assert payload["collapse_diagnostics"]["final"]["edge_entropy"] >= 0.0
+    assert payload["final"]["hard_negative_edges"]

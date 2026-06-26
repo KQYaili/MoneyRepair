@@ -43,7 +43,12 @@ from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import TEARFIT_COVER_OBJECTIVES, TEARFIT_SEED_STRATEGIES, run_tearfit_strategy_comparison, run_tearfit_sweep
-from moneyrepair.v6_to_v10 import V6_TO_V10_ARCHITECTURES, run_v6_to_v10_architecture_comparison
+from moneyrepair.v6_to_v10 import (
+    V6_TO_V10_ARCHITECTURES,
+    V6TrainingSmokeConfig,
+    run_v6_to_v10_architecture_comparison,
+    run_v6_training_smoke,
+)
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -890,6 +895,41 @@ def _cmd_architecture_compare(args: argparse.Namespace) -> None:
         )
 
 
+def _cmd_v6_train_smoke(args: argparse.Namespace) -> None:
+    payload = run_v6_training_smoke(
+        V6TrainingSmokeConfig(
+            nodes=args.nodes,
+            pieces_per_note=args.pieces_per_note,
+            embedding_dim=args.embedding_dim,
+            seed=args.seed,
+            feature_noise=args.feature_noise,
+            serial_dropout=args.serial_dropout,
+            hard_negative_top_k=args.hard_negative_top_k,
+            steps=args.steps,
+            lr=args.lr,
+            lambda_contrast=args.lambda_contrast,
+            lambda_serial=args.lambda_serial,
+        )
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v6 training smoke report to {output}")
+    print(
+        "improved={improved} initial_loss={initial:.4f} final_loss={final:.4f}".format(
+            improved=payload["improved"],
+            initial=payload["initial"]["loss"],
+            final=payload["final"]["loss"],
+        )
+    )
+    print(
+        "final_edge_mae={edge_mae:.4f} final_density={edge_density:.4f} all_to_one={all_to_one_score:.4f}".format(
+            **payload["final"]["metrics"]
+        )
+    )
+
+
 def _cmd_report_figures(args: argparse.Namespace) -> None:
     sources: dict[str, str] = {}
     strategy_results = None
@@ -1349,6 +1389,21 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_compare.add_argument("--diffusion-steps", type=int, default=6)
     architecture_compare.add_argument("--output", help="write full architecture comparison JSON")
     architecture_compare.set_defaults(func=_cmd_architecture_compare)
+
+    v6_train_smoke = sub.add_parser("v6-train-smoke", help="run synthetic v6 edge-training smoke test with hard negatives")
+    v6_train_smoke.add_argument("--nodes", type=int, default=8)
+    v6_train_smoke.add_argument("--pieces-per-note", type=int, default=4)
+    v6_train_smoke.add_argument("--embedding-dim", type=int, default=32)
+    v6_train_smoke.add_argument("--seed", type=int, default=7)
+    v6_train_smoke.add_argument("--feature-noise", type=float, default=0.10)
+    v6_train_smoke.add_argument("--serial-dropout", type=float, default=0.30)
+    v6_train_smoke.add_argument("--hard-negative-top-k", type=int, default=6)
+    v6_train_smoke.add_argument("--steps", type=int, default=20)
+    v6_train_smoke.add_argument("--lr", type=float, default=0.01)
+    v6_train_smoke.add_argument("--lambda-contrast", type=float, default=2.0)
+    v6_train_smoke.add_argument("--lambda-serial", type=float, default=0.2)
+    v6_train_smoke.add_argument("--output", help="write full v6 training smoke JSON")
+    v6_train_smoke.set_defaults(func=_cmd_v6_train_smoke)
 
     report_figures = sub.add_parser("report-figures", help="render the multi-panel scientific report with source CSV and provenance")
     report_figures.add_argument("--output-prefix", required=True)

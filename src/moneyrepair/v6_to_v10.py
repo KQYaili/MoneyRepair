@@ -299,6 +299,244 @@ def candidate_soft_exact_cover_loss(
     )
 
 
+@dataclass(frozen=True)
+class AssemblyTrainingSample:
+    """Synthetic latent assembly supervision bundle for v6 training smoke tests."""
+
+    node_embeddings: Any
+    clean_adj: Any
+    edge_labels: Any
+    candidate_fragment_incidence: Any
+    serial_labels: Any
+    hard_negative_edges: tuple[tuple[int, int, float], ...]
+
+
+@dataclass(frozen=True)
+class V6TrainingSmokeConfig:
+    nodes: int = 8
+    pieces_per_note: int = 4
+    embedding_dim: int = 32
+    seed: int = 7
+    feature_noise: float = 0.10
+    serial_dropout: float = 0.30
+    hard_negative_top_k: int = 6
+    steps: int = 20
+    lr: float = 0.01
+    lambda_contrast: float = 2.0
+    lambda_serial: float = 0.2
+
+
+def mine_hard_negative_edges(
+    edge_probs: torch.Tensor,
+    clean_adj: torch.Tensor,
+    *,
+    top_k: int = 6,
+) -> tuple[tuple[int, int, float], ...]:
+    """Return the highest-scoring false edges for adversarial refinement."""
+
+    _require_torch()
+    if top_k <= 0:
+        return ()
+    scores = edge_probs.detach().float()
+    labels = clean_adj.detach().float()
+    rows, cols = torch.triu_indices(scores.shape[0], scores.shape[1], offset=1)
+    false_mask = labels[rows, cols] <= 0.5
+    rows = rows[false_mask]
+    cols = cols[false_mask]
+    if rows.numel() == 0:
+        return ()
+    values = scores[rows, cols]
+    count = min(top_k, values.numel())
+    top_values, top_indices = torch.topk(values, k=count)
+    return tuple(
+        (int(rows[index]), int(cols[index]), float(top_values[pos].item()))
+        for pos, index in enumerate(top_indices)
+    )
+
+
+def edge_probability_matrix(edge_model: EdgeModel, embeddings: torch.Tensor) -> torch.Tensor:
+    """Evaluate an EdgeModel on all ordered node pairs as a symmetric matrix."""
+
+    _require_torch()
+    count, dim = embeddings.shape
+    left = embeddings.unsqueeze(1).repeat(1, count, 1).reshape(-1, dim)
+    right = embeddings.unsqueeze(0).repeat(count, 1, 1).reshape(-1, dim)
+    probs = edge_model(left, right).reshape(count, count)
+    probs = 0.5 * (probs + probs.T)
+    eye = torch.eye(count, device=embeddings.device, dtype=probs.dtype)
+    return probs * (1.0 - eye)
+
+
+def collapse_diagnostics(edge_probs: torch.Tensor, serial_labels: torch.Tensor | None = None) -> dict[str, float]:
+    """Measure common graph-learning collapse modes without claiming accuracy."""
+
+    _require_torch()
+    probs = edge_probs.detach().float().clamp(1e-6, 1.0 - 1e-6)
+    count = probs.shape[0]
+    offdiag = probs[~torch.eye(count, dtype=torch.bool, device=probs.device)]
+    entropy = -(offdiag * torch.log(offdiag) + (1.0 - offdiag) * torch.log(1.0 - offdiag)).mean()
+    row_mass = probs.sum(dim=1)
+    all_to_one_score = row_mass.max() / row_mass.sum().clamp_min(1e-6)
+    diagnostics = {
+        "edge_density": float(offdiag.mean().item()),
+        "edge_entropy": float(entropy.item()),
+        "all_to_one_score": float(all_to_one_score.item()),
+    }
+    if serial_labels is not None:
+        known = serial_labels >= 0
+        same = (serial_labels[:, None] == serial_labels[None, :]) & known[:, None] & known[None, :]
+        different = (serial_labels[:, None] != serial_labels[None, :]) & known[:, None] & known[None, :]
+        diag = torch.eye(count, dtype=torch.bool, device=probs.device)
+        same = same & ~diag
+        different = different & ~diag
+        same_mean = probs[same].mean() if same.any() else torch.tensor(0.0, device=probs.device)
+        diff_mean = probs[different].mean() if different.any() else torch.tensor(0.0, device=probs.device)
+        diagnostics["serial_same_mean"] = float(same_mean.item())
+        diagnostics["serial_different_mean"] = float(diff_mean.item())
+        diagnostics["serial_gap"] = float((same_mean - diff_mean).item())
+    return diagnostics
+
+
+def make_assembly_training_sample(
+    *,
+    nodes: int = 8,
+    pieces_per_note: int = 4,
+    embedding_dim: int = 32,
+    seed: int = 7,
+    feature_noise: float = 0.10,
+    serial_dropout: float = 0.30,
+    hard_negative_top_k: int = 6,
+) -> AssemblyTrainingSample:
+    """Generate a controllable latent assembly sample with labels and hard negatives."""
+
+    _require_torch()
+    if not (0.0 <= serial_dropout <= 1.0):
+        raise ValueError("serial_dropout must be in [0, 1]")
+    embeddings, clean_adj = _synthetic_clean_graph(nodes, pieces_per_note, embedding_dim, seed)
+    torch.manual_seed(seed + 17)
+    embeddings = embeddings + torch.randn_like(embeddings) * feature_noise
+    serial_labels = torch.full((nodes,), -1, dtype=torch.long)
+    for group_index, start in enumerate(range(0, nodes, pieces_per_note)):
+        end = min(nodes, start + pieces_per_note)
+        serial_labels[start:end] = group_index
+    if serial_dropout > 0.0:
+        keep = torch.rand(nodes) >= serial_dropout
+        serial_labels = torch.where(keep, serial_labels, torch.full_like(serial_labels, -1))
+    candidate_incidence = _candidate_incidence(nodes, pieces_per_note)
+    normed = F.normalize(embeddings, dim=1)
+    similarity_probs = ((normed @ normed.T) + 1.0) * 0.5
+    similarity_probs.fill_diagonal_(0.0)
+    hard_negatives = mine_hard_negative_edges(similarity_probs, clean_adj, top_k=hard_negative_top_k)
+    return AssemblyTrainingSample(
+        node_embeddings=embeddings,
+        clean_adj=clean_adj,
+        edge_labels=clean_adj.clone(),
+        candidate_fragment_incidence=candidate_incidence,
+        serial_labels=serial_labels,
+        hard_negative_edges=hard_negatives,
+    )
+
+
+def _serial_constraint_loss(edge_probs: torch.Tensor, serial_labels: torch.Tensor) -> torch.Tensor:
+    known = serial_labels >= 0
+    different = (serial_labels[:, None] != serial_labels[None, :]) & known[:, None] & known[None, :]
+    different = different & ~torch.eye(edge_probs.shape[0], dtype=torch.bool, device=edge_probs.device)
+    if not different.any():
+        return torch.tensor(0.0, device=edge_probs.device)
+    return edge_probs[different].mean()
+
+
+def _hard_negative_margin_loss(
+    edge_probs: torch.Tensor,
+    clean_adj: torch.Tensor,
+    hard_negative_edges: tuple[tuple[int, int, float], ...],
+    *,
+    margin: float = 0.25,
+) -> torch.Tensor:
+    pos = edge_probs[clean_adj > 0.5]
+    if pos.numel() == 0 or not hard_negative_edges:
+        return torch.tensor(0.0, device=edge_probs.device)
+    hard_values = torch.stack([edge_probs[left, right] for left, right, _score in hard_negative_edges])
+    return F.relu(margin - pos.mean() + hard_values.mean())
+
+
+def run_v6_training_smoke(config: V6TrainingSmokeConfig | None = None) -> dict[str, Any]:
+    """Run a tiny supervised v6 training loop with hard-negative and collapse metrics."""
+
+    _require_torch()
+    config = config or V6TrainingSmokeConfig()
+    torch.manual_seed(config.seed)
+    sample = make_assembly_training_sample(
+        nodes=config.nodes,
+        pieces_per_note=config.pieces_per_note,
+        embedding_dim=config.embedding_dim,
+        seed=config.seed,
+        feature_noise=config.feature_noise,
+        serial_dropout=config.serial_dropout,
+        hard_negative_top_k=config.hard_negative_top_k,
+    )
+    model = EdgeModel(embedding_dim=config.embedding_dim)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+
+    def loss_and_metrics() -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
+        probs = edge_probability_matrix(model, sample.node_embeddings)
+        assignment = sinkhorn_soft_assignment(probs, tau=0.2, iterations=30)
+        supervised = compute_v6_loss(
+            probs.reshape(-1, 1),
+            assignment,
+            sample.edge_labels.reshape(-1, 1),
+            lambda_contrast=config.lambda_contrast,
+            lambda_cover=0.1,
+        )
+        serial_loss = _serial_constraint_loss(probs, sample.serial_labels)
+        hard_loss = _hard_negative_margin_loss(probs, sample.clean_adj, sample.hard_negative_edges)
+        loss = supervised + config.lambda_serial * serial_loss + hard_loss
+        metrics = _edge_proxy_metrics(probs, sample.clean_adj)
+        metrics.update(collapse_diagnostics(probs, sample.serial_labels))
+        metrics["serial_constraint_loss"] = float(serial_loss.item())
+        metrics["hard_negative_margin_loss"] = float(hard_loss.item())
+        metrics["loss"] = float(loss.detach().item())
+        return loss, probs, metrics
+
+    initial_loss, initial_probs, initial_metrics = loss_and_metrics()
+    loss_curve = [float(initial_loss.detach().item())]
+    for _step in range(config.steps):
+        optimizer.zero_grad(set_to_none=True)
+        loss, _probs, _metrics = loss_and_metrics()
+        loss.backward()
+        optimizer.step()
+        loss_curve.append(float(loss.detach().item()))
+
+    final_loss, final_probs, final_metrics = loss_and_metrics()
+    return {
+        "config": {
+            **config.__dict__,
+            "trained_steps": config.steps,
+            "stage": "synthetic_latent_edge_pretrain",
+        },
+        "initial": {
+            "loss": float(initial_loss.detach().item()),
+            "metrics": initial_metrics,
+            "hard_negative_edges": sample.hard_negative_edges,
+        },
+        "final": {
+            "loss": float(final_loss.detach().item()),
+            "metrics": final_metrics,
+            "hard_negative_edges": mine_hard_negative_edges(
+                final_probs,
+                sample.clean_adj,
+                top_k=config.hard_negative_top_k,
+            ),
+        },
+        "loss_curve": loss_curve,
+        "improved": float(final_loss.detach().item()) < float(initial_loss.detach().item()),
+        "collapse_diagnostics": {
+            "initial": collapse_diagnostics(initial_probs, sample.serial_labels),
+            "final": collapse_diagnostics(final_probs, sample.serial_labels),
+        },
+    }
+
+
 # =====================================================================
 # v7: Energy-Based Assembly Model (EBM)
 # =====================================================================

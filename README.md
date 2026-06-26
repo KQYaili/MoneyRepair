@@ -350,6 +350,7 @@ moneyrepair tearfit-compare --profile smoke --output runs/tearfit_compare_smoke.
 moneyrepair tearfit-demo --notes-list 20,50,100 --seed-strategy anchor_priority --cover-objective score_then_count --output runs/tearfit_demo.json
 moneyrepair policy-compare --profile smoke --output runs/policy_compare_smoke.json
 moneyrepair architecture-compare --output runs/architecture_compare_smoke.json
+moneyrepair v6-train-smoke --output runs/v6_train_smoke.json
 ```
 
 `policy-compare` runs static exact-cover policies and offline LLM-controller
@@ -358,6 +359,8 @@ from exact precision, exact yield, and chimera-rate summary metrics.
 `architecture-compare` smoke-tests the v6-v10 modelling routes on one synthetic
 latent graph and reports a proxy `best_architecture`; it checks structural
 interfaces before training, not production reconstruction accuracy.
+`v6-train-smoke` creates a synthetic latent assembly sample, mines hard negative
+edges, runs a tiny supervised EdgeModel loop, and reports collapse diagnostics.
 
 ## Current scope
 
