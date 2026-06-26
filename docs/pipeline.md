@@ -1,6 +1,17 @@
 # Pipeline Notes
 
-MoneyRepair is built around one shared note coordinate frame.
+MoneyRepair is built around one shared note coordinate frame. Below is the high-level system architecture of the production reconstruction pipeline:
+
+![MoneyRepair Production Pipeline Flow](pipeline_diagram.svg)
+
+### Overall Pipeline Flow
+The system operates as an end-to-end batch processing pipeline:
+1. **Acquisition & Ingestion**: Raw scans or photos of fragments are captured and passed through automated quality gates.
+2. **Auto-Location**: Placements (X, Y, rotation, side) are automatically estimated against reference templates to generate candidate poses.
+3. **Compatibility Matrix Construction**: Pairwise compatibility is evaluated using spatial overlap checks, interlock contact criteria, and tone-based appearance clustering.
+4. **Assembly Solver**: A branch-and-bound DFS solver finds consistent, non-overlapping candidate note assemblies that satisfy serial and coverage requirements.
+5. **Interactive Review Loop**: Candidates are presented to operators who accept or reject them. Accepted fragments are permanently removed from the search pool.
+
 
 ## Data model
 
@@ -52,6 +63,20 @@ Tesseract OCR. OCR is intentionally optional because it depends heavily on the
 local executable and scan quality; the manifest format keeps the recognized
 label editable either way.
 
+## Image Quality Gate & Ingestion Flow
+
+Before fragment data is registered into the active pool, it is run through a sequential automated Quality Assessment (QA) Gate:
+
+![Image QA Gating Pipeline](acquisition_flow.svg)
+
+### QA Gate Description
+- **Focus Verification**: Computes Laplacian variance on the fragment crop to reject blurred inputs.
+- **Glare/Saturation Detection**: Evaluates luminance channels to flag saturated regions caused by camera flash or bright spots.
+- **Solidity/Foreground Checks**: Measures connected component mask density and contour solidity to ensure clean background extraction.
+- **Color Drift/Tone Fitting**: Assesses pixel statistics relative to reference color profiles to check for staining or illumination changes.
+
+If any gate is violated, the fragment is flagged and routed to a manual quality-review queue, ensuring that only clean and geometrically sound masks enter the active candidate pool.
+
 ## Compatibility evidence
 
 The current matrix is pairwise same-note compatibility:
@@ -79,24 +104,31 @@ matrix construction, and DFS solving.
 
 ## Search
 
-Search is depth-first over compatible fragments ordered by descending area. It
-prunes when remaining candidates cannot reach the target coverage. The expected
-interactive workflow is to generate a handful of high-coverage candidates, render
-them, open the generated HTML report, and manually choose the plausible
-reconstruction.
+The reconstruction solver finds valid assemblies using a depth-first search (DFS) over the pairwise compatibility matrix:
+
+![DFS Branch and Bound Logic](search_logic.svg)
+
+### DFS Solver Flow & Pruning
+- **Preordering**: Active candidates are prioritized topologically (contiguity-first, where candidates touching the current assembly are searched first to fail fast) and geometrically (descending fragment area, establishing the large structural skeleton early).
+- **Pruning (Bounding)**: At each recursion level, the solver computes the maximum possible coverage of the remaining candidates. If the sum of the current selected area and the remaining candidates' area is less than the target coverage, the entire subtree branch is immediately pruned.
+- **Backtracking**: If a conflict (spatial overlap) is detected or the branch fails the coverage bound, the solver backtracks, undoes the last assignment, and tries the next candidate.
 
 ## Batch confirmation loop
 
-The batch commands keep a small JSON state file:
+Reconstructing a large fragment pool is an iterative, human-in-the-loop audit process:
 
-- `batch-next` searches only fragments not already confirmed in earlier notes,
-  writes candidates, and renders a report.
-- `batch-confirm` stores the accepted candidate as a reconstructed note.
-- `batch-reject` stores a sorted fragment-id key so the same bad candidate is
-  skipped in later searches.
+![Interactive Operator Audit Loop](operator_loop.svg)
 
-This mirrors the intended manual workflow: once an easy note is accepted, its
-fragments disappear from the active set, so later searches have fewer choices.
+### Operator Audit Flow
+1. **Candidate Generation**: The operator runs `batch-next` to search for note candidates among the remaining active fragments.
+2. **Interactive Review**: The operator opens the generated HTML visual report showing reconstruction overlays, coverage levels, and serial/OCR checks.
+3. **Confirmation**:
+   - If the assembly is visually correct, the operator confirms it using `batch-confirm`.
+   - The system registers the confirmed banknote, assigns a stable note ID, and **permanently removes its constituent fragments from the active pool**.
+4. **Rejection**:
+   - If the assembly is incorrect (contains a mismatched piece or a serial duplication error), the operator rejects it using `batch-reject`.
+   - The system logs the rejection reason and records the fragment subset signature in a blacklist to ensure **this specific chimera is never generated or shown again**.
+5. **Iteration**: The operator repeats the process on the remaining fragments. As confirmed fragments disappear, the search pool shrinks, accelerating subsequent solver runs.
 
 ## Honest Multi-Note Discrimination (v3.0)
 
