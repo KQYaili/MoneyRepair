@@ -1,6 +1,6 @@
 # Tear-Fit Research Track
 
-> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+> Historical design note (round tearfit). Superseded by the authoritative [STATUS.md](../STATUS.md).
 
 This track tests the geometry claim that was not proven by the earlier contour
 and contact-ratio experiments:

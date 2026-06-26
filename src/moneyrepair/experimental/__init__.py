@@ -1,5 +1,5 @@
-"""UNVERIFIED experimental packages.
+"""UNVERIFIED research scaffold. Untrained / not benchmarked. Does NOT beat the deterministic exact-cover. To matter it must be trained and shown to win on the fine-fragment regime (pieces>=16), which has not been done.
 
-This package contains untrained ML/DL models and LLM policy controllers that are not
-part of the default production pipeline.
+Experimental package for untrained ML/DL models and LLM policy controllers. Not
+used by the supported pipeline.
 """

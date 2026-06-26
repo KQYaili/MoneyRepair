@@ -1,6 +1,6 @@
 # v4.1 Chimera Pressure Realism
 
-> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+> Historical design note (round v4.1). Superseded by the authoritative [STATUS.md](../STATUS.md).
 
 v3.0 fixed the small friendly chimera test, but that was not enough. The
 important question is whether the discrimination signal survives the two real

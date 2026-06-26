@@ -1,6 +1,6 @@
 # v3.0 Chimera Discrimination
 
-> **Historical design note**. This document represents an earlier design round and is superseded by the authoritative [STATUS.md](../STATUS.md) in the repository root.
+> Historical design note (round v3.0). Superseded by the authoritative [STATUS.md](../STATUS.md).
 
 ## The gap v1.0–v2.5 hid
 
