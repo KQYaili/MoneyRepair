@@ -84,10 +84,12 @@ def _cmd_simulate_realistic(args: argparse.Namespace) -> None:
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
     template, fragments = load_dataset(args.dataset)
-    allowed_ids = None
     if args.reference_scores and args.max_reference_rmse is not None:
-        allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
-        fragments = [f for f in fragments if f.id in allowed_ids]
+        selected_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
+        fragments = [f for f in fragments if f.id in selected_ids]
+
+    if not fragments:
+        raise ValueError("no fragments remain after reference score filtering")
 
     if args.discriminate == "interlock":
         packed, interlock_stats = compute_interlock_compatibility_with_stats(
