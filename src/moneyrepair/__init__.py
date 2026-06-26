@@ -19,7 +19,13 @@ from moneyrepair.fingerprint import (
     fragment_appearance,
 )
 from moneyrepair.ingest import fragments_from_manifest
-from moneyrepair.interlock import TearInterlockScore, compute_interlock_compatibility, tear_interlock_score
+from moneyrepair.interlock import (
+    InterlockCompatibilityStats,
+    TearInterlockScore,
+    compute_interlock_compatibility,
+    compute_interlock_compatibility_with_stats,
+    tear_interlock_score,
+)
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
@@ -44,6 +50,7 @@ __all__ = [
     "FigurePanel",
     "Fragment",
     "FrameQuality",
+    "InterlockCompatibilityStats",
     "MatrixFootprint",
     "PackedCompatibilityMatrix",
     "QualityThresholds",
@@ -60,6 +67,7 @@ __all__ = [
     "compute_compatibility_clustered",
     "compute_compatibility_fast",
     "compute_interlock_compatibility",
+    "compute_interlock_compatibility_with_stats",
     "connected_components",
     "diagnose_groups",
     "diagnose_solutions",

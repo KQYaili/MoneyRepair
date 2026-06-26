@@ -278,6 +278,9 @@ moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-sp
 The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
 so it is not hidden by the `max_solutions=20` top-k cap. `cluster_count` and
 `mixed_note_count` expose the identity merges that create chimeras at scale.
+The interlock path is a placed-fragment validator: candidate masks must already
+share note coordinates; it is not a raw-crop torn-edge searcher over arbitrary
+translation or rotation.
 
 ## Production-grade auto-locator & pose solver (v4.0)
 

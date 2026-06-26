@@ -9,7 +9,7 @@ import numpy as np
 from moneyrepair.compat import compute_compatibility_clustered, compute_compatibility_fast
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
 from moneyrepair.fingerprint import cluster_fragments_by_appearance
-from moneyrepair.interlock import compute_interlock_compatibility
+from moneyrepair.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.simulate import make_multi_note_fragments
 from moneyrepair.solver import solve_covering_sets
 
@@ -151,12 +151,19 @@ def run_pressure_case(
 
     if include_interlock:
         started = perf_counter()
-        interlock_matrix = compute_interlock_compatibility(
+        interlock_matrix, interlock_stats = compute_interlock_compatibility_with_stats(
             fragments,
             min_contact_edges=min_interlock_contact,
             min_contact_ratio=min_interlock_ratio,
         )
         row["interlock_build_seconds"] = perf_counter() - started
+        interlock_compatible_pairs = interlock_matrix.compatible_pair_count()
+        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        row["interlock_compatible_pairs"] = interlock_compatible_pairs
+        row["interlock_incompatible_pairs"] = total_pairs - interlock_compatible_pairs
+        row["interlock_bbox_candidate_pairs"] = interlock_stats.bbox_candidate_pairs
+        row["interlock_scored_contact_pairs"] = interlock_stats.scored_contact_pairs
+        row["interlock_rejected_pairs"] = interlock_stats.rejected_pairs
         started = perf_counter()
         interlock_solutions = solve_covering_sets(
             fragments,

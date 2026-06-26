@@ -7,7 +7,10 @@ Tear-geometry pressure and final v4.1 review fixes:
 - adds `partition_model=per_note` to multi-note simulation so each physical note can have independent tear geometry instead of one shared Voronoi partition;
 - adds `interlock.py` with raster tear-contact scoring and `compute_interlock_compatibility`, exposed through `build-matrix --discriminate interlock`;
 - extends `pressure-chimeras` with `--partition-model per_note` and `--include-interlock` for head-to-head overlap/appearance/interlock pressure tables;
+- hardens interlock matrix building with sparse bbox-contact pair enumeration instead of a dense all-pairs Python scan;
+- records complete pressure run config plus interlock compatible/incompatible pair counts in JSON reports;
 - adds `touch_priority` controls to the solver plus `--no-touch-priority` on solver/pipeline/pressure CLI paths;
+- adds `--no-touch-priority` to `diagnose-chimeras` for CLI consistency;
 - documents raw-crop auto-location separately from pre-aligned appearance discrimination and adds smoke vs long pressure profiles;
 - keeps the existing auto-locate overlap tolerance forwarding, raw-crop appearance guard, and ordered DFS suffix fixes.
 

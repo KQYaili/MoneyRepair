@@ -112,10 +112,12 @@ moneyrepair build-matrix \
   --output runs/interlock_matrix.npz
 ```
 
-This is intentionally a minimal geometric baseline, not a full torn-edge
-matcher. It checks whether adjacent masks share enough local boundary contact;
-the next stronger version should compare contour fragments as negative shapes,
-not only count raster contact edges.
+This is intentionally a minimal geometric baseline for **placed fragments**,
+not a full raw-crop torn-edge matcher. It does not search arbitrary
+translation/rotation to discover a join. It assumes candidate poses have already
+been placed into one note coordinate frame, then checks whether adjacent masks
+share enough local boundary contact. The next stronger version should compare
+contour fragments as negative shapes, not only count raster contact edges.
 
 ## Metrics that matter
 
@@ -134,6 +136,9 @@ The pressure harness therefore reports grouping metrics before DFS:
   `max_solutions`.
 - `disc_uniquely_exact_recovered_rate`: the same idea after DFS, still useful
   for debugging but capped by the configured top-k search.
+- `interlock_compatible_pairs` and `interlock_incompatible_pairs`: matrix
+  sparsity after the placed-fragment tear interlock pass, useful for spotting
+  thresholds that are too weak or too aggressive.
 
 ## Algorithm implication
 

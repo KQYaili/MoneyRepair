@@ -211,3 +211,6 @@ def test_pressure_case_can_run_interlock_on_per_note_partitions():
     assert row["partition_model"] == "per_note"
     assert "interlock_chimeras" in row
     assert "interlock_uniquely_exact_recovered_rate" in row
+    assert "interlock_compatible_pairs" in row
+    assert "interlock_incompatible_pairs" in row
+    assert "interlock_bbox_candidate_pairs" in row

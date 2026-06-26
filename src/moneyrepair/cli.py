@@ -201,7 +201,14 @@ def _print_pressure_summary(summary: list[dict]) -> None:
         "disc_uniquely_exact_recovered_rate",
     ]
     if any("interlock_chimeras" in row for row in summary):
-        columns.extend(("interlock_chimeras", "interlock_uniquely_exact_recovered_rate"))
+        columns.extend(
+            (
+                "interlock_chimeras",
+                "interlock_uniquely_exact_recovered_rate",
+                "interlock_compatible_pairs",
+                "interlock_incompatible_pairs",
+            )
+        )
     print("\t".join(columns))
     for row in summary:
         values = []
@@ -598,6 +605,7 @@ def _cmd_diagnose_chimeras(args: argparse.Namespace) -> None:
         max_solutions=args.max_solutions,
         time_limit_seconds=args.time_limit,
         order_strategy=args.order_strategy,
+        touch_priority=not args.no_touch_priority,
     )
     overlap_diag = diagnose_solutions(overlap_solutions, fragments)
 
@@ -616,6 +624,7 @@ def _cmd_diagnose_chimeras(args: argparse.Namespace) -> None:
         max_solutions=args.max_solutions,
         time_limit_seconds=args.time_limit,
         order_strategy=args.order_strategy,
+        touch_priority=not args.no_touch_priority,
     )
     disc_diag = diagnose_solutions(disc_solutions, fragments)
 
@@ -693,6 +702,11 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
             "order_strategy": args.order_strategy,
             "discriminate_tolerance": args.discriminate_tolerance,
             "wear_model": args.wear_model,
+            "noise_sigma": args.noise_sigma,
+            "local_wear_strength": args.local_wear_strength,
+            "gamma_spread": args.gamma_spread,
+            "stain_count": args.stain_count,
+            "stain_strength": args.stain_strength,
             "partition_model": args.partition_model,
             "include_interlock": args.include_interlock,
             "min_interlock_contact": args.min_interlock_contact,
@@ -1058,6 +1072,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--discriminate-tolerance", type=float, default=0.05)
     diagnose.add_argument("--max-overlap-pixels", type=int, default=0)
     diagnose.add_argument("--max-overlap-ratio", type=float, default=0.0)
+    diagnose.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in solver calls")
     diagnose.add_argument("--vis-dir", help="render overlap-only and discriminative candidates here for visual inspection")
     diagnose.add_argument("--output", help="write the full diagnosis JSON here")
     diagnose.set_defaults(func=_cmd_diagnose_chimeras)
