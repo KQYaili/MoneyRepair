@@ -254,34 +254,6 @@ template (so it depends on the note, not the region), or serial labels with
 `--discriminate serial`. Limits and the residual hard tail are documented in the
 [v3.0 note](docs/v3_0_chimera_discrimination.md).
 
-## Chimera pressure realism (v4.1)
-
-v4.1 adds the pressure tests that the friendly v3.0 case could not answer:
-larger note pools, realistic low appearance spread, and a spatial wear model
-that a global RGB-gain fingerprint cannot perfectly invert. See
-[docs/v4.1 pressure realism](docs/v4_1_pressure_realism.md).
-
-Smoke profile:
-
-```bash
-moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --seeds 7 --time-limit 5 --output runs/pressure_smoke.json
-```
-
-Longer pressure runs:
-
-```bash
-moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20,40,80,150 --appearance-spread 0.18 --seeds 7,8,9 --output runs/pressure_n.json
-moneyrepair pressure-chimeras --mode spread-sweep --notes 30 --spread-list 0.18,0.10,0.06,0.04,0.02 --wear-model spatial --seeds 7,8,9 --output runs/pressure_spread.json
-moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-spread 0.04 --wear-model spatial --partition-model per_note --include-interlock --include-disc-interlock --seeds 7,8,9 --output runs/pressure_interlock.json
-```
-
-The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
-so it is not hidden by the `max_solutions=20` top-k cap. `cluster_count` and
-`mixed_note_count` expose the identity merges that create chimeras at scale.
-The interlock path is placed-fragment local validation: candidate masks must
-already share note coordinates; non-contacting pairs are not penalised, and it
-is not a raw-crop torn-edge searcher over arbitrary translation or rotation.
-
 ## Production-grade auto-locator & pose solver (v4.0)
 
 v4.0 shifts the system from a pipeline where approximate fragment placement is given beforehand to a simulation-backed end-to-end prototype that automatically estimates translation, rotation, and side placement candidate poses, and solves them using JIT-accelerated algorithms. See [docs/v4.0 production reconstruction](docs/v4_0_production_reconstruction.md) and [docs/v4.0 algorithm deduction](docs/v4_0_algorithm_deduction.md).
@@ -337,6 +309,34 @@ When `--auto-locate` is enabled:
 2. The Top-K candidate configurations are stored in `pose_candidates.json` for auditing and manual verification.
 3. Virtual placed fragments are constructed and solved using the zero-allocation DFS engine.
 4. Detailed performance metrics, including `jit_warmup` and `total_without_jit_warmup`, are logged in `run_manifest.json` along with input hashes and absolute paths.
+
+## Chimera pressure realism (v4.1)
+
+v4.1 adds the pressure tests that the friendly v3.0 case could not answer:
+larger note pools, realistic low appearance spread, and a spatial wear model
+that a global RGB-gain fingerprint cannot perfectly invert. See
+[docs/v4.1 pressure realism](docs/v4_1_pressure_realism.md).
+
+Smoke profile:
+
+```bash
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --seeds 7 --time-limit 5 --output runs/pressure_smoke.json
+```
+
+Longer pressure runs:
+
+```bash
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20,40,80,150 --appearance-spread 0.18 --seeds 7,8,9 --output runs/pressure_n.json
+moneyrepair pressure-chimeras --mode spread-sweep --notes 30 --spread-list 0.18,0.10,0.06,0.04,0.02 --wear-model spatial --seeds 7,8,9 --output runs/pressure_spread.json
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-spread 0.04 --wear-model spatial --partition-model per_note --include-interlock --include-disc-interlock --seeds 7,8,9 --output runs/pressure_interlock.json
+```
+
+The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
+so it is not hidden by the `max_solutions=20` top-k cap. `cluster_count` and
+`mixed_note_count` expose the identity merges that create chimeras at scale.
+The interlock path is placed-fragment local validation: candidate masks must
+already share note coordinates; non-contacting pairs are not penalised, and it
+is not a raw-crop torn-edge searcher over arbitrary translation or rotation.
 
 ## Current scope
 
