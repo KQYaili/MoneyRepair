@@ -98,8 +98,6 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
             min_contact_edges=args.min_interlock_contact,
             min_contact_ratio=args.min_interlock_ratio,
         )
-        if allowed_ids is not None:
-            packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
         total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
@@ -121,8 +119,6 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
             max_overlap_pixels=args.max_overlap_pixels,
             max_overlap_ratio=args.max_overlap_ratio,
         )
-        if allowed_ids is not None:
-            packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
         total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
@@ -146,8 +142,6 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
             max_overlap_ratio=args.max_overlap_ratio,
             cell=args.cell,
         )
-        if allowed_ids is not None:
-            packed = restrict_packed_to_ids(packed, allowed_ids)
         packed.save(args.output)
         total_pairs = len(packed.ids) * (len(packed.ids) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
@@ -158,11 +152,11 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
             max_overlap_pixels=args.max_overlap_pixels,
             max_overlap_ratio=args.max_overlap_ratio,
         )
-        if allowed_ids is not None:
-            matrix = filter_compatibility_to_ids(matrix, allowed_ids)
         matrix.save(args.output)
-        incompatible = int((~matrix.compatible).sum() - len(matrix.ids))
-        print(f"wrote matrix for {len(matrix.ids)} fragments to {args.output}; incompatible_pairs={incompatible // 2}")
+        total_pairs = len(matrix.ids) * (len(matrix.ids) - 1) // 2
+        compatible_pairs = int(matrix.compatible.sum() // 2)
+        incompatible = total_pairs - compatible_pairs
+        print(f"wrote matrix for {len(matrix.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
 
 
 def _solutions_to_json(solutions) -> list[dict]:
