@@ -89,7 +89,8 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         fragments = [f for f in fragments if f.id in selected_ids]
 
     if not fragments:
-        raise ValueError("no fragments remain after reference score filtering")
+        reason = "after reference score filtering" if args.reference_scores else "in dataset"
+        raise ValueError(f"no fragments remain {reason}")
 
     if args.discriminate == "interlock":
         packed, interlock_stats = compute_interlock_compatibility_with_stats(
