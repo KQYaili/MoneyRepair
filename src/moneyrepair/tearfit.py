@@ -463,7 +463,7 @@ def _support_for_state(state: frozenset[int], edge_lookup: dict[tuple[int, int],
 
 def _resolve_seed_strategy(seed_strategy: str, require_anchor: bool | None) -> str:
     if require_anchor is not None:
-        return "anchor_only" if require_anchor else "anchor_priority"
+        return "anchor_priority"
     if seed_strategy not in TEARFIT_SEED_STRATEGIES:
         raise ValueError(f"seed_strategy must be one of: {', '.join(TEARFIT_SEED_STRATEGIES)}")
     return seed_strategy
@@ -479,6 +479,39 @@ def _seed_order(fragments: list[Fragment], seed_strategy: str) -> list[int]:
     if seed_strategy == "all":
         return list(range(len(fragments)))
     raise ValueError(f"seed_strategy must be one of: {', '.join(TEARFIT_SEED_STRATEGIES)}")
+
+
+class StateInfo:
+    __slots__ = (
+        "state",
+        "union",
+        "area_sum",
+        "labels",
+        "support",
+        "score",
+        "raw_coverage",
+        "coverage",
+    )
+
+    def __init__(
+        self,
+        state: frozenset[int],
+        union: np.ndarray,
+        area_sum: int,
+        labels: set[str],
+        support: int,
+        score: float,
+        raw_coverage: float,
+        coverage: float,
+    ) -> None:
+        self.state = state
+        self.union = union
+        self.area_sum = area_sum
+        self.labels = labels
+        self.support = support
+        self.score = score
+        self.raw_coverage = raw_coverage
+        self.coverage = coverage
 
 
 def generate_assembly_candidates(
@@ -518,47 +551,109 @@ def generate_assembly_candidates(
     for start in starts:
         if deadline is not None and monotonic() >= deadline:
             break
-        frontier: list[frozenset[int]] = [frozenset({start})]
+        start_fragment = fragments[start]
+        start_union = start_fragment.mask.copy()
+        start_area_sum = start_fragment.area
+        start_labels = {start_fragment.label} if start_fragment.label else set()
+        start_support = 0
+        start_raw_coverage = start_area_sum / float(total_area)
+        if start_raw_coverage >= coverage_threshold - 0.15:
+            start_coverage = int(_dilate(start_union, gap_fill_radius).sum()) / float(total_area)
+        else:
+            start_coverage = start_raw_coverage
+        start_score = start_coverage * 10_000.0 + start_support + 100.0 * len(start_labels)
+
+        initial_state = StateInfo(
+            state=frozenset({start}),
+            union=start_union,
+            area_sum=start_area_sum,
+            labels=start_labels,
+            support=start_support,
+            score=start_score,
+            raw_coverage=start_raw_coverage,
+            coverage=start_coverage,
+        )
+
+        frontier: list[StateInfo] = [initial_state]
         for _depth in range(max(1, max_pieces - 1)):
-            next_frontier: dict[frozenset[int], float] = {}
-            for state in frontier:
+            next_frontier: dict[frozenset[int], StateInfo] = {}
+            for state_info in frontier:
                 if deadline is not None and monotonic() >= deadline:
                     break
                 neighbours: set[int] = set()
-                for member in state:
+                for member in state_info.state:
                     neighbours.update(graph[member])
-                neighbours.difference_update(state)
+                neighbours.difference_update(state_info.state)
                 for neighbour in neighbours:
-                    new_state = frozenset((*state, neighbour))
-                    if new_state in seen_states or len(new_state) > max_pieces:
+                    new_state_set = frozenset((*state_info.state, neighbour))
+                    if new_state_set in seen_states or len(new_state_set) > max_pieces:
                         continue
-                    if not _labels_ok(fragments, new_state):
+                    
+                    # Check labels incrementally
+                    neighbour_label = fragments[neighbour].label
+                    if neighbour_label and neighbour_label not in state_info.labels:
+                        if len(state_info.labels) > 0:
+                            continue
+                        new_labels = state_info.labels | {neighbour_label}
+                    else:
+                        new_labels = state_info.labels
+
+                    # Check overlap and mask incrementally
+                    new_area_sum = state_info.area_sum + fragments[neighbour].area
+                    new_union = state_info.union | fragments[neighbour].mask
+                    overlap = new_area_sum - int(new_union.sum())
+                    if overlap > max_group_overlap_pixels:
                         continue
-                    ok, union, _overlap = _group_masks_ok(fragments, new_state, max_group_overlap_pixels)
-                    if not ok:
-                        continue
-                    raw_coverage = int(union.sum()) / float(total_area)
-                    coverage = int(_dilate(union, gap_fill_radius).sum()) / float(total_area)
-                    support = _support_for_state(new_state, edge_lookup)
-                    score = coverage * 10_000.0 + support + 100.0 * len(_group_labels(fragments, new_state))
-                    next_frontier[new_state] = score
+
+                    # Calculate support incrementally
+                    added_support = 0
+                    for member in state_info.state:
+                        key = (min(member, neighbour), max(member, neighbour))
+                        edge = edge_lookup.get(key)
+                        if edge is not None:
+                            added_support += edge.overlap_pixels
+                    new_support = state_info.support + added_support
+
+                    raw_coverage = int(new_union.sum()) / float(total_area)
+                    if raw_coverage >= coverage_threshold - 0.15:
+                        coverage = int(_dilate(new_union, gap_fill_radius).sum()) / float(total_area)
+                    else:
+                        coverage = raw_coverage
+
+                    score = coverage * 10_000.0 + new_support + 100.0 * len(new_labels)
+
+                    new_info = StateInfo(
+                        state=new_state_set,
+                        union=new_union,
+                        area_sum=new_area_sum,
+                        labels=new_labels,
+                        support=new_support,
+                        score=score,
+                        raw_coverage=raw_coverage,
+                        coverage=coverage,
+                    )
+
+                    existing = next_frontier.get(new_state_set)
+                    if existing is None or new_info.score > existing.score:
+                        next_frontier[new_state_set] = new_info
+
                     if coverage >= coverage_threshold:
-                        ids = tuple(sorted(fragments[index].id for index in new_state))
-                        existing = candidates.get(ids)
+                        ids = tuple(sorted(fragments[index].id for index in new_state_set))
+                        existing_candidate = candidates.get(ids)
                         candidate = AssemblyCandidate(
                             fragment_ids=ids,
                             coverage=coverage,
                             raw_coverage=raw_coverage,
                             score=score,
-                            support_pixels=support,
-                            labels=_group_labels(fragments, new_state),
+                            support_pixels=new_support,
+                            labels=tuple(sorted(new_labels)),
                         )
-                        if existing is None or candidate.score > existing.score:
+                        if existing_candidate is None or candidate.score > existing_candidate.score:
                             candidates[ids] = candidate
-                seen_states.add(state)
+                seen_states.add(state_info.state)
             if not next_frontier:
                 break
-            ordered = sorted(next_frontier, key=lambda item: (-next_frontier[item], len(item), tuple(sorted(item))))
+            ordered = sorted(next_frontier.values(), key=lambda item: (-item.score, len(item.state), tuple(sorted(item.state))))
             frontier = ordered[:beam_width]
 
     return sorted(candidates.values(), key=lambda item: (-item.score, item.fragment_ids))
