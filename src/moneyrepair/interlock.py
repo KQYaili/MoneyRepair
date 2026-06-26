@@ -136,12 +136,34 @@ def compute_interlock_compatibility_with_stats(
     otherwise they are treated as a false join.
     """
 
-    packed = compute_compatibility_fast(
+    base = compute_compatibility_fast(
         fragments,
         max_overlap_pixels=max_overlap_pixels,
         max_overlap_ratio=max_overlap_ratio,
         cell=cell,
     )
+    return apply_interlock_constraints_with_stats(
+        base,
+        fragments,
+        cell=cell,
+        min_contact_edges=min_contact_edges,
+        min_contact_ratio=min_contact_ratio,
+    )
+
+
+def apply_interlock_constraints_with_stats(
+    base: PackedCompatibilityMatrix,
+    fragments: list[Fragment],
+    *,
+    cell: int | None = None,
+    min_contact_edges: int = 8,
+    min_contact_ratio: float = 0.03,
+) -> tuple[PackedCompatibilityMatrix, InterlockCompatibilityStats]:
+    """Apply placed-fragment interlock constraints to an existing matrix."""
+
+    if tuple(fragment.id for fragment in fragments) != base.ids:
+        raise ValueError("fragment order must match compatibility ids")
+    packed = PackedCompatibilityMatrix(ids=base.ids, packed=base.packed.copy(), n=base.n)
     bbox_candidate_pairs = 0
     scored_contact_pairs = 0
     rejected_pairs = 0

@@ -96,6 +96,7 @@ moneyrepair pressure-chimeras \
   --wear-model spatial \
   --partition-model per_note \
   --include-interlock \
+  --include-disc-interlock \
   --seeds 7,8,9 \
   --output runs/pressure_interlock.json
 ```
@@ -116,8 +117,11 @@ This is intentionally a minimal geometric baseline for **placed fragments**,
 not a full raw-crop torn-edge matcher. It does not search arbitrary
 translation/rotation to discover a join. It assumes candidate poses have already
 been placed into one note coordinate frame, then checks whether adjacent masks
-share enough local boundary contact. The next stronger version should compare
-contour fragments as negative shapes, not only count raster contact edges.
+share enough local boundary contact. Non-adjacent pairs are not penalised; a
+1-2 px pose gap receives no help and no penalty from interlock. Use it as
+placed-fragment local validation, not as edge reconstruction. The next stronger
+version should compare contour fragments as negative shapes, not only count
+raster contact edges.
 
 ## Metrics that matter
 
@@ -139,6 +143,8 @@ The pressure harness therefore reports grouping metrics before DFS:
 - `interlock_compatible_pairs` and `interlock_incompatible_pairs`: matrix
   sparsity after the placed-fragment tear interlock pass, useful for spotting
   thresholds that are too weak or too aggressive.
+- `disc_interlock_*`: the combined constraint path, built by applying interlock
+  after the appearance/serial discrimination matrix.
 
 ## Algorithm implication
 

@@ -22,8 +22,10 @@ from moneyrepair.ingest import fragments_from_manifest
 from moneyrepair.interlock import (
     InterlockCompatibilityStats,
     TearInterlockScore,
+    apply_interlock_constraints_with_stats,
     compute_interlock_compatibility,
     compute_interlock_compatibility_with_stats,
+    iter_contact_candidate_pairs,
     tear_interlock_score,
 )
 from moneyrepair.labels import update_manifest_labels
@@ -58,6 +60,7 @@ __all__ = [
     "RealismProfile",
     "SyntheticBenchmark",
     "TearInterlockScore",
+    "apply_interlock_constraints_with_stats",
     "__version__",
     "assemble_standard_panels",
     "assess_fragments",
@@ -68,6 +71,7 @@ __all__ = [
     "compute_compatibility_fast",
     "compute_interlock_compatibility",
     "compute_interlock_compatibility_with_stats",
+    "iter_contact_candidate_pairs",
     "connected_components",
     "diagnose_groups",
     "diagnose_solutions",

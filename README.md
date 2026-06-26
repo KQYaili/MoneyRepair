@@ -272,15 +272,15 @@ Longer pressure runs:
 ```bash
 moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20,40,80,150 --appearance-spread 0.18 --seeds 7,8,9 --output runs/pressure_n.json
 moneyrepair pressure-chimeras --mode spread-sweep --notes 30 --spread-list 0.18,0.10,0.06,0.04,0.02 --wear-model spatial --seeds 7,8,9 --output runs/pressure_spread.json
-moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-spread 0.04 --wear-model spatial --partition-model per_note --include-interlock --seeds 7,8,9 --output runs/pressure_interlock.json
+moneyrepair pressure-chimeras --mode n-sweep --notes-list 3,8,20 --appearance-spread 0.04 --wear-model spatial --partition-model per_note --include-interlock --include-disc-interlock --seeds 7,8,9 --output runs/pressure_interlock.json
 ```
 
 The key field is `cluster_exact_recoverable_rate`: it is computed before DFS,
 so it is not hidden by the `max_solutions=20` top-k cap. `cluster_count` and
 `mixed_note_count` expose the identity merges that create chimeras at scale.
-The interlock path is a placed-fragment validator: candidate masks must already
-share note coordinates; it is not a raw-crop torn-edge searcher over arbitrary
-translation or rotation.
+The interlock path is placed-fragment local validation: candidate masks must
+already share note coordinates; non-contacting pairs are not penalised, and it
+is not a raw-crop torn-edge searcher over arbitrary translation or rotation.
 
 ## Production-grade auto-locator & pose solver (v4.0)
 

@@ -9,7 +9,7 @@ import numpy as np
 from moneyrepair.compat import compute_compatibility_clustered, compute_compatibility_fast
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions
 from moneyrepair.fingerprint import cluster_fragments_by_appearance
-from moneyrepair.interlock import compute_interlock_compatibility_with_stats
+from moneyrepair.interlock import apply_interlock_constraints_with_stats, compute_interlock_compatibility_with_stats
 from moneyrepair.simulate import make_multi_note_fragments
 from moneyrepair.solver import solve_covering_sets
 
@@ -28,6 +28,18 @@ def _diagnosis_summary(prefix: str, diagnosis: dict[str, Any]) -> dict[str, Any]
         "uniquely_exact_recovered_rate",
     )
     return {f"{prefix}_{key}": diagnosis[key] for key in keys if key in diagnosis}
+
+
+def _matrix_pair_summary(prefix: str, row: dict[str, Any], matrix, total_pairs: int) -> None:
+    compatible = matrix.compatible_pair_count()
+    row[f"{prefix}_compatible_pairs"] = compatible
+    row[f"{prefix}_incompatible_pairs"] = total_pairs - compatible
+
+
+def _interlock_stats_summary(prefix: str, row: dict[str, Any], stats) -> None:
+    row[f"{prefix}_bbox_candidate_pairs"] = stats.bbox_candidate_pairs
+    row[f"{prefix}_scored_contact_pairs"] = stats.scored_contact_pairs
+    row[f"{prefix}_rejected_pairs"] = stats.rejected_pairs
 
 
 def run_pressure_case(
@@ -51,6 +63,8 @@ def run_pressure_case(
     stain_strength: float = 0.0,
     partition_model: str = "shared",
     include_interlock: bool = False,
+    include_disc_interlock: bool = False,
+    cell: int | None = None,
     min_interlock_contact: int = 8,
     min_interlock_ratio: float = 0.03,
     touch_priority: bool = True,
@@ -81,7 +95,7 @@ def run_pressure_case(
     clustered_seconds = perf_counter() - started
 
     started = perf_counter()
-    overlap_matrix = compute_compatibility_fast(fragments)
+    overlap_matrix = compute_compatibility_fast(fragments, cell=cell)
     overlap_build_seconds = perf_counter() - started
 
     started = perf_counter()
@@ -132,6 +146,8 @@ def run_pressure_case(
         "max_solutions": max_solutions,
         "touch_priority": touch_priority,
         "include_interlock": include_interlock,
+        "include_disc_interlock": include_disc_interlock,
+        "cell": cell,
         "cluster_count": group_diag["groups"],
         "cluster_deficit": group_diag["cluster_deficit"],
         "mixed_group_count": group_diag["mixed_group_count"],
@@ -153,17 +169,14 @@ def run_pressure_case(
         started = perf_counter()
         interlock_matrix, interlock_stats = compute_interlock_compatibility_with_stats(
             fragments,
+            cell=cell,
             min_contact_edges=min_interlock_contact,
             min_contact_ratio=min_interlock_ratio,
         )
         row["interlock_build_seconds"] = perf_counter() - started
-        interlock_compatible_pairs = interlock_matrix.compatible_pair_count()
         total_pairs = len(fragments) * (len(fragments) - 1) // 2
-        row["interlock_compatible_pairs"] = interlock_compatible_pairs
-        row["interlock_incompatible_pairs"] = total_pairs - interlock_compatible_pairs
-        row["interlock_bbox_candidate_pairs"] = interlock_stats.bbox_candidate_pairs
-        row["interlock_scored_contact_pairs"] = interlock_stats.scored_contact_pairs
-        row["interlock_rejected_pairs"] = interlock_stats.rejected_pairs
+        _matrix_pair_summary("interlock", row, interlock_matrix, total_pairs)
+        _interlock_stats_summary("interlock", row, interlock_stats)
         started = perf_counter()
         interlock_solutions = solve_covering_sets(
             fragments,
@@ -178,6 +191,34 @@ def run_pressure_case(
         row["min_interlock_contact"] = min_interlock_contact
         row["min_interlock_ratio"] = min_interlock_ratio
         row.update(_diagnosis_summary("interlock", diagnose_solutions(interlock_solutions, fragments)))
+
+    if include_disc_interlock:
+        started = perf_counter()
+        disc_interlock_matrix, disc_interlock_stats = apply_interlock_constraints_with_stats(
+            discriminative_matrix,
+            fragments,
+            cell=cell,
+            min_contact_edges=min_interlock_contact,
+            min_contact_ratio=min_interlock_ratio,
+        )
+        row["disc_interlock_build_seconds"] = perf_counter() - started
+        total_pairs = len(fragments) * (len(fragments) - 1) // 2
+        _matrix_pair_summary("disc_interlock", row, disc_interlock_matrix, total_pairs)
+        _interlock_stats_summary("disc_interlock", row, disc_interlock_stats)
+        started = perf_counter()
+        disc_interlock_solutions = solve_covering_sets(
+            fragments,
+            disc_interlock_matrix,
+            target_coverage=coverage,
+            max_solutions=max_solutions,
+            time_limit_seconds=time_limit,
+            order_strategy=order_strategy,
+            touch_priority=touch_priority,
+        )
+        row["disc_interlock_solve_seconds"] = perf_counter() - started
+        row["min_interlock_contact"] = min_interlock_contact
+        row["min_interlock_ratio"] = min_interlock_ratio
+        row.update(_diagnosis_summary("disc_interlock", diagnose_solutions(disc_interlock_solutions, fragments)))
     return row
 
 
@@ -199,6 +240,8 @@ def aggregate_pressure_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "min_interlock_ratio",
         "touch_priority",
         "include_interlock",
+        "include_disc_interlock",
+        "cell",
     )
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for row in rows:
@@ -245,6 +288,8 @@ def run_pressure_sweep(
     stain_strength: float = 0.0,
     partition_model: str = "shared",
     include_interlock: bool = False,
+    include_disc_interlock: bool = False,
+    cell: int | None = None,
     min_interlock_contact: int = 8,
     min_interlock_ratio: float = 0.03,
     touch_priority: bool = True,
@@ -270,6 +315,8 @@ def run_pressure_sweep(
             stain_strength=stain_strength,
             partition_model=partition_model,
             include_interlock=include_interlock,
+            include_disc_interlock=include_disc_interlock,
+            cell=cell,
             min_interlock_contact=min_interlock_contact,
             min_interlock_ratio=min_interlock_ratio,
             touch_priority=touch_priority,

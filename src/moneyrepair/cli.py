@@ -30,7 +30,7 @@ from moneyrepair.features import describe_contours, match_similar_contours
 from moneyrepair.figures import assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
-from moneyrepair.interlock import compute_interlock_compatibility
+from moneyrepair.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_sweep
@@ -89,7 +89,7 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         allowed_ids = load_score_thresholds(args.reference_scores, max_rmse=args.max_reference_rmse)
 
     if args.discriminate == "interlock":
-        packed = compute_interlock_compatibility(
+        packed, interlock_stats = compute_interlock_compatibility_with_stats(
             fragments,
             max_overlap_pixels=args.max_overlap_pixels,
             max_overlap_ratio=args.max_overlap_ratio,
@@ -102,7 +102,13 @@ def _cmd_build_matrix(args: argparse.Namespace) -> None:
         packed.save(args.output)
         total_pairs = len(fragments) * (len(fragments) - 1) // 2
         incompatible = total_pairs - packed.compatible_pair_count()
-        print(f"wrote interlock-discriminated matrix for {len(packed.ids)} fragments to {args.output}; incompatible_pairs={incompatible}")
+        print(
+            f"wrote interlock-discriminated matrix for {len(packed.ids)} fragments to {args.output}; "
+            f"incompatible_pairs={incompatible}; "
+            f"bbox_candidate_pairs={interlock_stats.bbox_candidate_pairs}; "
+            f"scored_contact_pairs={interlock_stats.scored_contact_pairs}; "
+            f"interlock_rejected_pairs={interlock_stats.rejected_pairs}"
+        )
         return
 
     if args.discriminate != "none":
@@ -207,6 +213,15 @@ def _print_pressure_summary(summary: list[dict]) -> None:
                 "interlock_uniquely_exact_recovered_rate",
                 "interlock_compatible_pairs",
                 "interlock_incompatible_pairs",
+            )
+        )
+    if any("disc_interlock_chimeras" in row for row in summary):
+        columns.extend(
+            (
+                "disc_interlock_chimeras",
+                "disc_interlock_uniquely_exact_recovered_rate",
+                "disc_interlock_compatible_pairs",
+                "disc_interlock_incompatible_pairs",
             )
         )
     print("\t".join(columns))
@@ -683,6 +698,8 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
         stain_strength=args.stain_strength,
         partition_model=args.partition_model,
         include_interlock=args.include_interlock,
+        include_disc_interlock=args.include_disc_interlock,
+        cell=args.cell,
         min_interlock_contact=args.min_interlock_contact,
         min_interlock_ratio=args.min_interlock_ratio,
         touch_priority=not args.no_touch_priority,
@@ -709,6 +726,8 @@ def _cmd_pressure_chimeras(args: argparse.Namespace) -> None:
             "stain_strength": args.stain_strength,
             "partition_model": args.partition_model,
             "include_interlock": args.include_interlock,
+            "include_disc_interlock": args.include_disc_interlock,
+            "cell": args.cell,
             "min_interlock_contact": args.min_interlock_contact,
             "min_interlock_ratio": args.min_interlock_ratio,
             "touch_priority": not args.no_touch_priority,
@@ -1100,6 +1119,8 @@ def build_parser() -> argparse.ArgumentParser:
     pressure.add_argument("--stain-strength", type=float, default=0.0)
     pressure.add_argument("--partition-model", choices=("shared", "per_note"), default="shared")
     pressure.add_argument("--include-interlock", action="store_true", help="also run the tear-interlock geometry matrix")
+    pressure.add_argument("--include-disc-interlock", action="store_true", help="also run appearance/serial discrimination followed by tear interlock")
+    pressure.add_argument("--cell", type=int, help="spatial grid cell size for overlap and interlock candidate enumeration")
     pressure.add_argument("--min-interlock-contact", type=int, default=8)
     pressure.add_argument("--min-interlock-ratio", type=float, default=0.03)
     pressure.add_argument("--no-touch-priority", action="store_true", help="skip touching-candidate preordering in solver calls")

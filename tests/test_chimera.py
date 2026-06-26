@@ -203,6 +203,7 @@ def test_pressure_case_can_run_interlock_on_per_note_partitions():
         wear_model="spatial",
         partition_model="per_note",
         include_interlock=True,
+        include_disc_interlock=True,
         coverage=0.9,
         max_solutions=5,
         time_limit=5.0,
@@ -214,3 +215,6 @@ def test_pressure_case_can_run_interlock_on_per_note_partitions():
     assert "interlock_compatible_pairs" in row
     assert "interlock_incompatible_pairs" in row
     assert "interlock_bbox_candidate_pairs" in row
+    assert "disc_interlock_chimeras" in row
+    assert "disc_interlock_compatible_pairs" in row
+    assert "disc_interlock_bbox_candidate_pairs" in row

@@ -1,12 +1,14 @@
 import numpy as np
 
 from moneyrepair.interlock import (
+    apply_interlock_constraints_with_stats,
     compute_interlock_compatibility,
     compute_interlock_compatibility_with_stats,
     contact_edge_count,
     iter_contact_candidate_pairs,
     tear_interlock_score,
 )
+from moneyrepair.compat import compute_compatibility_clustered
 from moneyrepair.types import Fragment
 
 
@@ -72,3 +74,30 @@ def test_interlock_stats_and_sparse_candidates_do_not_scan_all_pairs():
     assert stats.bbox_candidate_pairs == len(candidate_pairs)
     assert stats.scored_contact_pairs <= stats.bbox_candidate_pairs
     assert matrix.compatible_pair_count() <= len(fragments) * (len(fragments) - 1) // 2
+
+
+def test_interlock_constraints_apply_to_existing_grouped_matrix():
+    left_mask = np.zeros((8, 8), dtype=bool)
+    left_mask[:, :4] = True
+    weak_touch = np.zeros((8, 8), dtype=bool)
+    weak_touch[0:2, 4:] = True
+    separate = np.zeros((8, 8), dtype=bool)
+    separate[:, 6:] = True
+    fragments = [
+        Fragment(id="left", mask=left_mask),
+        Fragment(id="weak", mask=weak_touch),
+        Fragment(id="separate", mask=separate),
+    ]
+    grouped = compute_compatibility_clustered(fragments, {"left": 0, "weak": 0, "separate": 1})
+
+    matrix, stats = apply_interlock_constraints_with_stats(
+        grouped,
+        fragments,
+        min_contact_edges=1,
+        min_contact_ratio=0.2,
+    )
+    dense = matrix.to_dense()
+
+    assert stats.rejected_pairs == 1
+    assert not dense.compatible[0, 1]
+    assert not dense.compatible[0, 2]
