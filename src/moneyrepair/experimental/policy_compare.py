@@ -10,7 +10,7 @@ from typing import Iterable
 
 import numpy as np
 
-from moneyrepair.experimental.llm_control import LLMAgentConfig, MockStrategy, llm_guided_assembly_loop
+from moneyrepair.experimental.llm_control import LLMAgentConfig, llm_guided_assembly_loop
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,

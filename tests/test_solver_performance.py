@@ -1,5 +1,4 @@
 import time
-import numpy as np
 
 from moneyrepair.simulate import make_synthetic_fragments
 from moneyrepair.compat import compute_compatibility_fast

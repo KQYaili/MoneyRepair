@@ -30,6 +30,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
 ]
 ml = [
     "torch>=2.0",
@@ -60,3 +62,26 @@ pythonpath = ["src"]
 markers = [
     "experimental: mark test as part of experimental unverified research tools",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# Start from Ruff's default rule set (pycodestyle errors E4/E7/E9 + Pyflakes F).
+# This is the minimal lint gate; tighten gradually as the codebase is cleaned up.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test modules set pytestmark / call pytest.importorskip before their imports,
+# so module-level imports legitimately appear after code (E402).
+"tests/**" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = false
+# Advisory type checking: start lenient and tighten over time. The experimental
+# research modules use dynamic torch constructs and are excluded for now; CI runs
+# mypy as a non-blocking step until the type surface is cleaned up.
+exclude = ["src/moneyrepair/experimental/"]

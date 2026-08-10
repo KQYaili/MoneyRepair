@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from time import perf_counter
 
@@ -13,6 +14,8 @@ from moneyrepair.simulate import load_dataset
 from moneyrepair.solver import solve_covering_sets
 from moneyrepair.types import Fragment
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
+
+logger = logging.getLogger("moneyrepair.pipeline")
 
 
 def _file_sha256(path: str | Path) -> str:
@@ -73,15 +76,21 @@ def run_production_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    dataset_sha256 = _file_sha256(dataset_path)
+    corr = dataset_sha256[:12]
+    logger.info("pipeline.start corr=%s dataset=%s output_dir=%s", corr, dataset_path, output_dir)
+
     pipeline_started = perf_counter()
     timings: dict[str, float] = {}
 
     started = perf_counter()
     template, fragments = load_dataset(dataset_path)
     timings["load"] = perf_counter() - started
+    logger.info("pipeline.loaded corr=%s fragments=%d", corr, len(fragments))
     if auto_locate and discriminate_appearance:
         template_shape = template.shape[:2]
         if any(fragment.mask.shape != template_shape for fragment in fragments):
+            logger.error("pipeline.shape_mismatch corr=%s template_shape=%s", corr, template_shape)
             raise ValueError(
                 "--discriminate-appearance currently requires fragments already in template coordinates; "
                 "disable it for raw auto-locate crops or compute appearance after pose placement."
@@ -106,6 +115,12 @@ def run_production_pipeline(
     quality_reports = assess_fragments(fragments, thresholds=thresholds, reference=template)
     quality_summary = summarize_quality(quality_reports, thresholds)
     timings["quality"] = perf_counter() - started
+    logger.info(
+        "pipeline.quality corr=%s accepted=%s rejected=%s",
+        corr,
+        quality_summary["accepted"],
+        quality_summary["rejected"],
+    )
 
     passed_ids = {report.source for report in quality_reports if report.passed}
     if drop_rejected_frames:
@@ -250,13 +265,17 @@ def run_production_pipeline(
     matrix_path = output_dir / "matrix.npz"
     matrix.save(matrix_path)
     timings["build_matrix"] = perf_counter() - started
+    logger.info("pipeline.matrix_built corr=%s active_fragments=%d", corr, len(active_search))
 
     # Graceful degradation fallback: if OCR confidence is zero, switch order_strategy to max_degree
     has_any_label = any(fragment.label for fragment in active_search)
     actual_order_strategy = order_strategy
     if not has_any_label:
-        print("Warning: All fragment labels are empty (OCR/serial confidence is zero). "
-              "Falling back to pure topological drive: Max-Contiguity Degree (max_degree) for DFS root selection.")
+        logger.warning(
+            "pipeline.label_fallback corr=%s reason=empty_labels "
+            "detail=OCR/serial confidence is zero; falling back to max_degree DFS root selection",
+            corr,
+        )
         actual_order_strategy = "max_degree"
 
     started = perf_counter()
@@ -271,6 +290,12 @@ def run_production_pipeline(
         touch_priority=touch_priority,
     )
     timings["solve"] = perf_counter() - started
+    logger.info(
+        "pipeline.solved corr=%s solutions=%d best_coverage=%s",
+        corr,
+        len(solutions),
+        solutions[0].coverage if solutions else None,
+    )
     timings["search_total"] = sum(value for key, value in timings.items() if key not in ("total", "total_without_jit_warmup", "search_total", "pipeline_total"))
     timings["total"] = timings["search_total"]
     timings["total_without_jit_warmup"] = timings["total"] - timings.get("jit_warmup", 0.0)
@@ -333,7 +358,7 @@ def run_production_pipeline(
         "stage": "production_pipeline",
         "inputs": {
             "dataset": str(dataset_path),
-            "dataset_sha256": _file_sha256(dataset_path),
+            "dataset_sha256": dataset_sha256,
             "fragments_total": len(fragments),
             "references": ref_info,
         },
@@ -383,4 +408,10 @@ def run_production_pipeline(
         "outputs": manifest_outputs,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    logger.info(
+        "pipeline.done corr=%s solutions=%d total_seconds=%.3f",
+        corr,
+        len(solutions),
+        timings["pipeline_total"],
+    )
     return manifest

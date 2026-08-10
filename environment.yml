@@ -5,6 +5,7 @@ dependencies:
   - python=3.11
   - numpy>=1.24
   - pillow>=10.0
+  - numba>=0.59
   - pytest>=8.0
   - pip
   - pip:

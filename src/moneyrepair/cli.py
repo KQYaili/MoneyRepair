@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -1549,7 +1550,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    args.func(args)
+    command = getattr(args, "command", None) or "moneyrepair"
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print(f"error: {command} interrupted by user", file=sys.stderr)
+        return 130
+    except (ValueError, OSError) as exc:
+        # Structured failure isolation for expected core-path errors
+        # (bad inputs, missing files); argparse usage errors keep exiting via SystemExit.
+        print(f"error: {command} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

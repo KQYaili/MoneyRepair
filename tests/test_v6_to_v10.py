@@ -8,11 +8,8 @@ pytestmark = pytest.mark.experimental
 # Skip all tests in this file if torch is not installed
 torch = pytest.importorskip("torch")
 
-import torch.nn as nn
-import torch.nn.functional as F
 from moneyrepair.experimental.v6_to_v10 import (
     FragmentEncoder,
-    GraphAttentionLayer,
     EdgeModel,
     AssemblyGNN,
     V6_TO_V10_ARCHITECTURES,

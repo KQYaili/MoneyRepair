@@ -23,17 +23,8 @@ def test_llm_controller_mock_parsing():
     config = LLMAgentConfig(use_mock=True, mock_strategy="coverage_first")
     controller = LLMController(config)
 
-    # Test mock response parsing with simple state JSON
-    state_prompt = """
-    Analyze these candidates:
-    {
-      "global_stats": {"confirmed_assemblies": 2},
-      "candidates": [
-        {"index": 0, "labels": ["S1", "S2"], "coverage": 0.95},
-        {"index": 1, "labels": ["S3"], "coverage": 0.98}
-      ]
-    }
-    """
+    # Test mock response parsing: the controller consumes AssemblyCandidate
+    # objects and global stats directly (no raw prompt string needed).
     feedback = controller.analyze_candidates([], [
         AssemblyCandidate(("a", "b"), 0.95, 0.9, 10.0, 10, ("S1", "S2")),
         AssemblyCandidate(("c", "d"), 0.98, 0.95, 20.0, 20, ("S3",)),
