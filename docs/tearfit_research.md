@@ -2,6 +2,10 @@
 
 > Historical design note (round tearfit). Superseded by the authoritative [STATUS.md](../STATUS.md).
 
+For the current adaptive edge score, partial-core/group-gap path, deterministic
+ablation, and measured p=24 result, see
+[v4.3: Adaptive Tear Evidence and Group-Gap Recovery](v4_3_tear_effectiveness.md).
+
 This track tests the geometry claim that was not proven by the earlier contour
 and contact-ratio experiments:
 
@@ -124,3 +128,7 @@ frayed tear edges carry too little absolute-coordinate evidence, so it does not
 recover with more compute. That is the residual that needs either a learned
 fine-tear matcher or the human queue — consistent with the high-precision
 triage stance above.
+
+v4.3 subsequently moved this wall in the N=20/p=24 simulation by replacing the
+fixed edge rule with adaptive evidence and whole-assembly gap context. The
+larger N=50 fine-fragment case and real torn paper remain unverified.

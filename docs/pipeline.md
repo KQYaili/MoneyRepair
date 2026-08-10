@@ -86,6 +86,19 @@ The current matrix is pairwise same-note compatibility:
   side assignment is obviously wrong;
 - contour matching can provide an extra short list for difficult fragments.
 
+For the placed-fragment tear-fit research path, v4.3 adds a stricter evidence
+cascade:
+
+1. `automatic` Etear edges build a high-confidence core graph;
+2. `review` edges may support a fragment only when it fits multiple boundaries
+   of the whole partial assembly;
+3. exact-cover sees only candidates that reach the target coverage;
+4. review candidates remain in the human queue even when geometrically exact in
+   simulation.
+
+See [the v4.3 measured report](v4_3_tear_effectiveness.md). This path assumes
+fragments already share note coordinates; it is not a raw-crop contour matcher.
+
 The stored matrix uses `numpy.packbits`, so a 20,000 by 20,000 boolean matrix is
 about 50 MB before `.npz` compression.
 
@@ -155,6 +168,10 @@ To align an input crop against the templates without given placement, the locato
 - **Pyramid Downsampling**: The template and the crop are downsampled to Level 1 ($0.5\times$ resolution). The coarse global search scans the template using a step size of 8.
 - **Numba JIT Acceleration**: The matching inner loop is decorated with `@numba.njit` utilizing zero-allocation flat array indexing. This eliminates Python interpreter and array allocation overhead, accelerating the search to **~67ms per fragment**.
 - **Fine Refinement**: The Top-K candidate poses from the coarse search are scaled up to Level 0 ($1.0\times$ resolution), and a local $9\times9$ grid search is run to refine the position to the highest matching score.
+- **Uncertainty Output**: The local score basin now yields `sigma_x`, `sigma_y`,
+  score margin, and basin sample count. Broad peaks reduce downstream tear
+  confidence. `sigma_theta` remains unavailable until continuous-angle
+  refinement is implemented.
 
 ### 2. Candidate Pose Solver Integration
 - **Virtual Placed Fragments**: Each candidate pose (specifying X, Y, rotation, side, and match score) is represented as a virtual placed fragment with a unique ID format `f{piece_index}_pose{pose_index}`.

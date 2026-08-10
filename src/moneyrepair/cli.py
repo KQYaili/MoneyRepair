@@ -19,9 +19,7 @@ from moneyrepair.compat import (
     compatibility_from_pair_records,
     compute_compatibility,
     compute_compatibility_fast,
-    filter_compatibility_to_ids,
     load_pair_records,
-    restrict_packed_to_ids,
     write_incompatible_pairs,
 )
 from moneyrepair.diagnostics import diagnose_solutions
@@ -41,7 +39,15 @@ from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
-from moneyrepair.tearfit import TEARFIT_COVER_OBJECTIVES, TEARFIT_SEED_STRATEGIES, run_tearfit_strategy_comparison, run_tearfit_sweep
+from moneyrepair.tearfit import (
+    TEARFIT_ALGORITHMS,
+    TEARFIT_COVER_OBJECTIVES,
+    TEARFIT_SEED_STRATEGIES,
+    TEARFIT_V43_FINE_FRACTION,
+    run_tearfit_strategy_comparison,
+    run_tearfit_sweep,
+    run_tearfit_v43_ablation,
+)
 from moneyrepair.visualize import render_solution_gallery, write_solution_report
 
 
@@ -835,6 +841,49 @@ def _cmd_tearfit_compare(args: argparse.Namespace) -> None:
         )
 
 
+def _cmd_tearfit_v43_ablation(args: argparse.Namespace) -> None:
+    payload = run_tearfit_v43_ablation(
+        notes=args.notes,
+        pieces_list=_parse_int_list(args.pieces_list),
+        seeds=_parse_int_list(args.seeds),
+        algorithms=tuple(item.strip() for item in args.algorithms.split(",") if item.strip()),
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        width=args.width,
+        height=args.height,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_time_limit_seconds=None if args.no_time_limits else args.candidate_time_limit,
+        candidate_state_limit=args.candidate_state_limit,
+        partial_gap_time_limit_seconds=None if args.no_time_limits else args.partial_gap_time_limit,
+        gap_state_limit=args.gap_state_limit,
+        partial_gap_state_limit=args.partial_gap_state_limit,
+        cover_time_limit_seconds=None if args.no_time_limits else args.cover_time_limit,
+        cover_node_limit=args.cover_node_limit,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.3 tearfit ablation to {output}")
+    for row in payload["summary"]:
+        print(
+            "p={pieces_per_note} {algorithm}: yield={mean_exact_yield:.3f} "
+            "precision={mean_exact_precision:.3f} auto_yield={mean_automatic_exact_yield:.3f} "
+            "auto_precision={mean_automatic_exact_precision:.3f} "
+            "false_edge_rate={mean_false_edge_rate:.3f} "
+            "manual={mean_manual_notes_remaining:.1f} seconds={mean_elapsed_seconds:.2f}".format(**row)
+        )
+
+
 def _cmd_policy_compare(args: argparse.Namespace) -> None:
     print("================================================================================")
     print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
@@ -1383,6 +1432,44 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit_compare.add_argument("--cover-time-limit", type=float, default=5.0)
     tearfit_compare.add_argument("--output", help="write full comparison JSON")
     tearfit_compare.set_defaults(func=_cmd_tearfit_compare)
+
+
+    tearfit_v43 = sub.add_parser(
+        "tearfit-v43-ablation",
+        help="same-seed baseline vs adaptive Etear vs core-plus-group-gap trials",
+    )
+    tearfit_v43.add_argument("--notes", type=int, default=10)
+    tearfit_v43.add_argument("--pieces-list", default="8,16,24")
+    tearfit_v43.add_argument("--seeds", default="7")
+    tearfit_v43.add_argument("--algorithms", default=",".join(TEARFIT_ALGORITHMS))
+    tearfit_v43.add_argument("--route-fragment-fraction", type=float, default=TEARFIT_V43_FINE_FRACTION)
+    tearfit_v43.add_argument("--width", type=int, default=180)
+    tearfit_v43.add_argument("--height", type=int, default=90)
+    tearfit_v43.add_argument("--tolerance", type=int, default=2)
+    tearfit_v43.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v43.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v43.add_argument("--automatic-effectiveness", type=float, default=2.0)
+    tearfit_v43.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v43.add_argument("--automatic-contiguous-pixels", type=int, default=5)
+    tearfit_v43.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v43.add_argument("--core-raw-coverage", type=float)
+    tearfit_v43.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v43.add_argument("--beam-width", type=int, default=32)
+    tearfit_v43.add_argument("--max-partial-core-candidates", type=int, default=128)
+    tearfit_v43.add_argument("--candidate-time-limit", type=float, default=15.0)
+    tearfit_v43.add_argument("--candidate-state-limit", type=int, default=100_000)
+    tearfit_v43.add_argument("--partial-gap-time-limit", type=float, default=5.0)
+    tearfit_v43.add_argument("--gap-state-limit", type=int, default=20_000)
+    tearfit_v43.add_argument("--partial-gap-state-limit", type=int, default=5_000)
+    tearfit_v43.add_argument("--cover-time-limit", type=float, default=5.0)
+    tearfit_v43.add_argument("--cover-node-limit", type=int, default=250_000)
+    tearfit_v43.add_argument(
+        "--no-time-limits",
+        action="store_true",
+        help="use deterministic state/node budgets without wall-clock cutoffs",
+    )
+    tearfit_v43.add_argument("--output", help="write rows, summaries, and baseline deltas as JSON")
+    tearfit_v43.set_defaults(func=_cmd_tearfit_v43_ablation)
 
     experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
     exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)

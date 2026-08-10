@@ -160,7 +160,12 @@ def run_production_pipeline(
                     "tx": int(p.tx),
                     "ty": int(p.ty),
                     "angle": int(p.angle),
-                    "score": round(float(p.score), 4)
+                    "score": round(float(p.score), 4),
+                    "sigma_x": round(float(p.sigma_x), 4),
+                    "sigma_y": round(float(p.sigma_y), 4),
+                    "sigma_theta": p.sigma_theta,
+                    "score_margin": round(float(p.score_margin), 6),
+                    "basin_samples": int(p.basin_samples),
                 }
                 for p in poses
             ]
@@ -193,6 +198,12 @@ def run_production_pipeline(
                             "tx": p.tx,
                             "ty": p.ty,
                             "angle": p.angle,
+                            "pose_score": p.score,
+                            "pose_sigma_x": p.sigma_x,
+                            "pose_sigma_y": p.sigma_y,
+                            "pose_sigma_theta": p.sigma_theta,
+                            "pose_score_margin": p.score_margin,
+                            "pose_basin_samples": p.basin_samples,
                         }
                     )
                 )

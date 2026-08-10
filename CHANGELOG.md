@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.3.0
+
+Tolerance-aware fine-tear evidence and reproducible geometry pressure:
+
+- replaces the single fixed-overlap research rule with optional `Etear`, which
+  rewards one continuous bidirectional seam, opposing normals, curvature
+  specificity, and explained perimeter while penalizing scattered/one-sided
+  hits, accidental coincidence, physical overlap, and locator uncertainty;
+- adds `automatic`, `review`, and `insufficient-evidence` decisions for edges
+  and assemblies, with automatic-only yield/precision and an honest manual queue;
+- adds two-stage high-confidence core generation plus whole-assembly
+  multi-boundary gap scoring, including separately audited partial-core output;
+- propagates translation uncertainty, score margin, and score-basin width from
+  the locator into placed fragment metadata; continuous-angle uncertainty stays
+  explicitly unavailable;
+- adds deterministic candidate-state and exact-cover-node budgets, per-stage
+  stop diagnostics, same-seed p=8/16/24 ablation, and a complexity route that
+  keeps fixed overlap above a 5% median fragment-area fraction;
+- records the N=20, seeds 7/8/9 result: routed p=24 automatic yield/precision
+  `0.917/0.981` versus fixed overlap `0.533/0.846`, with false-edge rate
+  `0.036` versus `0.094`, at roughly 2.3x runtime;
+- adds a JSON-backed scientific figure and a limitations-first v4.3 report.
+
 ## 4.2.1
 
 Scale-axis crash fix and an honest disentangling of the two yield-collapse axes:

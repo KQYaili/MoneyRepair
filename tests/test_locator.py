@@ -1,10 +1,8 @@
 import numpy as np
-import pytest
-from PIL import Image
 
-from moneyrepair.types import Fragment
+from moneyrepair.locator import locate_fragment_poses
 from moneyrepair.simulate import synthetic_banknote
-from moneyrepair.locator import locate_fragment_poses, CandidatePose, _rotate_image_and_mask
+from moneyrepair.types import Fragment
 
 
 def test_locate_fragment_poses_finds_correct_pose():
@@ -43,3 +41,8 @@ def test_locate_fragment_poses_finds_correct_pose():
     assert abs(top.ty - ty) <= 1
     assert top.angle == 0
     assert top.score > 0.8
+    assert top.sigma_x >= 0.0
+    assert top.sigma_y >= 0.0
+    assert top.sigma_theta is None
+    assert top.basin_samples >= 1
+    assert top.to_dict()["score_margin"] == top.score_margin

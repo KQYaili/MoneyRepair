@@ -30,11 +30,28 @@ constraints; appearance is at most a tie-breaker.
   | 50  | 1.00 | 1.00 |
 
   This is real and well past every earlier discriminator.
+- **v4.3 fine-fragment shift, fixed search budgets, N=20, no serial:** the
+  complexity-routed policy keeps fixed overlap for p=8/16 and activates adaptive
+  tear evidence plus group-gap recovery at p=24.
+
+  | pieces | fixed overlap yield / precision | v4.3 routed yield / precision |
+  |---:|---:|---:|
+  | 8  | 1.000 / 1.000 | 1.000 / 1.000 |
+  | 16 | 1.000 / 1.000 | 1.000 / 1.000 |
+  | 24 | 0.533 / 0.846 | **0.917 / 0.981** |
+
+  These are means over seeds 7/8/9 with deterministic state/node budgets. The
+  p=24 false-edge rate falls from 0.094 to 0.036 and the mean human queue from
+  9.3 to 1.7 notes, at about 2.3x runtime. See
+  [the v4.3 report](docs/v4_3_tear_effectiveness.md).
 
 ## Where the wall is (measured, simulation)
 
-The two properties that **define the real case — many notes, finely torn — break it**,
-and even *ideal* serial anchors (every note anchored, perfect OCR) do not restore yield:
+The historical v4.2 pressure runs below show that the two properties defining
+the real case — many notes and finely torn notes — break the old fixed-overlap
+path, and even ideal serial anchors do not restore yield. The fine-fragment rows
+were measured at a larger/harder pool than the v4.3 N=20 ablation and remain an
+unresolved scale-plus-fineness target:
 
 | stressor | geometry only | + ideal serial anchors |
 |---|---|---|
@@ -43,10 +60,11 @@ and even *ideal* serial anchors (every note anchored, perfect OCR) do not restor
 | pieces=16 (finely torn) | yield ~0.10, prec ~0.45 | yield 0.12, prec 1.00 |
 | pieces=24 (finer)        | yield ~0.02, prec ~0.20 | yield 0.00, prec 0.00 |
 
-Heavy fraying *alone* on coarse pieces is tolerated (yield 1.00). **Fineness and
-scale are the killers, not fray.** Serials rescue *precision* (the no-duplicate-serial
-constraint blocks chimeras) but not *yield*: the many small pieces per note cannot be
-reliably chained by short, frayed tears.
+Heavy fraying *alone* on coarse pieces is tolerated (yield 1.00). **Combined
+fineness and scale remain the killers, not fray.** Serials rescue precision (the
+no-duplicate-serial constraint blocks chimeras) but not yield. v4.3 moves this
+wall at N=20; it has not yet established the same gain at N=50, N=200, or on real
+paper.
 
 ## Figures (measured)
 
@@ -71,10 +89,10 @@ every note exactly — yield and precision both 1.0 at N=20/50/100. *Right:* the
 two failure axes differ in kind. **Scale (large N)** was a fixable engineering
 problem: the exact-cover search crashed (`RecursionError`) on large candidate
 pools, so N=200 read as ~0.09; with the crash fixed (v4.2.1) and an adequate
-budget it recovers to 1.0. **Fineness (pieces=16+)** is the genuine signal wall —
-short frayed tears carry too little absolute-coordinate evidence, so it stays at
-~0.04 no matter the compute. Only a better fine-tear descriptor (or the human
-queue) can move that bar.
+budget it recovers to 1.0. **Fineness under a large mixed-note pool** is the
+genuine residual signal wall. v4.3 adaptive evidence plus whole-assembly context
+moves the p=24 bar at N=20, but the larger-pool claim has not been rerun and the
+human queue remains part of the system boundary.
 
 ## Honest operating stance
 
@@ -95,21 +113,24 @@ not replacing them. (This is why the real-world case used a 13-person team.)
 All four reduce a high-dimensional signal (the tear-edge profile) to a scalar
 threshold whose true/false distributions overlap. That is the recurring trap.
 
-## The one resume-path (if anyone continues)
+## The resume-path (if anyone continues)
 
-Exactly two pieces of work, both narrow:
+Three pieces of work, in this order:
 
-1. **Learned fine-tear edge descriptor** — replace the scalar coincidence with a
+1. **Real-data validation** — tear a small set of notes, capture raw crops, and
+   measure locator uncertainty, automatic precision, and the human queue. This
+   is now more informative than another synthetic architecture layer.
+2. **Learned fine-tear edge descriptor, only if real data requires it** — replace
+   the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a
    small CNN on the resampled edge), trained to discriminate true vs false
    tear-mates **specifically on fine, frayed edges**, and benchmarked head-to-head
-   against scalar coincidence **on the pieces=16/24 regime**. This is the only lever
-   that could move the fineness wall.
-2. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
+   against scalar coincidence **on the pieces=16/24 regime**.
+3. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
    generation, so N≈hundreds–thousands does not hit time limits.
 
-> Honest expectation: prior rounds strongly suggest (1) **shifts the wall, not removes
-> it** — the triage stance above probably still holds for finely-torn near-identical notes.
+> Honest expectation: v4.3 shifts the simulated wall; it does not remove the
+> need for triage on finely torn near-identical notes.
 
 ## The single highest-value untaken step
 

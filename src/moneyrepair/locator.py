@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import numba
-from dataclasses import dataclass, field
-from pathlib import Path
 import numpy as np
-from PIL import Image
 
 from moneyrepair.types import Fragment
+
+if TYPE_CHECKING:
+    from moneyrepair.compat import CompatibilityMatrix
 
 @dataclass(frozen=True)
 class CandidatePose:
@@ -20,6 +22,11 @@ class CandidatePose:
     ty: int  # translation Y in note space
     angle: int  # rotation angle in degrees (0, 90, 180, 270)
     score: float  # similarity score (higher is better)
+    sigma_x: float = 0.0  # local score-basin spread in pixels
+    sigma_y: float = 0.0
+    sigma_theta: float | None = None  # unavailable until continuous-angle refinement exists
+    score_margin: float = 0.0
+    basin_samples: int = 1
 
     def to_dict(self) -> dict:
         return {
@@ -30,7 +37,39 @@ class CandidatePose:
             "ty": self.ty,
             "angle": self.angle,
             "score": self.score,
+            "sigma_x": self.sigma_x,
+            "sigma_y": self.sigma_y,
+            "sigma_theta": self.sigma_theta,
+            "score_margin": self.score_margin,
+            "basin_samples": self.basin_samples,
         }
+
+
+def _score_basin_uncertainty(
+    samples: list[tuple[int, int, float]],
+    best_score: float,
+    *,
+    score_band: float = 0.02,
+    temperature: float = 0.01,
+) -> tuple[float, float, float, int]:
+    """Estimate translation uncertainty from the width of a local score peak."""
+
+    if not samples:
+        return 0.0, 0.0, 0.0, 0
+    scores = np.asarray([sample[2] for sample in samples], dtype=np.float64)
+    near = scores >= best_score - score_band
+    selected = [sample for sample, keep in zip(samples, near.tolist()) if keep]
+    if not selected:
+        selected = [max(samples, key=lambda item: item[2])]
+    coordinates = np.asarray([(sample[0], sample[1]) for sample in selected], dtype=np.float64)
+    selected_scores = np.asarray([sample[2] for sample in selected], dtype=np.float64)
+    weights = np.exp((selected_scores - best_score) / max(temperature, 1e-9))
+    weights /= max(float(weights.sum()), 1e-12)
+    centre = np.sum(coordinates * weights[:, None], axis=0)
+    variance = np.sum(((coordinates - centre) ** 2) * weights[:, None], axis=0)
+    ordered = np.sort(scores)[::-1]
+    margin = float(best_score - ordered[1]) if len(ordered) > 1 else float(best_score)
+    return float(np.sqrt(variance[0])), float(np.sqrt(variance[1])), margin, len(selected)
 
 
 def _rotate_image_and_mask(
@@ -286,6 +325,7 @@ def locate_fragment_poses(
         best_score = -1.0
         best_tx = p.tx
         best_ty = p.ty
+        fine_samples: list[tuple[int, int, float]] = []
 
         search_range = max(2, coarse_step // 2)
         for dy in range(-search_range, search_range + 1):
@@ -295,11 +335,16 @@ def locate_fragment_poses(
                 if 0 <= tx <= ref_w - cw and 0 <= ty <= ref_h - ch:
                     ref_window = ref_img[ty : ty + ch, tx : tx + cw]
                     score = _match_score(crop_img, crop_mask, ref_window)
+                    fine_samples.append((tx, ty, score))
                     if score > best_score:
                         best_score = score
                         best_tx = tx
                         best_ty = ty
 
+        sigma_x, sigma_y, score_margin, basin_samples = _score_basin_uncertainty(
+            fine_samples,
+            best_score,
+        )
         refined_candidates.append(
             CandidatePose(
                 fragment_id=p.fragment_id,
@@ -309,6 +354,11 @@ def locate_fragment_poses(
                 ty=best_ty,
                 angle=p.angle,
                 score=best_score,
+                sigma_x=sigma_x,
+                sigma_y=sigma_y,
+                sigma_theta=None,
+                score_margin=score_margin,
+                basin_samples=basin_samples,
             )
         )
 
@@ -340,6 +390,11 @@ def locate_fragment_poses(
                     ty=p.ty,
                     angle=p.angle,
                     score=p.score,
+                    sigma_x=p.sigma_x,
+                    sigma_y=p.sigma_y,
+                    sigma_theta=p.sigma_theta,
+                    score_margin=p.score_margin,
+                    basin_samples=p.basin_samples,
                 )
             )
             if len(unique_poses) >= top_k:
@@ -407,7 +462,7 @@ def build_pose_compatibility_matrix(
     max_boundary_diff: float = -1.0,
 ) -> CompatibilityMatrix:
     """Build compatibility matrix for placed fragments, enforcing appearance clustering, mutual exclusion, and boundary continuity."""
-    from moneyrepair.compat import compute_compatibility_fast, compute_compatibility_clustered, CompatibilityMatrix
+    from moneyrepair.compat import compute_compatibility_fast, compute_compatibility_clustered
 
     # 1. Map placed fragment IDs to original fragment appearance groups if provided
     if groups is not None:
