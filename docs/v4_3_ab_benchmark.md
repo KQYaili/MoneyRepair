@@ -36,6 +36,23 @@ Raw results are saved at [`runs/v43_ab_report.json`](../runs/v43_ab_report.json)
 | 24 | effectiveness_gap | 0.933 | 1.000     | 0.017         | 0.67            | 41.12         |
 | 24 | v43_routed        | 0.933 | 1.000     | 0.017         | 0.67            | 41.12         |
 
+## Figures
+
+Static exports of the same-seed A/B means (regenerate with
+`python docs/figures/make_v43_ab_figures.py`).
+
+![v4.3 A/B automatic exact yield: baseline vs v43_routed at p=8/16/24](figures/v4_3_ab_yield.png)
+
+Automatic exact yield, baseline vs the complexity-routed `v43_routed`. `v43_routed`
+matches the baseline exactly at p=8 and p=16 (yield=1.000) and trades ~6.7% yield
+at p=24 (1.000 → 0.933) in exchange for perfect precision on the hardest case.
+
+![v4.3 A/B accepted false-edge rate: baseline vs effectiveness_gap at p=8/16/24](figures/v4_3_ab_false_edge_rate.png)
+
+Accepted false-edge rate, baseline vs `effectiveness_gap`. Effectiveness-gap
+scoring drives the false-edge rate far below the baseline — from 0.053 → 0.000 at
+p=8 and 0.046 → 0.017 at p=24 — sharply reducing spurious edges.
+
 ## Findings
 
 - **v43_routed matches baseline on easy/medium cases.** At p=8 and p=16 it
