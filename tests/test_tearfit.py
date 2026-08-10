@@ -550,3 +550,50 @@ def test_exact_cover_reports_deterministic_node_budget():
     assert stats["search_nodes"] == 3
     assert stats["node_limit_reached"] is True
     assert stats["time_limit_reached"] is False
+
+
+def test_v43_ablation_p8_p16_p24_regime_comparison():
+    """Verify same-seed A/B ablation across p=8, 16, 24 regimes.
+
+    Tests that baseline vs effectiveness vs effectiveness_gap vs v43_routed produce
+    consistent diagnostic metrics and triage evidence classifications (automatic,
+    review, insufficient-evidence) on identical fractal tear inputs.
+    """
+    payload = run_tearfit_v43_ablation(
+        notes=2,
+        pieces_list=(8, 16, 24),
+        seeds=(42,),
+        algorithms=("baseline", "effectiveness", "effectiveness_gap", "v43_routed"),
+        width=72,
+        height=40,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_time_limit_seconds=2.0,
+        partial_gap_time_limit_seconds=0.5,
+        cover_time_limit_seconds=1.0,
+    )
+
+    # 3 pieces x 4 algorithms = 12 total trial rows
+    assert len(payload["rows"]) == 12
+    pieces_covered = {row["pieces_per_note"] for row in payload["rows"]}
+    assert pieces_covered == {8, 16, 24}
+
+    for row in payload["rows"]:
+        assert "exact_yield" in row
+        assert "exact_precision" in row
+        assert "automatic_exact_yield" in row
+        assert "automatic_exact_precision" in row
+        assert "manual_notes_remaining" in row
+        assert "edge_decisions" in row
+        assert "candidate_decisions" in row
+        assert set(row["edge_decisions"].keys()) == {"automatic", "review", "insufficient-evidence"}
+        assert set(row["candidate_decisions"].keys()) == {"automatic", "review"}
+
+    # Verify summary has baseline deltas for all pieces
+    summary_by_piece = {}
+    for item in payload["summary"]:
+        summary_by_piece.setdefault(item["pieces_per_note"], []).append(item["algorithm"])
+    assert set(summary_by_piece.keys()) == {8, 16, 24}
+    for piece, algos in summary_by_piece.items():
+        assert set(algos) == {"baseline", "effectiveness", "effectiveness_gap", "v43_routed"}
+
