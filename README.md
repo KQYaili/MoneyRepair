@@ -1,6 +1,6 @@
 # MoneyRepair
 
-**MoneyRepair** is an industrial, geometry-first reconstruction toolkit for hand-torn near-identical banknotes and paper documents.
+**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents.
 
 It registers torn fragments to a canonical banknote frame, extracts physical tear-boundary coincidence, evaluates adaptive evidence ($E_{\text{tear}}$) and whole-assembly gap fit ($G$), and solves globally consistent non-overlapping, serial-deduplicated assemblies using exact-cover branch-and-bound search.
 
@@ -26,7 +26,7 @@ MoneyRepair is structured around an end-to-end batch processing pipeline:
 
 - **1. Quality QA Gate**: Evaluates focus (Laplacian variance), glare (luminance clipping), and mask solidity.
 - **2. Auto-Locator**: Estimates candidate poses (X, Y, 0°/90°/180°/270°, front/back) using Numba JIT coarse-to-fine template matching.
-- **3. Compatibility Matrix**: Evaluates spatial overlap, interlock contact criteria, and DBSCAN appearance tone clustering to prevent cross-note chimeras.
+- **3. Compatibility Matrix**: Evaluates spatial overlap, placed tear evidence, and serial constraints. Appearance remains an optional tie-breaker, not a note-identity key.
 - **4. Exact-Cover Solver**: Runs zero-allocation branch-and-bound search over packed bit-matrices to find optimal note assemblies.
 - **5. Interactive Review Loop**: Presents candidate reports to operators for confirmation or rejection.
 
@@ -91,12 +91,12 @@ Measured performance across $p=8, 16, 24$ regimes under deterministic search bud
 
 | 路线 / 算法 | $p=8$ Yield (Prec) | $p=16$ Yield (Prec) | $p=24$ Yield (Prec) | 伪边率 (False Edge) | 核心作用与能力界定 |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **`baseline`** (固定重叠) | 1.00 (1.00) | 1.00 (1.00) | 0.53 (0.85) | 0.018 ~ 0.094 | 粗碎片高速；缺少物理几何特征约束。 |
-| **`effectiveness`** (Etear 边得分) | 0.67 (1.00) | 0.67 (0.90) | 0.67 (0.80) | **0.000 ~ 0.006** | **降噪保真 (Precision Guard)**：伪边率降低 70%。 |
-| **`effectiveness_gap`** (Etear + Gap 填补) | 0.67 (1.00) | **1.00 (1.00)** | **0.92 (0.98)** | **0.000 ~ 0.006** | **召回修复 (Recall Recovery)**：借助组装全局缺口拉回落单碎片。 |
-| **`v43_routed`** (自适应路由) | **1.00 (1.00)** | **1.00 (1.00)** | **0.92 (0.98)** | **0.000 ~ 0.006** | **动态分流 (Regime Triage)**：粗碎片高速放行，细碎片 Gap 深度拼合。 |
+| **`baseline`** (固定重叠) | 1.00 (1.00) | 1.00 (1.00) | 0.53 (0.85) | 0.069 ~ 0.094 | 粗碎片高速；细碎片候选图拥堵。 |
+| **`effectiveness`** (Etear 边得分) | 0.92 (0.98) | 0.93 (0.95) | 0.77 (0.82) | **0.002 ~ 0.036** | 清理错误边并降低候选拥堵；单独使用不保证最终精度。 |
+| **`effectiveness_gap`** (Etear + Gap 填补) | 0.95 (1.00) | **0.98 (1.00)** | **0.92 (0.98)** | **0.002 ~ 0.036** | 少量全局缺口候选同时改善召回与最终选择。 |
+| **`v43_routed`** (自适应路由) | **1.00 (1.00)** | **1.00 (1.00)** | **0.92 (0.98)** | 0.036 ~ 0.086 | p=8/16 复用 baseline，p=24 启用 Etear + Gap。 |
 
-See **[docs/v4_3_tear_effectiveness.md](docs/v4_3_tear_effectiveness.md)** and **[docs/v4_3_ab_benchmark.md](docs/v4_3_ab_benchmark.md)** for full details.
+See **[docs/v4_3_1_mechanism_validation.md](docs/v4_3_1_mechanism_validation.md)** for the canonical N=20 mechanism audit and **[docs/v4_3_tear_effectiveness.md](docs/v4_3_tear_effectiveness.md)** for the score definition.
 
 ---
 
@@ -106,7 +106,8 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 
 - **[Pipeline Notes](docs/pipeline.md)**: Production pipeline, quality gates, DFS logic, and operator loop.
 - **[v4.3 Adaptive Geometry](docs/v4_3_tear_effectiveness.md)**: Math formulas for $E_{\text{tear}}$ and whole-assembly gap fit $G$.
-- **[v4.3 A/B Benchmarks](docs/v4_3_ab_benchmark.md)**: Detailed $p=8, 16, 24$ ablation breakdown tables.
+- **[v4.3.1 Mechanism Validation](docs/v4_3_1_mechanism_validation.md)**: Canonical N=20 edge, gap, routing, and search-budget decomposition.
+- **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
 - **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.
 

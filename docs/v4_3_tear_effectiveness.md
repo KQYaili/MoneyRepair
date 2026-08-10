@@ -116,15 +116,15 @@ Mean over seeds `7,8,9`, `N=20`, geometry only, no serial labels:
 
 | pieces | algorithm | auto yield | auto precision | false-edge rate | manual notes | seconds |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 8 | fixed overlap | 1.000 | 1.000 | 0.069 | 0.0 | 0.60 |
-| 8 | adaptive Etear | 0.917 | 0.982 | 0.002 | 1.7 | 0.80 |
-| 8 | Etear + group gap | 0.950 | 1.000 | 0.002 | 1.0 | 2.51 |
-| 16 | fixed overlap | 1.000 | 1.000 | 0.086 | 0.0 | 11.57 |
-| 16 | adaptive Etear | 0.933 | 0.949 | 0.011 | 1.3 | 4.70 |
-| 16 | Etear + group gap | 0.983 | 1.000 | 0.011 | 0.3 | 35.16 |
-| 24 | fixed overlap | 0.533 | 0.846 | 0.094 | 9.3 | 32.95 |
+| 8 | fixed overlap | 1.000 | 1.000 | 0.069 | 0.0 | 0.62 |
+| 8 | adaptive Etear | 0.917 | 0.982 | 0.002 | 1.7 | 0.79 |
+| 8 | Etear + group gap | 0.950 | 1.000 | 0.002 | 1.0 | 2.48 |
+| 16 | fixed overlap | 1.000 | 1.000 | 0.086 | 0.0 | 11.90 |
+| 16 | adaptive Etear | 0.933 | 0.949 | 0.011 | 1.3 | 4.42 |
+| 16 | Etear + group gap | 0.983 | 1.000 | 0.011 | 0.3 | 37.01 |
+| 24 | fixed overlap | 0.533 | 0.846 | 0.094 | 9.3 | 33.44 |
 | 24 | adaptive Etear | 0.767 | 0.817 | 0.036 | 4.7 | 20.20 |
-| 24 | Etear + group gap | **0.917** | **0.981** | **0.036** | **1.7** | 74.88 |
+| 24 | Etear + group gap | **0.917** | **0.981** | **0.036** | **1.7** | 75.66 |
 
 The complexity-routed policy uses fixed overlap when median fragment area is at
 least `5%` of the note and Etear + group gap below that boundary. It therefore
@@ -146,6 +146,11 @@ matches baseline at pieces `8/16` and selects the heavy path at pieces `24`.
   Most measured gain therefore came from adaptive core edges plus group-gap
   completion of near-complete cores. General low-coverage core filling is wired
   and audited, but this benchmark does not yet prove it is the main lever.
+
+The v4.3.1 audit adds selected-candidate provenance and stage-to-stage deltas.
+See [v4.3.1 Mechanism Validation](v4_3_1_mechanism_validation.md) for the
+canonical explanation of edge filtering, group-gap selection, routing, and
+fixed-budget saturation.
 
 ## Remaining boundary
 

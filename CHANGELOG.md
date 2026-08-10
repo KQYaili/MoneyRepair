@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.3.1
+
+Mechanism validation without a new reconstruction algorithm:
+
+- records true/false accepted-edge counts and selected core, complete-gap, and
+  partial-gap candidate provenance for every trial;
+- emits machine-readable `adaptive_edge`, `group_gap`, and `routing` deltas in
+  the canonical same-seed ablation JSON;
+- changes the ablation CLI defaults to the documented N=20, seeds 7/8/9
+  protocol, preventing accidental N=10 results from being presented as the
+  headline benchmark;
+- confirms that Etear primarily cleans the edge graph and relieves fixed-budget
+  search congestion, while group-gap improves both recovery and final candidate
+  selection at p=24;
+- adds a JSON-backed mechanism figure and a limitations-first v4.3.1 report,
+  including exact-cover and candidate-state budget saturation.
+
 ## 4.3.0
 
 Tolerance-aware fine-tear evidence and reproducible geometry pressure:

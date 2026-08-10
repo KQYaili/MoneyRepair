@@ -1,5 +1,9 @@
 # v4.3 A/B Benchmark: Same-Seed Baseline-vs-v4.3 Audit
 
+> Supplemental N=10 audit. The canonical N=20, fixed-budget mechanism result is
+> [v4.3.1 Mechanism Validation](v4_3_1_mechanism_validation.md). Do not combine
+> the two tables or use this smaller-pool run for headline claims.
+
 ## Purpose
 
 This is a same-seed, baseline-vs-v4.3 A/B audit of the tear-fit reconstruction
@@ -13,6 +17,7 @@ identical seeds so differences reflect algorithm behavior rather than sampling.
 
 ```
 moneyrepair tearfit-v43-ablation --pieces-list 8,16,24 \
+  --notes 10 \
   --algorithms baseline,effectiveness,effectiveness_gap,v43_routed \
   --seeds 7,8,9 --no-time-limits --output runs/v43_ab_report.json
 ```

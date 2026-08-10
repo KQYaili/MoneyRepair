@@ -144,6 +144,8 @@ class TearFitTrialResult:
     fragments: int
     pair_scores: int
     accepted_edges: int
+    true_accepted_edges: int
+    false_accepted_edges: int
     false_edge_rate: float
     true_edge_median: float
     false_edge_median: float
@@ -156,6 +158,9 @@ class TearFitTrialResult:
     partial_core_candidates: int = 0
     gap_candidates: int = 0
     partial_gap_candidates: int = 0
+    selected_core_candidates: int = 0
+    selected_gap_candidates: int = 0
+    selected_complete_gap_candidates: int = 0
     selected_partial_gap_candidates: int = 0
 
     def to_jsonable(self) -> dict:
@@ -164,6 +169,8 @@ class TearFitTrialResult:
             "fragments": self.fragments,
             "pair_scores": self.pair_scores,
             "accepted_edges": self.accepted_edges,
+            "true_accepted_edges": self.true_accepted_edges,
+            "false_accepted_edges": self.false_accepted_edges,
             "false_edge_rate": self.false_edge_rate,
             "true_edge_median": self.true_edge_median,
             "false_edge_median": self.false_edge_median,
@@ -172,6 +179,9 @@ class TearFitTrialResult:
             "partial_core_candidates": self.partial_core_candidates,
             "gap_candidates": self.gap_candidates,
             "partial_gap_candidates": self.partial_gap_candidates,
+            "selected_core_candidates": self.selected_core_candidates,
+            "selected_gap_candidates": self.selected_gap_candidates,
+            "selected_complete_gap_candidates": self.selected_complete_gap_candidates,
             "selected_partial_gap_candidates": self.selected_partial_gap_candidates,
             "edge_decisions": dict(self.edge_decisions),
             "candidate_decisions": dict(self.candidate_decisions),
@@ -2050,7 +2060,12 @@ def run_tearfit_trial(
         if candidate.coverage < coverage_threshold
     ]
     candidates = complete_core_candidates
+    complete_core_keys = {
+        _candidate_key(candidate.fragment_ids) for candidate in complete_core_candidates
+    }
     gap_candidate_count = 0
+    gap_candidate_keys: set[tuple[str, ...]] = set()
+    complete_gap_keys: set[tuple[str, ...]] = set()
     partial_gap_keys: set[tuple[str, ...]] = set()
     complete_gap_search_stats: dict[str, int | bool] = {
         "expanded_states": 0,
@@ -2099,18 +2114,18 @@ def run_tearfit_trial(
         candidates = sorted(
             merged.values(), key=lambda item: (-item.score, item.fragment_ids)
         )
-        complete_keys = {
-            _candidate_key(candidate.fragment_ids)
-            for candidate in complete_core_candidates
-        }
         from_complete_keys = {
             _candidate_key(candidate.fragment_ids) for candidate in from_complete
         }
         from_partial_keys = {
             _candidate_key(candidate.fragment_ids) for candidate in from_partial
         }
-        gap_candidate_count = sum(key not in complete_keys for key in merged)
-        partial_gap_keys = from_partial_keys - from_complete_keys - complete_keys
+        gap_candidate_keys = set(merged) - complete_core_keys
+        partial_gap_keys = (
+            from_partial_keys - from_complete_keys - complete_core_keys
+        )
+        complete_gap_keys = gap_candidate_keys - partial_gap_keys
+        gap_candidate_count = len(gap_candidate_keys)
     cover_search_stats: dict[str, int | bool] = {}
     selected = select_exact_cover_candidates(
         candidates,
@@ -2119,6 +2134,9 @@ def run_tearfit_trial(
         search_stats=cover_search_stats,
         objective=cover_objective,
     )
+    selected_keys = {
+        _candidate_key(candidate.fragment_ids) for candidate in selected
+    }
     diagnostics = diagnose_confirmed_candidates(selected, fragments)
 
     true_scores = [
@@ -2182,6 +2200,8 @@ def run_tearfit_trial(
         fragments=len(fragments),
         pair_scores=len(all_scores),
         accepted_edges=len(core_edges),
+        true_accepted_edges=len(core_edges) - len(false_edges),
+        false_accepted_edges=len(false_edges),
         false_edge_rate=len(false_edges) / len(core_edges) if core_edges else 0.0,
         true_edge_median=float(np.median(true_scores)) if true_scores else 0.0,
         false_edge_median=float(np.median(false_scores)) if false_scores else 0.0,
@@ -2199,10 +2219,10 @@ def run_tearfit_trial(
         partial_core_candidates=len(partial_core_candidates),
         gap_candidates=gap_candidate_count,
         partial_gap_candidates=len(partial_gap_keys),
-        selected_partial_gap_candidates=sum(
-            _candidate_key(candidate.fragment_ids) in partial_gap_keys
-            for candidate in selected
-        ),
+        selected_core_candidates=len(selected_keys & complete_core_keys),
+        selected_gap_candidates=len(selected_keys & gap_candidate_keys),
+        selected_complete_gap_candidates=len(selected_keys & complete_gap_keys),
+        selected_partial_gap_candidates=len(selected_keys & partial_gap_keys),
     )
 
 
@@ -2428,9 +2448,9 @@ def run_tearfit_strategy_comparison(
 
 def run_tearfit_v43_ablation(
     *,
-    notes: int = 10,
+    notes: int = 20,
     pieces_list: Iterable[int] = (8, 16, 24),
-    seeds: Iterable[int] = (7,),
+    seeds: Iterable[int] = (7, 8, 9),
     algorithms: Iterable[str] = TEARFIT_ALGORITHMS,
     route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
     width: int = 180,
@@ -2533,7 +2553,10 @@ def run_tearfit_v43_ablation(
                         "elapsed_seconds": elapsed_seconds,
                         "reused_from_algorithm": reused_from_algorithm,
                         "fragments": result.fragments,
+                        "pair_scores": result.pair_scores,
                         "accepted_edges": result.accepted_edges,
+                        "true_accepted_edges": result.true_accepted_edges,
+                        "false_accepted_edges": result.false_accepted_edges,
                         "false_edge_rate": result.false_edge_rate,
                         "edge_decisions": result.edge_decisions,
                         "candidates": result.candidates,
@@ -2541,6 +2564,9 @@ def run_tearfit_v43_ablation(
                         "partial_core_candidates": result.partial_core_candidates,
                         "gap_candidates": result.gap_candidates,
                         "partial_gap_candidates": result.partial_gap_candidates,
+                        "selected_core_candidates": result.selected_core_candidates,
+                        "selected_gap_candidates": result.selected_gap_candidates,
+                        "selected_complete_gap_candidates": result.selected_complete_gap_candidates,
                         "selected_partial_gap_candidates": result.selected_partial_gap_candidates,
                         "candidate_decisions": result.candidate_decisions,
                         "search_stats": result.search_stats,
@@ -2593,6 +2619,21 @@ def run_tearfit_v43_ablation(
                     "mean_false_edge_rate": float(
                         np.mean([row["false_edge_rate"] for row in selected])
                     ),
+                    "mean_pair_scores": float(
+                        np.mean([row["pair_scores"] for row in selected])
+                    ),
+                    "mean_accepted_edges": float(
+                        np.mean([row["accepted_edges"] for row in selected])
+                    ),
+                    "mean_true_accepted_edges": float(
+                        np.mean([row["true_accepted_edges"] for row in selected])
+                    ),
+                    "mean_false_accepted_edges": float(
+                        np.mean([row["false_accepted_edges"] for row in selected])
+                    ),
+                    "mean_candidates": float(
+                        np.mean([row["candidates"] for row in selected])
+                    ),
                     "mean_core_candidates": float(
                         np.mean([row["core_candidates"] for row in selected])
                     ),
@@ -2604,6 +2645,24 @@ def run_tearfit_v43_ablation(
                     ),
                     "mean_partial_gap_candidates": float(
                         np.mean([row["partial_gap_candidates"] for row in selected])
+                    ),
+                    "mean_selected_core_candidates": float(
+                        np.mean(
+                            [row["selected_core_candidates"] for row in selected]
+                        )
+                    ),
+                    "mean_selected_gap_candidates": float(
+                        np.mean(
+                            [row["selected_gap_candidates"] for row in selected]
+                        )
+                    ),
+                    "mean_selected_complete_gap_candidates": float(
+                        np.mean(
+                            [
+                                row["selected_complete_gap_candidates"]
+                                for row in selected
+                            ]
+                        )
                     ),
                     "mean_selected_partial_gap_candidates": float(
                         np.mean(
@@ -2645,8 +2704,71 @@ def run_tearfit_v43_ablation(
         row["delta_manual_notes_vs_baseline"] = (
             row["mean_manual_notes_remaining"] - baseline["mean_manual_notes_remaining"]
         )
+
+    summary_by_key = {
+        (row["pieces_per_note"], row["algorithm"]): row for row in summary
+    }
+    comparison_metrics = {
+        "automatic_exact_yield": "mean_automatic_exact_yield",
+        "automatic_exact_precision": "mean_automatic_exact_precision",
+        "false_edge_rate": "mean_false_edge_rate",
+        "accepted_edges": "mean_accepted_edges",
+        "false_accepted_edges": "mean_false_accepted_edges",
+        "candidates": "mean_candidates",
+        "gap_candidates": "mean_gap_candidates",
+        "selected_gap_candidates": "mean_selected_gap_candidates",
+        "selected_partial_gap_candidates": "mean_selected_partial_gap_candidates",
+        "manual_notes_remaining": "mean_manual_notes_remaining",
+        "elapsed_seconds": "mean_elapsed_seconds",
+    }
+    mechanism_comparisons: list[dict] = []
+    for pieces in pieces_values:
+        for stage, previous_algorithm, current_algorithm in (
+            ("adaptive_edge", "baseline", "effectiveness"),
+            ("group_gap", "effectiveness", "effectiveness_gap"),
+            ("routing", "effectiveness_gap", "v43_routed"),
+        ):
+            previous = summary_by_key.get((pieces, previous_algorithm))
+            current = summary_by_key.get((pieces, current_algorithm))
+            if previous is None or current is None:
+                continue
+            previous_metrics = {
+                name: float(previous[field])
+                for name, field in comparison_metrics.items()
+            }
+            current_metrics = {
+                name: float(current[field])
+                for name, field in comparison_metrics.items()
+            }
+            item = {
+                "stage": stage,
+                "pieces_per_note": pieces,
+                "from_algorithm": previous_algorithm,
+                "to_algorithm": current_algorithm,
+                "from": previous_metrics,
+                "to": current_metrics,
+                "delta": {
+                    name: current_metrics[name] - previous_metrics[name]
+                    for name in comparison_metrics
+                },
+            }
+            if stage == "routing":
+                routed_rows = [
+                    row
+                    for row in rows
+                    if row["pieces_per_note"] == pieces
+                    and row["algorithm"] == "v43_routed"
+                ]
+                item["resolved_algorithms"] = sorted(
+                    {str(row["resolved_algorithm"]) for row in routed_rows}
+                )
+                item["reused_identical_trials"] = all(
+                    row["reused_from_algorithm"] is not None for row in routed_rows
+                )
+            mechanism_comparisons.append(item)
     return {
         "config": {
+            "schema_version": "4.3.1",
             "notes": notes,
             "pieces_list": pieces_values,
             "seeds": seed_values,
@@ -2681,6 +2803,7 @@ def run_tearfit_v43_ablation(
         },
         "rows": rows,
         "summary": summary,
+        "mechanism_comparisons": mechanism_comparisons,
     }
 
 

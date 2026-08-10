@@ -588,6 +588,13 @@ def test_v43_ablation_p8_p16_p24_regime_comparison():
         assert "candidate_decisions" in row
         assert set(row["edge_decisions"].keys()) == {"automatic", "review", "insufficient-evidence"}
         assert set(row["candidate_decisions"].keys()) == {"automatic", "review"}
+        assert row["true_accepted_edges"] + row["false_accepted_edges"] == row["accepted_edges"]
+        assert row["selected_core_candidates"] + row["selected_gap_candidates"] == row["confirmed"]
+        assert (
+            row["selected_complete_gap_candidates"]
+            + row["selected_partial_gap_candidates"]
+            == row["selected_gap_candidates"]
+        )
 
     # Verify summary has baseline deltas for all pieces
     summary_by_piece = {}
@@ -597,3 +604,18 @@ def test_v43_ablation_p8_p16_p24_regime_comparison():
     for piece, algos in summary_by_piece.items():
         assert set(algos) == {"baseline", "effectiveness", "effectiveness_gap", "v43_routed"}
 
+    for item in payload["summary"]:
+        assert "mean_accepted_edges" in item
+        assert "mean_false_accepted_edges" in item
+        assert "mean_candidates" in item
+        assert "mean_selected_gap_candidates" in item
+
+    comparisons = payload["mechanism_comparisons"]
+    assert len(comparisons) == 9
+    assert {item["stage"] for item in comparisons} == {
+        "adaptive_edge",
+        "group_gap",
+        "routing",
+    }
+    routed = [item for item in comparisons if item["stage"] == "routing"]
+    assert all(item["reused_identical_trials"] for item in routed)

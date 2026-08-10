@@ -11,9 +11,10 @@ docs/
 ├── README.md                          # 👈 You are here: Master Documentation Index
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
-├── 🔬 Version 4.3 Adaptive Geometry (Latest)
+├── 🔬 Version 4.3.1 Mechanism Validation (Latest)
 │   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
-│   └── v4_3_ab_benchmark.md           # p=8/16/24 A/B Ablation Benchmarks & Mechanism Breakdown
+│   ├── v4_3_1_mechanism_validation.md # Canonical N=20 mechanism decomposition
+│   └── v4_3_ab_benchmark.md           # Supplemental N=10 consistency audit
 │
 ├── 📐 Auto-Locator & Candidate Pose Search
 │   ├── v4_0_production_reconstruction.md # Hybrid Coarse-to-Fine Locator & Zero-Allocation Solver
@@ -42,9 +43,10 @@ docs/
 ### 1. System Architecture & Workflows
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
-### 2. v4.3 Adaptive Physical Evidence (Latest)
+### 2. v4.3.1 Adaptive Physical Evidence (Latest)
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
-* **[v4_3_ab_benchmark.md](v4_3_ab_benchmark.md)**: Mechanism deconstruction comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` across $p=8, 16, 24$ regimes.
+* **[v4_3_1_mechanism_validation.md](v4_3_1_mechanism_validation.md)**: Canonical N=20 mechanism decomposition comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` under fixed search budgets.
+* **[v4_3_ab_benchmark.md](v4_3_ab_benchmark.md)**: Supplemental N=10 same-seed audit retained for reproducibility; it is not used for headline claims.
 
 ### 3. Pose Locator & Solver Optimization
 * **[v4_0_production_reconstruction.md](v4_0_production_reconstruction.md)**: Overview of the pyramid downsampling locator, candidate pose model, and dense vectorized solver.

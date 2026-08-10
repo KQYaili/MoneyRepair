@@ -45,6 +45,16 @@ constraints; appearance is at most a tie-breaker.
   9.3 to 1.7 notes, at about 2.3x runtime. See
   [the v4.3 report](docs/v4_3_tear_effectiveness.md).
 
+- **v4.3.1 mechanism audit:** at p=24, Etear reduces accepted edges from 881.0
+  to 628.0 and false accepted edges from 82.7 to 22.7, cutting candidate count
+  from 9581.3 to 5519.3 under the fixed search budget. Group-gap then adds only
+  57.7 candidates, of which 2.7 are selected, raising yield/precision from
+  0.767/0.817 to 0.917/0.981. Only 0.3 selected candidates per run are unique
+  to low-coverage partial cores. Routing reuses baseline at p=8/16 and the gap
+  path at p=24; it avoids unnecessary heavy search rather than changing an
+  already-resolved trial. See the
+  [v4.3.1 mechanism report](docs/v4_3_1_mechanism_validation.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining

@@ -874,7 +874,7 @@ def _cmd_tearfit_v43_ablation(args: argparse.Namespace) -> None:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        print(f"wrote v4.3 tearfit ablation to {output}")
+        print(f"wrote v4.3.1 tearfit mechanism audit to {output}")
     for row in payload["summary"]:
         print(
             "p={pieces_per_note} {algorithm}: yield={mean_exact_yield:.3f} "
@@ -1439,9 +1439,18 @@ def build_parser() -> argparse.ArgumentParser:
         "tearfit-v43-ablation",
         help="same-seed baseline vs adaptive Etear vs core-plus-group-gap trials",
     )
-    tearfit_v43.add_argument("--notes", type=int, default=10)
+    tearfit_v43.add_argument(
+        "--notes",
+        type=int,
+        default=20,
+        help="notes in the mixed pool (canonical v4.3.1 audit: 20)",
+    )
     tearfit_v43.add_argument("--pieces-list", default="8,16,24")
-    tearfit_v43.add_argument("--seeds", default="7")
+    tearfit_v43.add_argument(
+        "--seeds",
+        default="7,8,9",
+        help="comma-separated seeds (canonical v4.3.1 audit: 7,8,9)",
+    )
     tearfit_v43.add_argument("--algorithms", default=",".join(TEARFIT_ALGORITHMS))
     tearfit_v43.add_argument("--route-fragment-fraction", type=float, default=TEARFIT_V43_FINE_FRACTION)
     tearfit_v43.add_argument("--width", type=int, default=180)
