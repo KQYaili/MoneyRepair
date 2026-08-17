@@ -55,6 +55,20 @@ constraints; appearance is at most a tie-breaker.
   already-resolved trial. See the
   [v4.3.1 mechanism report](docs/v4_3_1_mechanism_validation.md).
 
+- **v4.3.2 scale-fineness checkpoint:** the N=20 budget staircase stabilizes at
+  2x. Under workload-normalized compute, routed p=24 remains at
+  `0.880/0.985` yield/precision at N=50 (seeds 7/8/9), versus `0.300/0.764`
+  under the original fixed budget. N=50 passes every preregistered quality and
+  mechanism gate. The first N=100 seed diagnostic reaches
+  `0.840/0.966`, with oracle candidate recall also `0.840`; core/gap searches
+  are unsaturated and exact cover selects every available exact candidate.
+  False-edge rate rises from `0.036` (N=20) to `0.071` (N=50) and `0.135`
+  (N=100 seed 7), while true-edge recall stays near `0.37`. This locates the
+  measured wall before exact cover, in candidate evidence (edge
+  discrimination and/or gap proposal). N=100 seeds 8/9 and N=200 remain
+  unmeasured, so N=100 is a diagnostic, not a replicated headline result. See
+  [the v4.3.2 report](docs/v4_3_2_scale_fineness.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining
@@ -72,9 +86,10 @@ unresolved scale-plus-fineness target:
 
 Heavy fraying *alone* on coarse pieces is tolerated (yield 1.00). **Combined
 fineness and scale remain the killers, not fray.** Serials rescue precision (the
-no-duplicate-serial constraint blocks chimeras) but not yield. v4.3 moves this
-wall at N=20; it has not yet established the same gain at N=50, N=200, or on real
-paper.
+no-duplicate-serial constraint blocks chimeras) but not yield. v4.3.2 confirms
+the adaptive/gap gain at N=50 under normalized compute and locates the first
+N=100 seed failure before exact cover. N=100 replication, N=200, and real paper
+remain unmeasured.
 
 ## Figures (measured)
 
@@ -101,8 +116,10 @@ problem: the exact-cover search crashed (`RecursionError`) on large candidate
 pools, so N=200 read as ~0.09; with the crash fixed (v4.2.1) and an adequate
 budget it recovers to 1.0. **Fineness under a large mixed-note pool** is the
 genuine residual signal wall. v4.3 adaptive evidence plus whole-assembly context
-moves the p=24 bar at N=20, but the larger-pool claim has not been rerun and the
-human queue remains part of the system boundary.
+moves the p=24 bar through N=50 under normalized compute. The N=100 seed-7
+diagnostic shows the next wall is missing exact candidates before final
+selection, not an exact-cover failure; the human queue remains part of the
+system boundary.
 
 ## Honest operating stance
 

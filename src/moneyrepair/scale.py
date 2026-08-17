@@ -1,0 +1,740 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from hashlib import sha256
+import json
+from statistics import fmean
+from typing import Callable, Iterable
+
+from moneyrepair.tearfit import (
+    TEARFIT_ALGORITHMS,
+    TEARFIT_V43_FINE_FRACTION,
+    run_tearfit_v43_ablation,
+)
+
+
+V432_QUALITY_THRESHOLDS = {
+    "minimum_precision": 0.97,
+    "maximum_precision_drop": 0.02,
+    "minimum_yield": 0.80,
+    "maximum_yield_drop": 0.10,
+    "maximum_manual_fraction": 0.20,
+}
+
+
+def _case_key(
+    phase: str,
+    *,
+    notes: int,
+    seed: int,
+    budget_factor: int | None = None,
+) -> str:
+    suffix = f":factor={budget_factor}" if budget_factor is not None else ""
+    return f"{phase}:notes={notes}:seed={seed}{suffix}"
+
+
+def _row_stable(previous: dict, current: dict) -> bool:
+    return (
+        previous["selected_solution_fingerprint"]
+        == current["selected_solution_fingerprint"]
+        and previous["candidate_provenance_fingerprint"]
+        == current["candidate_provenance_fingerprint"]
+        and previous["exact_yield"] == current["exact_yield"]
+        and previous["exact_precision"] == current["exact_precision"]
+        and abs(
+            float(previous["selected_score_total"])
+            - float(current["selected_score_total"])
+        )
+        <= 1e-9
+    )
+
+
+def _mean(rows: list[dict], field: str) -> float:
+    return float(fmean(float(row[field]) for row in rows))
+
+
+def _saturation_rate(rows: list[dict], stage: str, field: str) -> float:
+    return float(
+        fmean(bool(row["search_stats"][stage].get(field, False)) for row in rows)
+    )
+
+
+def _summarize_scale_rows(rows: list[dict]) -> list[dict]:
+    summaries: list[dict] = []
+    keys = sorted(
+        {
+            (str(row["track"]), int(row["notes"]), str(row["algorithm"]))
+            for row in rows
+            if row["track"] in {"fixed", "normalized"}
+        }
+    )
+    for track, notes, algorithm in keys:
+        selected = [
+            row
+            for row in rows
+            if row["track"] == track
+            and row["notes"] == notes
+            and row["algorithm"] == algorithm
+        ]
+        stage_names = (
+            "simulation",
+            "pair_scoring",
+            "core_search",
+            "complete_gap_search",
+            "partial_gap_search",
+            "exact_cover",
+            "diagnostics",
+            "total",
+        )
+        summaries.append(
+            {
+                "track": track,
+                "notes": notes,
+                "algorithm": algorithm,
+                "runs": len(selected),
+                "mean_exact_yield": _mean(selected, "exact_yield"),
+                "mean_exact_precision": _mean(selected, "exact_precision"),
+                "mean_automatic_exact_yield": _mean(
+                    selected, "automatic_exact_yield"
+                ),
+                "mean_automatic_exact_precision": _mean(
+                    selected, "automatic_exact_precision"
+                ),
+                "mean_manual_notes_remaining": _mean(
+                    selected, "manual_notes_remaining"
+                ),
+                "mean_manual_fraction": _mean(
+                    [
+                        {
+                            "value": row["manual_notes_remaining"]
+                            / max(1, row["notes"])
+                        }
+                        for row in selected
+                    ],
+                    "value",
+                ),
+                "mean_pair_scores": _mean(selected, "pair_scores"),
+                "mean_accepted_edges": _mean(selected, "accepted_edges"),
+                "mean_true_possible_edges": _mean(
+                    selected, "true_possible_edges"
+                ),
+                "mean_true_accepted_edges": _mean(
+                    selected, "true_accepted_edges"
+                ),
+                "mean_true_edge_recall": _mean(selected, "true_edge_recall"),
+                "mean_false_accepted_edges": _mean(
+                    selected, "false_accepted_edges"
+                ),
+                "mean_false_edge_rate": _mean(selected, "false_edge_rate"),
+                "mean_candidates": _mean(selected, "candidates"),
+                "mean_gap_candidates": _mean(selected, "gap_candidates"),
+                "mean_true_gap_candidates": _mean(
+                    selected, "true_gap_candidates"
+                ),
+                "mean_false_gap_candidates": _mean(
+                    selected, "false_gap_candidates"
+                ),
+                "mean_selected_gap_candidates": _mean(
+                    selected, "selected_gap_candidates"
+                ),
+                "mean_selected_true_gap_candidates": _mean(
+                    selected, "selected_true_gap_candidates"
+                ),
+                "mean_selected_false_gap_candidates": _mean(
+                    selected, "selected_false_gap_candidates"
+                ),
+                "mean_oracle_candidate_recall": _mean(
+                    selected, "oracle_candidate_recall"
+                ),
+                "core_state_saturation_rate": _saturation_rate(
+                    selected, "core", "state_limit_reached"
+                ),
+                "complete_gap_state_saturation_rate": _saturation_rate(
+                    selected, "complete_gap", "state_limit_reached"
+                ),
+                "partial_gap_state_saturation_rate": _saturation_rate(
+                    selected, "partial_gap", "state_limit_reached"
+                ),
+                "exact_cover_saturation_rate": _saturation_rate(
+                    selected, "exact_cover", "node_limit_reached"
+                ),
+                "mean_stage_seconds": {
+                    stage: float(
+                        fmean(float(row["stage_timings"].get(stage, 0.0)) for row in selected)
+                    )
+                    for stage in stage_names
+                },
+            }
+        )
+    return summaries
+
+
+def _quality_assessment(summary: list[dict]) -> list[dict]:
+    normalized_routed = sorted(
+        (
+            row
+            for row in summary
+            if row["track"] == "normalized" and row["algorithm"] == "v43_routed"
+        ),
+        key=lambda row: row["notes"],
+    )
+    if not normalized_routed:
+        return []
+    anchor = normalized_routed[0]
+    assessments = []
+    for row in normalized_routed:
+        precision_drop = anchor["mean_exact_precision"] - row["mean_exact_precision"]
+        yield_drop = anchor["mean_exact_yield"] - row["mean_exact_yield"]
+        checks = {
+            "minimum_precision": row["mean_exact_precision"]
+            >= V432_QUALITY_THRESHOLDS["minimum_precision"],
+            "maximum_precision_drop": precision_drop
+            <= V432_QUALITY_THRESHOLDS["maximum_precision_drop"],
+            "minimum_yield": row["mean_exact_yield"]
+            >= V432_QUALITY_THRESHOLDS["minimum_yield"],
+            "maximum_yield_drop": yield_drop
+            <= V432_QUALITY_THRESHOLDS["maximum_yield_drop"],
+            "maximum_manual_fraction": row["mean_manual_fraction"]
+            <= V432_QUALITY_THRESHOLDS["maximum_manual_fraction"],
+        }
+        assessments.append(
+            {
+                "notes": row["notes"],
+                "precision_drop_from_anchor": precision_drop,
+                "yield_drop_from_anchor": yield_drop,
+                "checks": checks,
+                "quality_scale_stable": all(checks.values()),
+            }
+        )
+    return assessments
+
+
+def _mechanism_assessment(summary: list[dict]) -> list[dict]:
+    by_key = {
+        (row["track"], row["notes"], row["algorithm"]): row for row in summary
+    }
+    assessments = []
+    for track, notes, algorithm in sorted(by_key):
+        if algorithm != "baseline":
+            continue
+        baseline = by_key[(track, notes, "baseline")]
+        effectiveness = by_key.get((track, notes, "effectiveness"))
+        gap = by_key.get((track, notes, "effectiveness_gap"))
+        if effectiveness is None:
+            continue
+        baseline_false_rate = float(baseline["mean_false_edge_rate"])
+        false_rate_reduction = (
+            1.0
+            - float(effectiveness["mean_false_edge_rate"]) / baseline_false_rate
+            if baseline_false_rate > 0.0
+            else 0.0
+        )
+        item = {
+            "track": track,
+            "notes": notes,
+            "false_edge_rate_reduction": false_rate_reduction,
+            "edge_cleanup_retained": false_rate_reduction >= 0.40,
+        }
+        if gap is not None:
+            candidate_base = max(1.0, float(effectiveness["mean_candidates"]))
+            candidate_inflation = (
+                float(gap["mean_candidates"])
+                - float(effectiveness["mean_candidates"])
+            ) / candidate_base
+            yield_gain = (
+                float(gap["mean_exact_yield"])
+                - float(effectiveness["mean_exact_yield"])
+            )
+            precision_gain = (
+                float(gap["mean_exact_precision"])
+                - float(effectiveness["mean_exact_precision"])
+            )
+            item.update(
+                gap_candidate_inflation=candidate_inflation,
+                gap_yield_gain=yield_gain,
+                gap_precision_gain=precision_gain,
+                gap_mechanism_retained=(
+                    candidate_inflation <= 0.05
+                    and (yield_gain >= 0.05 or precision_gain >= 0.02)
+                ),
+            )
+        assessments.append(item)
+    return assessments
+
+
+def assess_v432_bottleneck(
+    summary: list[dict], quality_assessment: list[dict]
+) -> dict:
+    routed = {
+        int(row["notes"]): row
+        for row in summary
+        if row["track"] == "normalized" and row["algorithm"] == "v43_routed"
+    }
+    failed = next(
+        (
+            item
+            for item in sorted(quality_assessment, key=lambda value: value["notes"])
+            if not item["quality_scale_stable"]
+        ),
+        None,
+    )
+    if failed is None:
+        return {
+            "status": "not_reached",
+            "first_failed_notes": None,
+            "statement": "No measured normalized-compute point crossed the preregistered quality boundary.",
+        }
+    notes = int(failed["notes"])
+    row = routed[notes]
+    anchor = routed[min(routed)]
+    timings = {
+        stage: float(value)
+        for stage, value in row["mean_stage_seconds"].items()
+        if stage not in {"total", "simulation", "diagnostics"}
+    }
+    dominant_stage = max(timings, key=lambda stage: timings[stage]) if timings else None
+    oracle_selection_gap = float(row["mean_oracle_candidate_recall"]) - float(
+        row["mean_exact_yield"]
+    )
+    candidate_search_unsaturated = (
+        float(row["core_state_saturation_rate"]) == 0.0
+        and float(row["complete_gap_state_saturation_rate"]) == 0.0
+        and float(row["partial_gap_state_saturation_rate"]) == 0.0
+    )
+    missing_candidate_fraction = 1.0 - float(row["mean_oracle_candidate_recall"])
+    false_edge_rate_increase = float(row["mean_false_edge_rate"]) - float(
+        anchor["mean_false_edge_rate"]
+    )
+    exact_cover_excluded = (
+        abs(oracle_selection_gap) <= 0.01
+        and float(row["mean_stage_seconds"]["exact_cover"])
+        <= 0.10 * max(1e-9, float(row["mean_stage_seconds"]["total"]))
+    )
+    candidate_evidence_wall = (
+        candidate_search_unsaturated
+        and missing_candidate_fraction >= 0.05
+        and exact_cover_excluded
+    )
+    status = (
+        "candidate_evidence_wall"
+        if candidate_evidence_wall
+        else "unresolved_stage_failure"
+    )
+    return {
+        "status": status,
+        "first_failed_notes": notes,
+        "dominant_runtime_stage": dominant_stage,
+        "candidate_search_unsaturated": candidate_search_unsaturated,
+        "missing_candidate_fraction": missing_candidate_fraction,
+        "oracle_selection_gap": oracle_selection_gap,
+        "false_edge_rate_increase_from_anchor": false_edge_rate_increase,
+        "true_edge_recall_drop_from_anchor": float(anchor["mean_true_edge_recall"])
+        - float(row["mean_true_edge_recall"]),
+        "exact_cover_excluded_as_quality_limiter": exact_cover_excluded,
+        "statement": (
+            "Correct assemblies are absent before exact cover despite unsaturated candidate/gap search; "
+            "the measured wall is in edge discrimination or gap proposal, not final selection."
+            if candidate_evidence_wall
+            else "The first failed point needs a single-stage rescue before assigning a dominant wall."
+        ),
+    }
+
+
+def _tag_rows(
+    rows: list[dict],
+    *,
+    track: str,
+    case_key: str,
+    budget_factor: int | None = None,
+) -> list[dict]:
+    tagged = deepcopy(rows)
+    for row in tagged:
+        row["track"] = track
+        row["case_key"] = case_key
+        row["budget_factor"] = budget_factor
+    return tagged
+
+
+def run_v432_scale_protocol(
+    *,
+    notes_list: Iterable[int] = (20, 50, 100, 200),
+    seeds: Iterable[int] = (7, 8, 9),
+    algorithms: Iterable[str] = TEARFIT_ALGORITHMS,
+    pieces_per_note: int = 24,
+    anchor_notes: int = 20,
+    anchor_budget_factors: Iterable[int] = (1, 2, 4, 8),
+    full_mechanism_through: int = 100,
+    endpoint_algorithms: Iterable[str] = ("baseline", "v43_routed"),
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
+    width: int = 180,
+    height: int = 90,
+    tolerance: int = 2,
+    min_overlap_pixels: int = 14,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    coverage_threshold: float = 0.93,
+    core_raw_coverage_threshold: float | None = None,
+    gap_fill_radius: int = 2,
+    beam_width: int = 32,
+    max_partial_core_candidates: int = 128,
+    candidate_state_limit: int = 100_000,
+    gap_state_limit: int = 20_000,
+    partial_gap_state_limit: int = 5_000,
+    cover_node_limit: int = 250_000,
+    resume_cases: Iterable[dict] = (),
+    case_sink: Callable[[dict], None] | None = None,
+) -> dict:
+    """Run the preregistered v4.3.2 anchor and scale-fineness protocol.
+
+    The fixed track preserves one absolute compute contract. The normalized
+    track is emitted only after adjacent anchor staircase levels produce the
+    same solution and candidate-provenance fingerprints for every case.
+    """
+
+    notes_values = tuple(dict.fromkeys(int(value) for value in notes_list))
+    seed_values = tuple(dict.fromkeys(int(value) for value in seeds))
+    algorithm_values = tuple(dict.fromkeys(str(value) for value in algorithms))
+    factor_values = tuple(dict.fromkeys(int(value) for value in anchor_budget_factors))
+    endpoint_values = tuple(dict.fromkeys(str(value) for value in endpoint_algorithms))
+    if anchor_notes not in notes_values:
+        raise ValueError("anchor_notes must be present in notes_list")
+    if not seed_values or not algorithm_values or not factor_values:
+        raise ValueError("seeds, algorithms, and anchor_budget_factors must be non-empty")
+    if any(value <= 0 for value in (*notes_values, *factor_values)):
+        raise ValueError("notes and anchor budget factors must be positive")
+    if factor_values != tuple(sorted(factor_values)):
+        raise ValueError("anchor budget factors must be increasing")
+    unknown = set(algorithm_values) - set(TEARFIT_ALGORITHMS)
+    if unknown:
+        raise ValueError(f"unknown algorithms: {sorted(unknown)}")
+    unknown_endpoint = set(endpoint_values) - set(algorithm_values)
+    if unknown_endpoint:
+        raise ValueError(
+            f"endpoint algorithms are not enabled: {sorted(unknown_endpoint)}"
+        )
+
+    protocol_identity = {
+        "schema_version": "4.3.2",
+        "algorithms": algorithm_values,
+        "pieces_per_note": pieces_per_note,
+        "anchor_notes": anchor_notes,
+        "full_mechanism_through": full_mechanism_through,
+        "endpoint_algorithms": endpoint_values,
+        "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
+        "width": width,
+        "height": height,
+        "tolerance": tolerance,
+        "min_overlap_pixels": min_overlap_pixels,
+        "min_effectiveness": min_effectiveness,
+        "automatic_effectiveness": automatic_effectiveness,
+        "min_contiguous_pixels": min_contiguous_pixels,
+        "automatic_contiguous_pixels": automatic_contiguous_pixels,
+        "coverage_threshold": coverage_threshold,
+        "core_raw_coverage_threshold": core_raw_coverage_threshold,
+        "gap_fill_radius": gap_fill_radius,
+        "beam_width": beam_width,
+        "max_partial_core_candidates": max_partial_core_candidates,
+        "candidate_state_limit": candidate_state_limit,
+        "gap_state_limit": gap_state_limit,
+        "partial_gap_state_limit": partial_gap_state_limit,
+        "cover_node_limit": cover_node_limit,
+    }
+    protocol_id = sha256(
+        json.dumps(protocol_identity, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+
+    cases: dict[str, dict] = {}
+    case_order: list[str] = []
+    for item in resume_cases:
+        if item.get("protocol_id") != protocol_id:
+            raise ValueError(
+                "checkpoint protocol does not match the current v4.3.2 arguments"
+            )
+        key = str(item["case_key"])
+        if key not in cases:
+            cases[key] = deepcopy(item)
+            case_order.append(key)
+
+    def emit(record: dict) -> dict:
+        key = str(record["case_key"])
+        if key not in cases:
+            cases[key] = record
+            case_order.append(key)
+            if case_sink is not None:
+                case_sink(deepcopy(record))
+        return cases[key]
+
+    def run_case(
+        *,
+        phase: str,
+        notes: int,
+        seed: int,
+        selected_algorithms: tuple[str, ...],
+        budget_factor: int | None = None,
+        normalized_rates: dict[str, float] | None = None,
+        reused_rows: list[dict] | None = None,
+    ) -> dict:
+        key = _case_key(
+            phase,
+            notes=notes,
+            seed=seed,
+            budget_factor=budget_factor,
+        )
+        if key in cases:
+            return cases[key]
+        if reused_rows is None:
+            if normalized_rates is None:
+                factor = budget_factor or 1
+                candidate_limit: int | None = candidate_state_limit * factor
+                candidate_per_pair: float | None = None
+                gap_limit: int | None = gap_state_limit * factor
+                gap_per_fragment: float | None = None
+                partial_gap_limit: int | None = partial_gap_state_limit * factor
+                partial_gap_per_fragment: float | None = None
+                cover_limit: int | None = cover_node_limit * factor
+                cover_per_note: float | None = None
+            else:
+                candidate_limit = None
+                candidate_per_pair = normalized_rates[
+                    "candidate_states_per_pair_score"
+                ]
+                gap_limit = None
+                gap_per_fragment = normalized_rates["gap_states_per_fragment"]
+                partial_gap_limit = None
+                partial_gap_per_fragment = normalized_rates[
+                    "partial_gap_states_per_fragment"
+                ]
+                cover_limit = None
+                cover_per_note = normalized_rates["cover_nodes_per_note"]
+            payload = run_tearfit_v43_ablation(
+                notes=notes,
+                pieces_list=(pieces_per_note,),
+                seeds=(seed,),
+                algorithms=selected_algorithms,
+                route_fragment_fraction_threshold=route_fragment_fraction_threshold,
+                width=width,
+                height=height,
+                tolerance=tolerance,
+                min_overlap_pixels=min_overlap_pixels,
+                min_effectiveness=min_effectiveness,
+                automatic_effectiveness=automatic_effectiveness,
+                min_contiguous_pixels=min_contiguous_pixels,
+                automatic_contiguous_pixels=automatic_contiguous_pixels,
+                coverage_threshold=coverage_threshold,
+                core_raw_coverage_threshold=core_raw_coverage_threshold,
+                gap_fill_radius=gap_fill_radius,
+                beam_width=beam_width,
+                max_partial_core_candidates=max_partial_core_candidates,
+                candidate_time_limit_seconds=None,
+                candidate_state_limit=candidate_limit,
+                candidate_states_per_pair_score=candidate_per_pair,
+                partial_gap_time_limit_seconds=None,
+                gap_state_limit=gap_limit,
+                gap_states_per_fragment=gap_per_fragment,
+                partial_gap_state_limit=partial_gap_limit,
+                partial_gap_states_per_fragment=partial_gap_per_fragment,
+                cover_time_limit_seconds=None,
+                cover_node_limit=cover_limit,
+                cover_nodes_per_note=cover_per_note,
+            )
+            source_rows = payload["rows"]
+        else:
+            source_rows = [
+                row for row in reused_rows if row["algorithm"] in selected_algorithms
+            ]
+        rows = _tag_rows(
+            source_rows,
+            track=phase,
+            case_key=key,
+            budget_factor=budget_factor,
+        )
+        return emit(
+            {
+                "case_key": key,
+                "protocol_id": protocol_id,
+                "phase": phase,
+                "notes": notes,
+                "seed": seed,
+                "budget_factor": budget_factor,
+                "algorithms": selected_algorithms,
+                "normalized_rates": normalized_rates,
+                "rows": rows,
+            }
+        )
+
+    for factor in factor_values:
+        for seed in seed_values:
+            run_case(
+                phase="anchor",
+                notes=anchor_notes,
+                seed=seed,
+                selected_algorithms=algorithm_values,
+                budget_factor=factor,
+            )
+
+    anchor_rows_by_factor: dict[int, dict[tuple[int, str], dict]] = {}
+    for factor in factor_values:
+        indexed: dict[tuple[int, str], dict] = {}
+        for seed in seed_values:
+            record = cases[
+                _case_key(
+                    "anchor",
+                    notes=anchor_notes,
+                    seed=seed,
+                    budget_factor=factor,
+                )
+            ]
+            for row in record["rows"]:
+                indexed[(seed, row["algorithm"])] = row
+        anchor_rows_by_factor[factor] = indexed
+
+    stability_checks = []
+    selected_anchor_factor: int | None = None
+    for previous_factor, current_factor in zip(factor_values, factor_values[1:]):
+        previous = anchor_rows_by_factor[previous_factor]
+        current = anchor_rows_by_factor[current_factor]
+        keys_match = set(previous) == set(current)
+        stable_cases = {
+            f"seed={seed}:algorithm={algorithm}": (
+                keys_match and _row_stable(previous[(seed, algorithm)], current[(seed, algorithm)])
+            )
+            for seed, algorithm in sorted(set(previous) | set(current))
+            if (seed, algorithm) in previous and (seed, algorithm) in current
+        }
+        stable = keys_match and bool(stable_cases) and all(stable_cases.values())
+        stability_checks.append(
+            {
+                "lower_factor": previous_factor,
+                "upper_factor": current_factor,
+                "stable": stable,
+                "case_stability": stable_cases,
+            }
+        )
+        if stable and selected_anchor_factor is None:
+            selected_anchor_factor = previous_factor
+
+    active_scale_case_keys: list[str] = []
+    factor_one_rows = anchor_rows_by_factor[factor_values[0]]
+    for notes in notes_values:
+        for seed_index, seed in enumerate(seed_values):
+            selected_algorithms = (
+                algorithm_values
+                if notes <= full_mechanism_through or seed_index == 0
+                else tuple(
+                    algorithm
+                    for algorithm in algorithm_values
+                    if algorithm in endpoint_values
+                )
+            )
+            reused = None
+            if notes == anchor_notes:
+                reused = [
+                    factor_one_rows[(seed, algorithm)]
+                    for algorithm in selected_algorithms
+                ]
+            record = run_case(
+                phase="fixed",
+                notes=notes,
+                seed=seed,
+                selected_algorithms=selected_algorithms,
+                reused_rows=reused,
+            )
+            active_scale_case_keys.append(record["case_key"])
+
+    normalization_rates: dict[int, dict[str, float]] = {}
+    if selected_anchor_factor is not None:
+        anchor_rows = anchor_rows_by_factor[selected_anchor_factor]
+        selected_candidate_limit = candidate_state_limit * selected_anchor_factor
+        selected_gap_limit = gap_state_limit * selected_anchor_factor
+        selected_partial_gap_limit = partial_gap_state_limit * selected_anchor_factor
+        selected_cover_limit = cover_node_limit * selected_anchor_factor
+        for seed in seed_values:
+            reference = anchor_rows[(seed, algorithm_values[0])]
+            normalization_rates[seed] = {
+                "candidate_states_per_pair_score": selected_candidate_limit
+                / max(1, reference["pair_scores"]),
+                "gap_states_per_fragment": selected_gap_limit
+                / max(1, reference["fragments"]),
+                "partial_gap_states_per_fragment": selected_partial_gap_limit
+                / max(1, reference["fragments"]),
+                "cover_nodes_per_note": selected_cover_limit / anchor_notes,
+            }
+        for notes in notes_values:
+            for seed_index, seed in enumerate(seed_values):
+                selected_algorithms = (
+                    algorithm_values
+                    if notes <= full_mechanism_through or seed_index == 0
+                    else tuple(
+                        algorithm
+                        for algorithm in algorithm_values
+                        if algorithm in endpoint_values
+                    )
+                )
+                reused = None
+                if notes == anchor_notes:
+                    reused = [
+                        anchor_rows[(seed, algorithm)]
+                        for algorithm in selected_algorithms
+                    ]
+                record = run_case(
+                    phase="normalized",
+                    notes=notes,
+                    seed=seed,
+                    selected_algorithms=selected_algorithms,
+                    budget_factor=selected_anchor_factor,
+                    normalized_rates=normalization_rates[seed],
+                    reused_rows=reused,
+                )
+                active_scale_case_keys.append(record["case_key"])
+
+    rows = [
+        row
+        for key in active_scale_case_keys
+        for row in cases[key]["rows"]
+    ]
+    summary = _summarize_scale_rows(rows)
+    quality_assessment = _quality_assessment(summary)
+    return {
+        "config": {
+            "schema_version": "4.3.2",
+            "protocol_id": protocol_id,
+            "notes_list": notes_values,
+            "seeds": seed_values,
+            "algorithms": algorithm_values,
+            "pieces_per_note": pieces_per_note,
+            "anchor_notes": anchor_notes,
+            "anchor_budget_factors": factor_values,
+            "full_mechanism_through": full_mechanism_through,
+            "endpoint_algorithms": endpoint_values,
+            "base_budgets": {
+                "candidate_state_limit": candidate_state_limit,
+                "gap_state_limit": gap_state_limit,
+                "partial_gap_state_limit": partial_gap_state_limit,
+                "cover_node_limit": cover_node_limit,
+            },
+            "quality_thresholds": V432_QUALITY_THRESHOLDS,
+            "time_limits": None,
+            "simulation_boundary": "placed fragments; no locator or OCR errors",
+        },
+        "anchor_calibration": {
+            "stable": selected_anchor_factor is not None,
+            "selected_factor": selected_anchor_factor,
+            "stability_checks": stability_checks,
+            "normalization_rates_by_seed": normalization_rates,
+            "failure_statement": (
+                None
+                if selected_anchor_factor is not None
+                else "N=anchor remains computationally truncated; normalized scaling is not identifiable."
+            ),
+        },
+        "cases": [cases[key] for key in case_order],
+        "rows": rows,
+        "summary": summary,
+        "quality_assessment": quality_assessment,
+        "mechanism_assessment": _mechanism_assessment(summary),
+        "bottleneck_assessment": assess_v432_bottleneck(
+            summary, quality_assessment
+        ),
+    }

@@ -71,7 +71,28 @@ moneyrepair tearfit-v43-ablation \
   --output runs/v4_3_ablation.json
 ```
 
-### 3. Production Batch Pipeline
+### 3. v4.3.2 Scale-Fineness Audit
+
+Calibrate an unsaturated N=20 compute anchor, then compare a fixed production
+budget with workload-normalized p=24 scaling. Each completed seed/track case is
+written to JSONL so a long run can resume without repeating completed work:
+
+```bash
+moneyrepair tearfit-v432-scale \
+  --notes-list 20,50,100,200 \
+  --pieces-per-note 24 \
+  --seeds 7,8,9 \
+  --anchor-budget-factors 1,2,4,8 \
+  --checkpoint runs/v4_3_2/checkpoint.jsonl \
+  --output runs/v4_3_2/report.json
+```
+
+Resume with the same arguments plus `--resume`. The normalized track is skipped
+when adjacent anchor budgets do not stabilize the selected assemblies and
+candidate-provenance fingerprint; an already truncated N=20 run is never used
+as a scaling baseline.
+
+### 4. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
 
@@ -98,6 +119,13 @@ Measured performance across $p=8, 16, 24$ regimes under deterministic search bud
 
 See **[docs/v4_3_1_mechanism_validation.md](docs/v4_3_1_mechanism_validation.md)** for the canonical N=20 mechanism audit and **[docs/v4_3_tear_effectiveness.md](docs/v4_3_tear_effectiveness.md)** for the score definition.
 
+The v4.3.2 workload-normalized checkpoint retains routed p=24
+yield/precision `0.880/0.985` at N=50 (three seeds). The first N=100 seed
+diagnostic is `0.840/0.966`, with oracle candidate recall also `0.840`; this
+places the measured failure before exact cover, in edge discrimination and/or
+gap proposal. N=100 replication, N=200, and real-data validation remain open.
+See **[docs/v4_3_2_scale_fineness.md](docs/v4_3_2_scale_fineness.md)**.
+
 ---
 
 ## 📚 Documentation Directory
@@ -107,6 +135,7 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 - **[Pipeline Notes](docs/pipeline.md)**: Production pipeline, quality gates, DFS logic, and operator loop.
 - **[v4.3 Adaptive Geometry](docs/v4_3_tear_effectiveness.md)**: Math formulas for $E_{\text{tear}}$ and whole-assembly gap fit $G$.
 - **[v4.3.1 Mechanism Validation](docs/v4_3_1_mechanism_validation.md)**: Canonical N=20 edge, gap, routing, and search-budget decomposition.
+- **[v4.3.2 Scale-Fineness Protocol](docs/v4_3_2_scale_fineness.md)**: Anchor calibration, fixed/normalized compute tracks, oracle candidate recall, and bottleneck rules.
 - **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
 - **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.

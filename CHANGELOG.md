@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.3.2
+
+Preregistered scale-fineness diagnostics without changing reconstruction logic:
+
+- calibrates an N=20 p=24 `1x/2x/4x/8x` compute staircase and refuses to emit
+  normalized claims until adjacent solution and candidate-provenance
+  fingerprints stabilize;
+- separates fixed-budget operational capacity from workload-normalized
+  mechanism scaling, using pre-stage pair scores, fragments, and note count
+  rather than post-treatment candidate counts;
+- records true-edge recall, true/false generated and selected gap candidates,
+  oracle candidate recall, deterministic fingerprints, stage saturation, and
+  stage timing;
+- adds a preregistered N=20/50/100/200 matrix, JSONL checkpoint/resume, quality
+  gates, and mechanism-retention diagnostics through `tearfit-v432-scale`;
+- measures normalized N=50 p=24 at `0.880/0.985` yield/precision over three
+  seeds and records the first N=100 seed diagnostic at `0.840/0.966`;
+- identifies the current measured wall as missing correct candidates before
+  exact cover, while keeping N=100 replication, N=200, and all real-data claims
+  explicitly open.
+
 ## 4.3.1
 
 Mechanism validation without a new reconstruction algorithm:

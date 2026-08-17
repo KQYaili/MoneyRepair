@@ -21,6 +21,11 @@ from moneyrepair.reference import ReferenceScore, score_best_reference_side, sco
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import write_strategy_report
 from moneyrepair.scan import connected_components, segment_scan_to_manifest
+from moneyrepair.scale import (
+    V432_QUALITY_THRESHOLDS,
+    assess_v432_bottleneck,
+    run_v432_scale_protocol,
+)
 from moneyrepair.simulate import make_multi_note_fragments, make_synthetic_fragments
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import (
@@ -49,7 +54,7 @@ from moneyrepair.tearfit import (
 )
 from moneyrepair.types import Fragment
 
-__version__ = "4.3.1"
+__version__ = "4.3.2"
 
 __all__ = [
     "AuditEvent",
@@ -75,6 +80,7 @@ __all__ = [
     "TEARFIT_EDGE_SCORING",
     "TEARFIT_SEED_STRATEGIES",
     "TEARFIT_V43_FINE_FRACTION",
+    "V432_QUALITY_THRESHOLDS",
     "TearFitComparisonCase",
     "TearFitDiagnostics",
     "TearFitEdge",
@@ -82,6 +88,7 @@ __all__ = [
     "__version__",
     "assemble_standard_panels",
     "assess_fragments",
+    "assess_v432_bottleneck",
     "augment_candidates_with_group_gap",
     "compatibility_from_pair_records",
     "compare_solver_strategies",
@@ -105,6 +112,7 @@ __all__ = [
     "run_tearfit_strategy_comparison",
     "run_tearfit_trial",
     "run_tearfit_v43_ablation",
+    "run_v432_scale_protocol",
     "run_synthetic_benchmark",
     "segment_scan_to_manifest",
     "score_best_reference_side",

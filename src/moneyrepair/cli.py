@@ -38,6 +38,7 @@ from moneyrepair.reference import load_references, load_score_thresholds, score_
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
+from moneyrepair.scale import run_v432_scale_protocol
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import (
@@ -885,6 +886,98 @@ def _cmd_tearfit_v43_ablation(args: argparse.Namespace) -> None:
         )
 
 
+def _cmd_tearfit_v432_scale(args: argparse.Namespace) -> None:
+    checkpoint = Path(args.checkpoint) if args.checkpoint else None
+    resume_cases = []
+    if checkpoint is not None and checkpoint.exists():
+        if not args.resume:
+            raise FileExistsError(
+                f"checkpoint already exists: {checkpoint}; use --resume or a new path"
+            )
+        for line_number, line in enumerate(
+            checkpoint.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if not line.strip():
+                continue
+            try:
+                resume_cases.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"invalid JSON in {checkpoint} at line {line_number}"
+                ) from exc
+    elif args.resume:
+        raise FileNotFoundError(f"checkpoint does not exist: {checkpoint}")
+
+    def write_case(record: dict) -> None:
+        if checkpoint is None:
+            return
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        with checkpoint.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        print(f"checkpointed {record['case_key']}", flush=True)
+
+    payload = run_v432_scale_protocol(
+        notes_list=_parse_int_list(args.notes_list),
+        seeds=_parse_int_list(args.seeds),
+        algorithms=tuple(
+            item.strip() for item in args.algorithms.split(",") if item.strip()
+        ),
+        pieces_per_note=args.pieces_per_note,
+        anchor_notes=args.anchor_notes,
+        anchor_budget_factors=_parse_int_list(args.anchor_budget_factors),
+        full_mechanism_through=args.full_mechanism_through,
+        endpoint_algorithms=tuple(
+            item.strip()
+            for item in args.endpoint_algorithms.split(",")
+            if item.strip()
+        ),
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        width=args.width,
+        height=args.height,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_state_limit=args.candidate_state_limit,
+        gap_state_limit=args.gap_state_limit,
+        partial_gap_state_limit=args.partial_gap_state_limit,
+        cover_node_limit=args.cover_node_limit,
+        resume_cases=resume_cases,
+        case_sink=write_case,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.3.2 scale-fineness audit to {output}")
+    calibration = payload["anchor_calibration"]
+    print(
+        "anchor_stable={stable} selected_factor={selected_factor}".format(
+            **calibration
+        )
+    )
+    for row in payload["summary"]:
+        print(
+            "{track} N={notes} {algorithm}: yield={mean_exact_yield:.3f} "
+            "precision={mean_exact_precision:.3f} oracle={mean_oracle_candidate_recall:.3f} "
+            "core_sat={core_state_saturation_rate:.2f} "
+            "cover_sat={exact_cover_saturation_rate:.2f}".format(**row)
+        )
+    bottleneck = payload["bottleneck_assessment"]
+    print(
+        "bottleneck_status={status} first_failed_notes={first_failed_notes}".format(
+            **bottleneck
+        )
+    )
+
+
 def _cmd_policy_compare(args: argparse.Namespace) -> None:
     print("================================================================================")
     print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
@@ -1480,6 +1573,54 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tearfit_v43.add_argument("--output", help="write rows, summaries, and baseline deltas as JSON")
     tearfit_v43.set_defaults(func=_cmd_tearfit_v43_ablation)
+
+    tearfit_v432 = sub.add_parser(
+        "tearfit-v432-scale",
+        help="calibrate compute and run fixed/normalized p=24 scale-fineness tracks",
+    )
+    tearfit_v432.add_argument("--notes-list", default="20,50,100,200")
+    tearfit_v432.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v432.add_argument("--seeds", default="7,8,9")
+    tearfit_v432.add_argument("--algorithms", default=",".join(TEARFIT_ALGORITHMS))
+    tearfit_v432.add_argument("--anchor-notes", type=int, default=20)
+    tearfit_v432.add_argument("--anchor-budget-factors", default="1,2,4,8")
+    tearfit_v432.add_argument("--full-mechanism-through", type=int, default=100)
+    tearfit_v432.add_argument(
+        "--endpoint-algorithms", default="baseline,v43_routed"
+    )
+    tearfit_v432.add_argument(
+        "--route-fragment-fraction",
+        type=float,
+        default=TEARFIT_V43_FINE_FRACTION,
+    )
+    tearfit_v432.add_argument("--width", type=int, default=180)
+    tearfit_v432.add_argument("--height", type=int, default=90)
+    tearfit_v432.add_argument("--tolerance", type=int, default=2)
+    tearfit_v432.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v432.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v432.add_argument("--automatic-effectiveness", type=float, default=2.0)
+    tearfit_v432.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v432.add_argument("--automatic-contiguous-pixels", type=int, default=5)
+    tearfit_v432.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v432.add_argument("--core-raw-coverage", type=float)
+    tearfit_v432.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v432.add_argument("--beam-width", type=int, default=32)
+    tearfit_v432.add_argument("--max-partial-core-candidates", type=int, default=128)
+    tearfit_v432.add_argument("--candidate-state-limit", type=int, default=100_000)
+    tearfit_v432.add_argument("--gap-state-limit", type=int, default=20_000)
+    tearfit_v432.add_argument("--partial-gap-state-limit", type=int, default=5_000)
+    tearfit_v432.add_argument("--cover-node-limit", type=int, default=250_000)
+    tearfit_v432.add_argument(
+        "--checkpoint",
+        help="append one completed seed/track case per JSONL line",
+    )
+    tearfit_v432.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume completed cases from --checkpoint",
+    )
+    tearfit_v432.add_argument("--output", help="write the complete v4.3.2 JSON report")
+    tearfit_v432.set_defaults(func=_cmd_tearfit_v432_scale)
 
     experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
     exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)

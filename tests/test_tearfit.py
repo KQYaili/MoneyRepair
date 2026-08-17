@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+from moneyrepair.scale import assess_v432_bottleneck, run_v432_scale_protocol
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,
@@ -485,6 +487,164 @@ def test_v43_ablation_keeps_same_seed_and_reports_baseline_deltas():
         ("effectiveness", 13),
     }
     assert all("delta_exact_yield_vs_baseline" in row for row in payload["summary"])
+
+
+def test_trial_reports_oracle_edges_provenance_and_stage_timings():
+    result = run_tearfit_trial(
+        FractalTearConfig(
+            notes=2,
+            pieces_per_note=4,
+            width=72,
+            height=40,
+            seed=29,
+            serial_ocr_rate=0.0,
+        ),
+        algorithm="effectiveness_gap",
+        use_labels=False,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_time_limit_seconds=None,
+        candidate_state_limit=20_000,
+        partial_gap_time_limit_seconds=None,
+        gap_state_limit=4_000,
+        partial_gap_state_limit=1_000,
+        cover_time_limit_seconds=None,
+        cover_node_limit=20_000,
+    )
+
+    assert result.true_possible_edges >= result.true_accepted_edges
+    assert result.true_edge_recall == pytest.approx(
+        result.true_accepted_edges / max(1, result.true_possible_edges)
+    )
+    assert result.true_gap_candidates + result.false_gap_candidates == result.gap_candidates
+    assert (
+        result.selected_true_gap_candidates + result.selected_false_gap_candidates
+        == result.selected_gap_candidates
+    )
+    assert 0.0 <= result.oracle_candidate_recall <= 1.0
+    assert len(result.selected_solution_fingerprint) == 64
+    assert len(result.candidate_provenance_fingerprint) == 64
+    assert set(result.stage_timings) == {
+        "simulation",
+        "pair_scoring",
+        "core_search",
+        "complete_gap_search",
+        "partial_gap_search",
+        "exact_cover",
+        "diagnostics",
+        "total",
+    }
+
+
+def test_workload_normalized_budget_rejects_an_absolute_limit():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        run_tearfit_trial(
+            FractalTearConfig(
+                notes=1,
+                pieces_per_note=3,
+                width=60,
+                height=36,
+                seed=31,
+            ),
+            candidate_state_limit=100,
+            candidate_states_per_pair_score=2.0,
+        )
+
+
+def test_v432_scale_protocol_calibrates_anchor_and_emits_two_tracks():
+    checkpointed = []
+    payload = run_v432_scale_protocol(
+        notes_list=(2, 3),
+        seeds=(37,),
+        pieces_per_note=4,
+        anchor_notes=2,
+        anchor_budget_factors=(1, 2),
+        full_mechanism_through=3,
+        width=72,
+        height=40,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_state_limit=20_000,
+        gap_state_limit=4_000,
+        partial_gap_state_limit=1_000,
+        cover_node_limit=20_000,
+        case_sink=checkpointed.append,
+    )
+
+    assert payload["anchor_calibration"]["stable"] is True
+    assert payload["anchor_calibration"]["selected_factor"] == 1
+    assert {row["track"] for row in payload["rows"]} == {"fixed", "normalized"}
+    assert checkpointed
+    normalized = next(
+        row
+        for row in payload["rows"]
+        if row["track"] == "normalized"
+        and row["notes"] == 3
+        and row["algorithm"] == "baseline"
+    )
+    rates = payload["anchor_calibration"]["normalization_rates_by_seed"][37]
+    assert normalized["budgets"]["candidate_state_limit"] == pytest.approx(
+        np.ceil(rates["candidate_states_per_pair_score"] * normalized["pair_scores"])
+    )
+    assert normalized["budgets"]["cover_node_limit"] == pytest.approx(
+        np.ceil(rates["cover_nodes_per_note"] * 3)
+    )
+    assert payload["quality_assessment"]
+    assert payload["mechanism_assessment"]
+    assert payload["bottleneck_assessment"]["status"] == "not_reached"
+
+
+def test_v432_bottleneck_excludes_cover_when_oracle_equals_yield():
+    stage_seconds = {
+        "simulation": 1.0,
+        "pair_scoring": 10.0,
+        "core_search": 30.0,
+        "complete_gap_search": 50.0,
+        "partial_gap_search": 20.0,
+        "exact_cover": 1.0,
+        "diagnostics": 0.0,
+        "total": 112.0,
+    }
+    summary = [
+        {
+            "track": "normalized",
+            "notes": 20,
+            "algorithm": "v43_routed",
+            "mean_exact_yield": 0.92,
+            "mean_oracle_candidate_recall": 0.92,
+            "mean_true_edge_recall": 0.38,
+            "mean_false_edge_rate": 0.04,
+            "core_state_saturation_rate": 0.0,
+            "complete_gap_state_saturation_rate": 0.0,
+            "partial_gap_state_saturation_rate": 0.0,
+            "mean_stage_seconds": stage_seconds,
+        },
+        {
+            "track": "normalized",
+            "notes": 100,
+            "algorithm": "v43_routed",
+            "mean_exact_yield": 0.84,
+            "mean_oracle_candidate_recall": 0.84,
+            "mean_true_edge_recall": 0.37,
+            "mean_false_edge_rate": 0.14,
+            "core_state_saturation_rate": 0.0,
+            "complete_gap_state_saturation_rate": 0.0,
+            "partial_gap_state_saturation_rate": 0.0,
+            "mean_stage_seconds": stage_seconds,
+        },
+    ]
+    assessment = assess_v432_bottleneck(
+        summary,
+        [
+            {"notes": 20, "quality_scale_stable": True},
+            {"notes": 100, "quality_scale_stable": False},
+        ],
+    )
+
+    assert assessment["status"] == "candidate_evidence_wall"
+    assert assessment["first_failed_notes"] == 100
+    assert assessment["dominant_runtime_stage"] == "complete_gap_search"
+    assert assessment["exact_cover_excluded_as_quality_limiter"] is True
 
 
 

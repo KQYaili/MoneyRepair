@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from hashlib import sha256
 import json
+from math import ceil
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
@@ -144,9 +146,11 @@ class TearFitTrialResult:
     fragments: int
     pair_scores: int
     accepted_edges: int
+    true_possible_edges: int
     true_accepted_edges: int
     false_accepted_edges: int
     false_edge_rate: float
+    true_edge_recall: float
     true_edge_median: float
     false_edge_median: float
     candidates: int
@@ -162,6 +166,16 @@ class TearFitTrialResult:
     selected_gap_candidates: int = 0
     selected_complete_gap_candidates: int = 0
     selected_partial_gap_candidates: int = 0
+    true_gap_candidates: int = 0
+    false_gap_candidates: int = 0
+    selected_true_gap_candidates: int = 0
+    selected_false_gap_candidates: int = 0
+    oracle_candidate_notes: int = 0
+    oracle_candidate_recall: float = 0.0
+    selected_score_total: float = 0.0
+    selected_solution_fingerprint: str = ""
+    candidate_provenance_fingerprint: str = ""
+    stage_timings: dict[str, float] = field(default_factory=dict)
 
     def to_jsonable(self) -> dict:
         return {
@@ -169,9 +183,11 @@ class TearFitTrialResult:
             "fragments": self.fragments,
             "pair_scores": self.pair_scores,
             "accepted_edges": self.accepted_edges,
+            "true_possible_edges": self.true_possible_edges,
             "true_accepted_edges": self.true_accepted_edges,
             "false_accepted_edges": self.false_accepted_edges,
             "false_edge_rate": self.false_edge_rate,
+            "true_edge_recall": self.true_edge_recall,
             "true_edge_median": self.true_edge_median,
             "false_edge_median": self.false_edge_median,
             "candidates": self.candidates,
@@ -183,6 +199,16 @@ class TearFitTrialResult:
             "selected_gap_candidates": self.selected_gap_candidates,
             "selected_complete_gap_candidates": self.selected_complete_gap_candidates,
             "selected_partial_gap_candidates": self.selected_partial_gap_candidates,
+            "true_gap_candidates": self.true_gap_candidates,
+            "false_gap_candidates": self.false_gap_candidates,
+            "selected_true_gap_candidates": self.selected_true_gap_candidates,
+            "selected_false_gap_candidates": self.selected_false_gap_candidates,
+            "oracle_candidate_notes": self.oracle_candidate_notes,
+            "oracle_candidate_recall": self.oracle_candidate_recall,
+            "selected_score_total": self.selected_score_total,
+            "selected_solution_fingerprint": self.selected_solution_fingerprint,
+            "candidate_provenance_fingerprint": self.candidate_provenance_fingerprint,
+            "stage_timings": dict(self.stage_timings),
             "edge_decisions": dict(self.edge_decisions),
             "candidate_decisions": dict(self.candidate_decisions),
             "search_stats": self.search_stats,
@@ -882,6 +908,41 @@ def _support_for_state(
 
 def _candidate_key(fragment_ids: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted(fragment_ids))
+
+
+def _fingerprint_records(records: Iterable[str]) -> str:
+    payload = "\n".join(sorted(records)).encode("utf-8")
+    return sha256(payload).hexdigest()
+
+
+def _true_note_candidate_keys(
+    fragments: list[Fragment],
+) -> dict[tuple[str, ...], str]:
+    ids_by_note: dict[str, list[str]] = {}
+    for fragment in fragments:
+        note_id = fragment.meta.get("note_id")
+        if note_id:
+            ids_by_note.setdefault(str(note_id), []).append(fragment.id)
+    return {
+        _candidate_key(fragment_ids): note_id
+        for note_id, fragment_ids in ids_by_note.items()
+    }
+
+
+def _resolve_workload_budget(
+    absolute_limit: int | None,
+    units: int,
+    per_unit: float | None,
+    *,
+    name: str,
+) -> int | None:
+    if per_unit is None:
+        return absolute_limit
+    if absolute_limit is not None:
+        raise ValueError(f"{name} absolute and per-unit limits are mutually exclusive")
+    if per_unit <= 0.0:
+        raise ValueError(f"{name} per-unit limit must be positive")
+    return max(1, ceil(per_unit * units))
 
 
 def _pair_key(left: str, right: str) -> tuple[str, str]:
@@ -1962,15 +2023,20 @@ def run_tearfit_trial(
     serial_ocr_rate: float | None = None,
     candidate_time_limit_seconds: float | None = 20.0,
     candidate_state_limit: int | None = None,
+    candidate_states_per_pair_score: float | None = None,
     partial_gap_time_limit_seconds: float | None = 5.0,
     gap_state_limit: int | None = None,
+    gap_states_per_fragment: float | None = None,
     partial_gap_state_limit: int | None = None,
+    partial_gap_states_per_fragment: float | None = None,
     cover_time_limit_seconds: float | None = 10.0,
     cover_node_limit: int | None = None,
+    cover_nodes_per_note: float | None = None,
     cover_objective: str = "score_then_count",
 ) -> TearFitTrialResult:
     """Run one labelled exact-cover tear-fit trial."""
 
+    trial_started = monotonic()
     if algorithm not in TEARFIT_ALGORITHMS:
         raise ValueError(f"algorithm must be one of: {', '.join(TEARFIT_ALGORITHMS)}")
     if not (0.0 < route_fragment_fraction_threshold < 1.0):
@@ -1988,7 +2054,9 @@ def run_tearfit_trial(
         config = FractalTearConfig(
             **{**config.__dict__, "serial_ocr_rate": serial_ocr_rate}
         )
+    simulation_started = monotonic()
     _template, fragments = make_fractal_tear_fragments(config)
+    stage_timings = {"simulation": monotonic() - simulation_started}
     median_fragment_fraction = float(
         np.median([fragment.area for fragment in fragments])
     ) / float(fragments[0].mask.size)
@@ -1998,8 +2066,9 @@ def run_tearfit_trial(
             "baseline"
             if median_fragment_fraction >= route_fragment_fraction_threshold
             else "effectiveness_gap"
-        )
+    )
     scoring = "overlap" if resolved_algorithm == "baseline" else "effectiveness"
+    pair_scoring_started = monotonic()
     all_scores, raw_edges = score_absolute_tear_pairs(
         fragments,
         tolerance=tolerance,
@@ -2026,12 +2095,38 @@ def run_tearfit_trial(
     else:
         label_filtered_scores = all_scores
         edges = raw_edges
+    stage_timings["pair_scoring"] = monotonic() - pair_scoring_started
+    resolved_candidate_state_limit = _resolve_workload_budget(
+        candidate_state_limit,
+        len(all_scores),
+        candidate_states_per_pair_score,
+        name="candidate_state_limit",
+    )
+    resolved_gap_state_limit = _resolve_workload_budget(
+        gap_state_limit,
+        len(fragments),
+        gap_states_per_fragment,
+        name="gap_state_limit",
+    )
+    resolved_partial_gap_state_limit = _resolve_workload_budget(
+        partial_gap_state_limit,
+        len(fragments),
+        partial_gap_states_per_fragment,
+        name="partial_gap_state_limit",
+    )
+    resolved_cover_node_limit = _resolve_workload_budget(
+        cover_node_limit,
+        config.notes,
+        cover_nodes_per_note,
+        name="cover_node_limit",
+    )
     core_edges = (
         edges
         if resolved_algorithm == "baseline"
         else [edge for edge in edges if edge.evidence_level == "automatic"]
     )
     core_search_stats: dict[str, int | bool] = {}
+    core_search_started = monotonic()
     generated_candidates = generate_assembly_candidates(
         fragments,
         core_edges,
@@ -2046,9 +2141,10 @@ def run_tearfit_trial(
         beam_width=beam_width,
         seed_strategy=seed_strategy,
         time_limit_seconds=candidate_time_limit_seconds,
-        max_expanded_states=candidate_state_limit,
+        max_expanded_states=resolved_candidate_state_limit,
         search_stats=core_search_stats,
     )
+    stage_timings["core_search"] = monotonic() - core_search_started
     complete_core_candidates = [
         candidate
         for candidate in generated_candidates
@@ -2073,7 +2169,10 @@ def run_tearfit_trial(
         "time_limit_reached": False,
     }
     partial_gap_search_stats = dict(complete_gap_search_stats)
+    stage_timings["complete_gap_search"] = 0.0
+    stage_timings["partial_gap_search"] = 0.0
     if resolved_algorithm == "effectiveness_gap":
+        complete_gap_started = monotonic()
         from_complete = augment_candidates_with_group_gap(
             fragments,
             complete_core_candidates,
@@ -2086,9 +2185,11 @@ def run_tearfit_trial(
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
             time_limit_seconds=candidate_time_limit_seconds,
-            max_expanded_states=gap_state_limit,
+            max_expanded_states=resolved_gap_state_limit,
             search_stats=complete_gap_search_stats,
         )
+        stage_timings["complete_gap_search"] = monotonic() - complete_gap_started
+        partial_gap_started = monotonic()
         from_partial = augment_candidates_with_group_gap(
             fragments,
             partial_core_candidates,
@@ -2102,9 +2203,10 @@ def run_tearfit_trial(
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
             time_limit_seconds=partial_gap_time_limit_seconds,
-            max_expanded_states=partial_gap_state_limit,
+            max_expanded_states=resolved_partial_gap_state_limit,
             search_stats=partial_gap_search_stats,
         )
+        stage_timings["partial_gap_search"] = monotonic() - partial_gap_started
         merged: dict[tuple[str, ...], AssemblyCandidate] = {}
         for candidate in (*from_complete, *from_partial):
             key = _candidate_key(candidate.fragment_ids)
@@ -2127,23 +2229,31 @@ def run_tearfit_trial(
         complete_gap_keys = gap_candidate_keys - partial_gap_keys
         gap_candidate_count = len(gap_candidate_keys)
     cover_search_stats: dict[str, int | bool] = {}
+    exact_cover_started = monotonic()
     selected = select_exact_cover_candidates(
         candidates,
         time_limit_seconds=cover_time_limit_seconds,
-        max_search_nodes=cover_node_limit,
+        max_search_nodes=resolved_cover_node_limit,
         search_stats=cover_search_stats,
         objective=cover_objective,
     )
+    stage_timings["exact_cover"] = monotonic() - exact_cover_started
     selected_keys = {
         _candidate_key(candidate.fragment_ids) for candidate in selected
     }
+    diagnostics_started = monotonic()
     diagnostics = diagnose_confirmed_candidates(selected, fragments)
+    stage_timings["diagnostics"] = monotonic() - diagnostics_started
 
-    true_scores = [
-        edge.overlap_pixels if resolved_algorithm == "baseline" else edge.effectiveness
+    true_scored_edges = [
+        edge
         for edge in all_scores
         if fragments[edge.left].meta.get("note_id")
         == fragments[edge.right].meta.get("note_id")
+    ]
+    true_scores = [
+        edge.overlap_pixels if resolved_algorithm == "baseline" else edge.effectiveness
+        for edge in true_scored_edges
     ]
     false_scores = [
         edge.overlap_pixels if resolved_algorithm == "baseline" else edge.effectiveness
@@ -2157,6 +2267,41 @@ def run_tearfit_trial(
         if fragments[edge.left].meta.get("note_id")
         != fragments[edge.right].meta.get("note_id")
     ]
+    true_edges = [
+        edge
+        for edge in core_edges
+        if fragments[edge.left].meta.get("note_id")
+        == fragments[edge.right].meta.get("note_id")
+    ]
+    truth_by_key = _true_note_candidate_keys(fragments)
+    truth_keys = set(truth_by_key)
+    candidate_keys = {
+        _candidate_key(candidate.fragment_ids) for candidate in candidates
+    }
+    oracle_note_ids = {
+        truth_by_key[key] for key in candidate_keys & truth_keys
+    }
+    true_gap_keys = gap_candidate_keys & truth_keys
+    selected_gap_keys = selected_keys & gap_candidate_keys
+    selected_true_gap_keys = selected_gap_keys & truth_keys
+
+    def candidate_source(key: tuple[str, ...]) -> str:
+        if key in partial_gap_keys:
+            return "partial_gap"
+        if key in complete_gap_keys:
+            return "complete_gap"
+        if key in complete_core_keys:
+            return "core"
+        return "other"
+
+    candidate_provenance_fingerprint = _fingerprint_records(
+        f"{','.join(key)}|{candidate_source(key)}|{candidate.evidence_level}|{candidate.gap_steps}"
+        for candidate in candidates
+        for key in (_candidate_key(candidate.fragment_ids),)
+    )
+    selected_solution_fingerprint = _fingerprint_records(
+        ",".join(_candidate_key(candidate.fragment_ids)) for candidate in selected
+    )
     edge_decisions = {
         level: sum(edge.evidence_level == level for edge in label_filtered_scores)
         for level in TEARFIT_EVIDENCE_LEVELS
@@ -2165,6 +2310,7 @@ def run_tearfit_trial(
         level: sum(candidate.evidence_level == level for candidate in candidates)
         for level in ("automatic", "review")
     }
+    stage_timings["total"] = monotonic() - trial_started
     return TearFitTrialResult(
         config={
             **config.__dict__,
@@ -2190,19 +2336,31 @@ def run_tearfit_trial(
             "seed_strategy": seed_strategy,
             "candidate_time_limit_seconds": candidate_time_limit_seconds,
             "candidate_state_limit": candidate_state_limit,
+            "candidate_states_per_pair_score": candidate_states_per_pair_score,
+            "resolved_candidate_state_limit": resolved_candidate_state_limit,
             "partial_gap_time_limit_seconds": partial_gap_time_limit_seconds,
             "gap_state_limit": gap_state_limit,
+            "gap_states_per_fragment": gap_states_per_fragment,
+            "resolved_gap_state_limit": resolved_gap_state_limit,
             "partial_gap_state_limit": partial_gap_state_limit,
+            "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
+            "resolved_partial_gap_state_limit": resolved_partial_gap_state_limit,
             "cover_time_limit_seconds": cover_time_limit_seconds,
             "cover_node_limit": cover_node_limit,
+            "cover_nodes_per_note": cover_nodes_per_note,
+            "resolved_cover_node_limit": resolved_cover_node_limit,
             "cover_objective": cover_objective,
         },
         fragments=len(fragments),
         pair_scores=len(all_scores),
         accepted_edges=len(core_edges),
-        true_accepted_edges=len(core_edges) - len(false_edges),
+        true_possible_edges=len(true_scored_edges),
+        true_accepted_edges=len(true_edges),
         false_accepted_edges=len(false_edges),
         false_edge_rate=len(false_edges) / len(core_edges) if core_edges else 0.0,
+        true_edge_recall=(
+            len(true_edges) / len(true_scored_edges) if true_scored_edges else 0.0
+        ),
         true_edge_median=float(np.median(true_scores)) if true_scores else 0.0,
         false_edge_median=float(np.median(false_scores)) if false_scores else 0.0,
         candidates=len(candidates),
@@ -2223,6 +2381,18 @@ def run_tearfit_trial(
         selected_gap_candidates=len(selected_keys & gap_candidate_keys),
         selected_complete_gap_candidates=len(selected_keys & complete_gap_keys),
         selected_partial_gap_candidates=len(selected_keys & partial_gap_keys),
+        true_gap_candidates=len(true_gap_keys),
+        false_gap_candidates=len(gap_candidate_keys - truth_keys),
+        selected_true_gap_candidates=len(selected_true_gap_keys),
+        selected_false_gap_candidates=len(selected_gap_keys - truth_keys),
+        oracle_candidate_notes=len(oracle_note_ids),
+        oracle_candidate_recall=(
+            len(oracle_note_ids) / len(truth_keys) if truth_keys else 0.0
+        ),
+        selected_score_total=float(sum(candidate.score for candidate in selected)),
+        selected_solution_fingerprint=selected_solution_fingerprint,
+        candidate_provenance_fingerprint=candidate_provenance_fingerprint,
+        stage_timings=stage_timings,
     )
 
 
@@ -2468,11 +2638,15 @@ def run_tearfit_v43_ablation(
     max_partial_core_candidates: int = 128,
     candidate_time_limit_seconds: float | None = 15.0,
     candidate_state_limit: int | None = 100_000,
+    candidate_states_per_pair_score: float | None = None,
     partial_gap_time_limit_seconds: float | None = 5.0,
     gap_state_limit: int | None = 20_000,
+    gap_states_per_fragment: float | None = None,
     partial_gap_state_limit: int | None = 5_000,
+    partial_gap_states_per_fragment: float | None = None,
     cover_time_limit_seconds: float | None = 5.0,
     cover_node_limit: int | None = 250_000,
+    cover_nodes_per_note: float | None = None,
 ) -> dict:
     """Run same-seed baseline -> Etear -> group-gap head-to-head trials."""
 
@@ -2528,11 +2702,15 @@ def run_tearfit_v43_ablation(
                         use_labels=False,
                         candidate_time_limit_seconds=candidate_time_limit_seconds,
                         candidate_state_limit=candidate_state_limit,
+                        candidate_states_per_pair_score=candidate_states_per_pair_score,
                         partial_gap_time_limit_seconds=partial_gap_time_limit_seconds,
                         gap_state_limit=gap_state_limit,
+                        gap_states_per_fragment=gap_states_per_fragment,
                         partial_gap_state_limit=partial_gap_state_limit,
+                        partial_gap_states_per_fragment=partial_gap_states_per_fragment,
                         cover_time_limit_seconds=cover_time_limit_seconds,
                         cover_node_limit=cover_node_limit,
+                        cover_nodes_per_note=cover_nodes_per_note,
                     )
                     elapsed_seconds = monotonic() - started
                     resolved = str(result.config["resolved_algorithm"])
@@ -2555,9 +2733,11 @@ def run_tearfit_v43_ablation(
                         "fragments": result.fragments,
                         "pair_scores": result.pair_scores,
                         "accepted_edges": result.accepted_edges,
+                        "true_possible_edges": result.true_possible_edges,
                         "true_accepted_edges": result.true_accepted_edges,
                         "false_accepted_edges": result.false_accepted_edges,
                         "false_edge_rate": result.false_edge_rate,
+                        "true_edge_recall": result.true_edge_recall,
                         "edge_decisions": result.edge_decisions,
                         "candidates": result.candidates,
                         "core_candidates": result.core_candidates,
@@ -2568,6 +2748,24 @@ def run_tearfit_v43_ablation(
                         "selected_gap_candidates": result.selected_gap_candidates,
                         "selected_complete_gap_candidates": result.selected_complete_gap_candidates,
                         "selected_partial_gap_candidates": result.selected_partial_gap_candidates,
+                        "true_gap_candidates": result.true_gap_candidates,
+                        "false_gap_candidates": result.false_gap_candidates,
+                        "selected_true_gap_candidates": result.selected_true_gap_candidates,
+                        "selected_false_gap_candidates": result.selected_false_gap_candidates,
+                        "oracle_candidate_notes": result.oracle_candidate_notes,
+                        "oracle_candidate_recall": result.oracle_candidate_recall,
+                        "selected_score_total": result.selected_score_total,
+                        "selected_solution_fingerprint": result.selected_solution_fingerprint,
+                        "candidate_provenance_fingerprint": result.candidate_provenance_fingerprint,
+                        "stage_timings": result.stage_timings,
+                        "budgets": {
+                            "candidate_state_limit": result.config["resolved_candidate_state_limit"],
+                            "gap_state_limit": result.config["resolved_gap_state_limit"],
+                            "partial_gap_state_limit": result.config[
+                                "resolved_partial_gap_state_limit"
+                            ],
+                            "cover_node_limit": result.config["resolved_cover_node_limit"],
+                        },
                         "candidate_decisions": result.candidate_decisions,
                         "search_stats": result.search_stats,
                         "confirmed": diagnostics.confirmed,
@@ -2628,6 +2826,12 @@ def run_tearfit_v43_ablation(
                     "mean_true_accepted_edges": float(
                         np.mean([row["true_accepted_edges"] for row in selected])
                     ),
+                    "mean_true_possible_edges": float(
+                        np.mean([row["true_possible_edges"] for row in selected])
+                    ),
+                    "mean_true_edge_recall": float(
+                        np.mean([row["true_edge_recall"] for row in selected])
+                    ),
                     "mean_false_accepted_edges": float(
                         np.mean([row["false_accepted_edges"] for row in selected])
                     ),
@@ -2668,6 +2872,25 @@ def run_tearfit_v43_ablation(
                         np.mean(
                             [row["selected_partial_gap_candidates"] for row in selected]
                         )
+                    ),
+                    "mean_true_gap_candidates": float(
+                        np.mean([row["true_gap_candidates"] for row in selected])
+                    ),
+                    "mean_false_gap_candidates": float(
+                        np.mean([row["false_gap_candidates"] for row in selected])
+                    ),
+                    "mean_selected_true_gap_candidates": float(
+                        np.mean(
+                            [row["selected_true_gap_candidates"] for row in selected]
+                        )
+                    ),
+                    "mean_selected_false_gap_candidates": float(
+                        np.mean(
+                            [row["selected_false_gap_candidates"] for row in selected]
+                        )
+                    ),
+                    "mean_oracle_candidate_recall": float(
+                        np.mean([row["oracle_candidate_recall"] for row in selected])
                     ),
                     "mean_manual_notes_remaining": float(
                         np.mean([row["manual_notes_remaining"] for row in selected])
@@ -2793,11 +3016,15 @@ def run_tearfit_v43_ablation(
             "max_partial_core_candidates": max_partial_core_candidates,
             "candidate_time_limit_seconds": candidate_time_limit_seconds,
             "candidate_state_limit": candidate_state_limit,
+            "candidate_states_per_pair_score": candidate_states_per_pair_score,
             "partial_gap_time_limit_seconds": partial_gap_time_limit_seconds,
             "gap_state_limit": gap_state_limit,
+            "gap_states_per_fragment": gap_states_per_fragment,
             "partial_gap_state_limit": partial_gap_state_limit,
+            "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
             "cover_time_limit_seconds": cover_time_limit_seconds,
             "cover_node_limit": cover_node_limit,
+            "cover_nodes_per_note": cover_nodes_per_note,
             "serial_ocr_rate": 0.0,
             "use_labels": False,
         },
