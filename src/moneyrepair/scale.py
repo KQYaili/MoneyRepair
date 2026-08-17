@@ -4,6 +4,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 from statistics import fmean
+from time import monotonic
 from typing import Callable, Iterable
 
 from moneyrepair.tearfit import (
@@ -11,8 +12,11 @@ from moneyrepair.tearfit import (
     TEARFIT_ALGORITHMS,
     TEARFIT_V43_FINE_FRACTION,
     TearFitTrialResult,
+    diagnose_true_core_connectivity,
+    make_fractal_tear_fragments,
     run_tearfit_trial,
     run_tearfit_v43_ablation,
+    score_absolute_tear_pairs,
 )
 
 
@@ -25,6 +29,8 @@ V432_QUALITY_THRESHOLDS = {
 }
 
 V433_ORACLE_RESCUE_THRESHOLD = 0.05
+V44_PROPOSAL_RESCUE_THRESHOLD = 0.05
+V44_MAX_PRECISION_DROP = 0.02
 V433_SEED7_NORMALIZED_RATES = {
     "candidate_states_per_pair_score": 12.691965985531159,
     "gap_states_per_fragment": 83.33333333333333,
@@ -959,4 +965,425 @@ def run_v433_oracle_false_edge_diagnostic(
             ),
         },
         "assessment": assessment,
+    }
+
+
+def _v44_trial_snapshot(result: TearFitTrialResult) -> dict:
+    snapshot = _v433_trial_snapshot(result)
+    snapshot["gap_proposal_pool"] = result.config["gap_proposal_pool"]
+    snapshot["gap_proposal_stats"] = {
+        stage: {
+            key: int(stats.get(key, 0))
+            for key in (
+                "weak_pair_edges",
+                "proposal_edges",
+                "proposal_evaluations",
+                "accepted_proposals",
+                "no_weak_edge_evaluations",
+                "accepted_no_weak_edge_proposals",
+            )
+        }
+        for stage, stats in result.search_stats.items()
+        if stage in {"complete_gap", "partial_gap"}
+    }
+    if result.candidate_funnel:
+        snapshot["candidate_funnel"] = result.candidate_funnel
+    return snapshot
+
+
+def assess_v44_boundary_contact_proposal(
+    control: dict,
+    intervention: dict,
+    *,
+    minimum_oracle_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    minimum_yield_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    maximum_precision_drop: float = V44_MAX_PRECISION_DROP,
+) -> dict:
+    """Classify the one-variable boundary-contact proposal intervention."""
+
+    if not (0.0 < minimum_oracle_rescue <= 1.0):
+        raise ValueError("minimum_oracle_rescue must be in (0, 1]")
+    if not (0.0 < minimum_yield_rescue <= 1.0):
+        raise ValueError("minimum_yield_rescue must be in (0, 1]")
+    if not (0.0 <= maximum_precision_drop <= 1.0):
+        raise ValueError("maximum_precision_drop must be in [0, 1]")
+
+    oracle_delta = float(intervention["oracle_candidate_recall"]) - float(
+        control["oracle_candidate_recall"]
+    )
+    yield_delta = float(intervention["exact_yield"]) - float(control["exact_yield"])
+    precision_drop = float(control["exact_precision"]) - float(
+        intervention["exact_precision"]
+    )
+    oracle_rescued = oracle_delta + 1e-12 >= minimum_oracle_rescue
+    quality_rescued = (
+        yield_delta + 1e-12 >= minimum_yield_rescue
+        and precision_drop <= maximum_precision_drop + 1e-12
+    )
+    gap_saturated = any(
+        bool(intervention.get(key, False))
+        for key in ("complete_gap_saturated", "partial_gap_saturated")
+    )
+
+    if oracle_rescued and quality_rescued:
+        status = "weak_pair_proposal_gate_limiter"
+        statement = (
+            "Admitting boundary-contact fragments to the unchanged whole-assembly "
+            "scorer rescues exact candidates and selected notes without an excessive "
+            "precision loss; the weak-pair proposal gate is a measured limiter."
+        )
+    elif oracle_rescued:
+        status = "proposal_recall_rescued_without_quality_rescue"
+        statement = (
+            "Boundary-contact proposals restore enough exact candidates, but the "
+            "selected solution does not pass the preregistered yield/precision gate."
+        )
+    elif gap_saturated:
+        status = "inconclusive_gap_budget_saturation"
+        statement = (
+            "The broader proposal pool does not meet the rescue gate and exhausts a "
+            "gap-search budget, so this run cannot distinguish proposal quality from "
+            "search capacity."
+        )
+    else:
+        status = "deeper_candidate_construction_wall"
+        statement = (
+            "Removing the weak-pair eligibility gate does not rescue enough exact "
+            "candidates under unsaturated gap search; the remaining wall lies in "
+            "partial-core selection, whole-assembly scoring, or beam construction."
+        )
+    return {
+        "status": status,
+        "minimum_oracle_rescue": minimum_oracle_rescue,
+        "minimum_yield_rescue": minimum_yield_rescue,
+        "maximum_precision_drop": maximum_precision_drop,
+        "oracle_candidate_recall_delta": oracle_delta,
+        "exact_yield_delta": yield_delta,
+        "exact_precision_drop": precision_drop,
+        "oracle_rescue_gate_passed": oracle_rescued,
+        "quality_gate_passed": quality_rescued,
+        "intervention_gap_saturated": gap_saturated,
+        "statement": statement,
+    }
+
+
+def run_v44_boundary_contact_proposal_diagnostic(
+    *,
+    notes: int = 100,
+    pieces_per_note: int = 24,
+    seed: int = 7,
+    width: int = 180,
+    height: int = 90,
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
+    tolerance: int = 2,
+    min_overlap_pixels: int = 14,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    coverage_threshold: float = 0.93,
+    core_raw_coverage_threshold: float | None = None,
+    gap_fill_radius: int = 2,
+    beam_width: int = 32,
+    max_partial_core_candidates: int = 128,
+    candidate_states_per_pair_score: float = V433_SEED7_NORMALIZED_RATES[
+        "candidate_states_per_pair_score"
+    ],
+    gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "gap_states_per_fragment"
+    ],
+    partial_gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "partial_gap_states_per_fragment"
+    ],
+    cover_nodes_per_note: float = V433_SEED7_NORMALIZED_RATES[
+        "cover_nodes_per_note"
+    ],
+    minimum_oracle_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    minimum_yield_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    maximum_precision_drop: float = V44_MAX_PRECISION_DROP,
+) -> dict:
+    """Test whether the v4.3 weak-pair gate hides useful group-gap proposals."""
+
+    if notes < 1 or pieces_per_note < 2:
+        raise ValueError("notes and pieces_per_note must be positive")
+    config = FractalTearConfig(
+        notes=notes,
+        pieces_per_note=pieces_per_note,
+        width=width,
+        height=height,
+        seed=seed,
+        serial_ocr_rate=0.0,
+    )
+    common = {
+        "algorithm": "v43_routed",
+        "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
+        "tolerance": tolerance,
+        "min_overlap_pixels": min_overlap_pixels,
+        "min_effectiveness": min_effectiveness,
+        "automatic_effectiveness": automatic_effectiveness,
+        "min_contiguous_pixels": min_contiguous_pixels,
+        "automatic_contiguous_pixels": automatic_contiguous_pixels,
+        "coverage_threshold": coverage_threshold,
+        "core_raw_coverage_threshold": core_raw_coverage_threshold,
+        "gap_fill_radius": gap_fill_radius,
+        "beam_width": beam_width,
+        "max_partial_core_candidates": max_partial_core_candidates,
+        "use_labels": False,
+        "candidate_time_limit_seconds": None,
+        "candidate_state_limit": None,
+        "candidate_states_per_pair_score": candidate_states_per_pair_score,
+        "partial_gap_time_limit_seconds": None,
+        "gap_state_limit": None,
+        "gap_states_per_fragment": gap_states_per_fragment,
+        "partial_gap_state_limit": None,
+        "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
+        "cover_time_limit_seconds": None,
+        "cover_node_limit": None,
+        "cover_nodes_per_note": cover_nodes_per_note,
+    }
+    control_result = run_tearfit_trial(
+        config,
+        **common,
+        gap_proposal_pool="weak_pair",
+    )
+    intervention_result = run_tearfit_trial(
+        config,
+        **common,
+        gap_proposal_pool="boundary_contact",
+    )
+    control = _v44_trial_snapshot(control_result)
+    intervention = _v44_trial_snapshot(intervention_result)
+    assessment = assess_v44_boundary_contact_proposal(
+        control,
+        intervention,
+        minimum_oracle_rescue=minimum_oracle_rescue,
+        minimum_yield_rescue=minimum_yield_rescue,
+        maximum_precision_drop=maximum_precision_drop,
+    )
+    return {
+        "config": {
+            "schema_version": "4.4.0-diagnostic",
+            "diagnostic": "boundary_contact_proposal_pool",
+            "notes": notes,
+            "pieces_per_note": pieces_per_note,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "algorithm": "v43_routed",
+            "control_proposal_pool": "weak_pair",
+            "intervention_proposal_pool": "boundary_contact",
+            "unchanged_components": [
+                "pair_scoring",
+                "whole_assembly_scorer",
+                "beam_width",
+                "state_and_node_budgets",
+                "exact_cover",
+            ],
+            "normalized_rates": {
+                "candidate_states_per_pair_score": candidate_states_per_pair_score,
+                "gap_states_per_fragment": gap_states_per_fragment,
+                "partial_gap_states_per_fragment": (
+                    partial_gap_states_per_fragment
+                ),
+                "cover_nodes_per_note": cover_nodes_per_note,
+            },
+            "minimum_oracle_rescue": minimum_oracle_rescue,
+            "minimum_yield_rescue": minimum_yield_rescue,
+            "maximum_precision_drop": maximum_precision_drop,
+            "simulation_boundary": (
+                "placed fragments; boundary contact is proposal-only; no locator "
+                "or OCR errors"
+            ),
+        },
+        "weak_pair_control": control,
+        "boundary_contact_intervention": intervention,
+        "assessment": assessment,
+    }
+
+
+def run_v44_candidate_funnel_diagnostic(
+    *,
+    notes: int = 100,
+    pieces_per_note: int = 24,
+    seed: int = 7,
+    width: int = 180,
+    height: int = 90,
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
+    tolerance: int = 2,
+    min_overlap_pixels: int = 14,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    coverage_threshold: float = 0.93,
+    core_raw_coverage_threshold: float | None = None,
+    gap_fill_radius: int = 2,
+    beam_width: int = 32,
+    max_complete_core_candidates: int = 512,
+    max_partial_core_candidates: int = 128,
+    candidate_states_per_pair_score: float = V433_SEED7_NORMALIZED_RATES[
+        "candidate_states_per_pair_score"
+    ],
+    gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "gap_states_per_fragment"
+    ],
+    partial_gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "partial_gap_states_per_fragment"
+    ],
+    cover_nodes_per_note: float = V433_SEED7_NORMALIZED_RATES[
+        "cover_nodes_per_note"
+    ],
+) -> dict:
+    """Run one production-equivalent trial plus a truth-restricted funnel audit."""
+
+    config = FractalTearConfig(
+        notes=notes,
+        pieces_per_note=pieces_per_note,
+        width=width,
+        height=height,
+        seed=seed,
+        serial_ocr_rate=0.0,
+    )
+    result = run_tearfit_trial(
+        config,
+        algorithm="v43_routed",
+        route_fragment_fraction_threshold=route_fragment_fraction_threshold,
+        tolerance=tolerance,
+        min_overlap_pixels=min_overlap_pixels,
+        min_effectiveness=min_effectiveness,
+        automatic_effectiveness=automatic_effectiveness,
+        min_contiguous_pixels=min_contiguous_pixels,
+        automatic_contiguous_pixels=automatic_contiguous_pixels,
+        coverage_threshold=coverage_threshold,
+        core_raw_coverage_threshold=core_raw_coverage_threshold,
+        gap_fill_radius=gap_fill_radius,
+        beam_width=beam_width,
+        max_complete_core_candidates=max_complete_core_candidates,
+        max_partial_core_candidates=max_partial_core_candidates,
+        gap_proposal_pool="weak_pair",
+        use_labels=False,
+        candidate_time_limit_seconds=None,
+        candidate_state_limit=None,
+        candidate_states_per_pair_score=candidate_states_per_pair_score,
+        partial_gap_time_limit_seconds=None,
+        gap_state_limit=None,
+        gap_states_per_fragment=gap_states_per_fragment,
+        partial_gap_state_limit=None,
+        partial_gap_states_per_fragment=partial_gap_states_per_fragment,
+        cover_time_limit_seconds=None,
+        cover_node_limit=None,
+        cover_nodes_per_note=cover_nodes_per_note,
+        diagnostic_candidate_funnel=True,
+    )
+    snapshot = _v44_trial_snapshot(result)
+    funnel = result.candidate_funnel
+    categories = dict(funnel["category_counts"])
+    unresolved = {
+        key: value
+        for key, value in categories.items()
+        if key not in {"core_exact", "production_gap_exact"}
+    }
+    max_count = max(unresolved.values(), default=0)
+    dominant = sorted(
+        key for key, value in unresolved.items() if value == max_count and value > 0
+    )
+    return {
+        "config": {
+            "schema_version": "4.4.0-diagnostic",
+            "diagnostic": "truth_restricted_candidate_funnel",
+            "notes": notes,
+            "pieces_per_note": pieces_per_note,
+            "seed": seed,
+            "algorithm": "v43_routed",
+            "gap_proposal_pool": "weak_pair",
+            "max_complete_core_candidates": max_complete_core_candidates,
+            "max_partial_core_candidates": max_partial_core_candidates,
+            "simulation_boundary": (
+                "placed fragments; simulator note_id is used only after production "
+                "candidate generation to replay missing notes"
+            ),
+        },
+        "trial": snapshot,
+        "assessment": {
+            "category_counts": categories,
+            "unresolved_category_counts": unresolved,
+            "dominant_unresolved_categories": dominant,
+            "statement": (
+                "The category counts localize missing exact candidates among core "
+                "base construction, base selection, whole-assembly scoring, and "
+                "cross-note beam competition without feeding truth to production."
+            ),
+        },
+    }
+
+
+def run_v44_core_connectivity_diagnostic(
+    *,
+    notes: int = 100,
+    pieces_per_note: int = 24,
+    seed: int = 7,
+    width: int = 180,
+    height: int = 90,
+    tolerance: int = 2,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    core_raw_coverage_threshold: float = 0.78,
+) -> dict:
+    """Audit whether automatic true-edge components can reach the core threshold."""
+
+    started = monotonic()
+    config = FractalTearConfig(
+        notes=notes,
+        pieces_per_note=pieces_per_note,
+        width=width,
+        height=height,
+        seed=seed,
+        serial_ocr_rate=0.0,
+    )
+    _template, fragments = make_fractal_tear_fragments(config)
+    scoring_started = monotonic()
+    scores, _accepted = score_absolute_tear_pairs(
+        fragments,
+        tolerance=tolerance,
+        use_labels=False,
+        scoring="effectiveness",
+        min_effectiveness=min_effectiveness,
+        automatic_effectiveness=automatic_effectiveness,
+        min_contiguous_pixels=min_contiguous_pixels,
+        automatic_contiguous_pixels=automatic_contiguous_pixels,
+    )
+    pair_scoring_seconds = monotonic() - scoring_started
+    connectivity = diagnose_true_core_connectivity(
+        fragments,
+        scores,
+        minimum_raw_coverage=core_raw_coverage_threshold,
+    )
+    return {
+        "config": {
+            "schema_version": "4.4.0-diagnostic",
+            "diagnostic": "true_core_connectivity",
+            "notes": notes,
+            "pieces_per_note": pieces_per_note,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "tolerance": tolerance,
+            "min_effectiveness": min_effectiveness,
+            "automatic_effectiveness": automatic_effectiveness,
+            "min_contiguous_pixels": min_contiguous_pixels,
+            "automatic_contiguous_pixels": automatic_contiguous_pixels,
+            "core_raw_coverage_threshold": core_raw_coverage_threshold,
+            "simulation_boundary": (
+                "placed fragments; note_id only filters true automatic edges for "
+                "post-hoc connected-component analysis"
+            ),
+        },
+        "pair_scores": len(scores),
+        "connectivity": connectivity,
+        "timings": {
+            "pair_scoring": pair_scoring_seconds,
+            "total": monotonic() - started,
+        },
     }

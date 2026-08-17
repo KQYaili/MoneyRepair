@@ -4,7 +4,8 @@ import argparse
 from hashlib import sha256
 import json
 from math import ceil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from itertools import combinations
 from pathlib import Path
 from time import monotonic
 from typing import Iterable
@@ -35,8 +36,16 @@ def binary_dilation_3x3(mask: np.ndarray) -> np.ndarray:
 TEARFIT_SEED_STRATEGIES = ("anchor_only", "anchor_priority", "all")
 TEARFIT_COVER_OBJECTIVES = ("count_then_score", "score_then_count")
 TEARFIT_EDGE_SCORING = ("overlap", "effectiveness")
-TEARFIT_ALGORITHMS = ("baseline", "effectiveness", "effectiveness_gap", "v43_routed")
+TEARFIT_ALGORITHMS = (
+    "baseline",
+    "effectiveness",
+    "effectiveness_gap",
+    "v43_routed",
+    "v44_gap_first",
+)
+TEARFIT_GAP_ROUTING = ("complexity", "uniform")
 TEARFIT_EVIDENCE_LEVELS = ("automatic", "review", "insufficient-evidence")
+TEARFIT_GAP_PROPOSAL_POOLS = ("weak_pair", "boundary_contact")
 TEARFIT_V43_FINE_FRACTION = 0.05
 
 
@@ -103,6 +112,52 @@ class GroupGapEvidence:
     unmatched_perimeter_ratio: float
     pose_uncertainty: float
     score: float
+    evidence_level: str
+
+
+@dataclass(frozen=True)
+class ResidualGapRegion:
+    """An explicit uncovered gap left by a high-confidence assembly core.
+
+    The mask is the connected component of the note-frame complement of a core
+    union. Geometry here is never synthesised: the region only records where
+    real fragment evidence is still missing, which fragments border it, and how
+    hard it is expected to be to close.
+    """
+
+    mask: np.ndarray
+    area: int
+    perimeter_pixels: int
+    component_id: int
+    adjacent_fragment_indices: tuple[int, ...]
+    complexity: float = 0.0
+    routing_class: str = "simple"
+
+
+@dataclass(frozen=True)
+class GapProposalEvaluation:
+    """Proposal-effectiveness / tolerance verdict for one fragment-set proposal.
+
+    ``effectiveness`` is the ``E_proposal`` ratio: the closed exposed-perimeter
+    plus independent seam support divided by the physically penalised terms
+    (slivers, tolerance instability, residual gap, newly exposed perimeter).
+    """
+
+    accepted: bool
+    reason: str
+    effectiveness: float
+    closed_perimeter_delta: float
+    independent_seam_support: float
+    sliver_area: float
+    tolerance_instability: float
+    residual_gap_delta: float
+    newly_exposed_perimeter: float
+    net_new_area: int
+    overlap_pixels: int
+    coverage: float
+    raw_coverage: float
+    support_pixels: int
+    evidence_score: float
     evidence_level: str
 
 
@@ -178,6 +233,8 @@ class TearFitTrialResult:
     stage_timings: dict[str, float] = field(default_factory=dict)
     diagnostic_removed_false_accepted_edges: int = 0
     diagnostic_removed_false_core_edges: int = 0
+    candidate_funnel: dict = field(default_factory=dict)
+    proposal_efficiency: float = 0.0
 
     def to_jsonable(self) -> dict:
         return {
@@ -217,6 +274,8 @@ class TearFitTrialResult:
             "diagnostic_removed_false_core_edges": (
                 self.diagnostic_removed_false_core_edges
             ),
+            "candidate_funnel": self.candidate_funnel,
+            "proposal_efficiency": self.proposal_efficiency,
             "edge_decisions": dict(self.edge_decisions),
             "candidate_decisions": dict(self.candidate_decisions),
             "search_stats": self.search_stats,
@@ -874,6 +933,90 @@ def _edge_graph(
         graph[edge.right][edge.left] = edge
         lookup[(min(edge.left, edge.right), max(edge.left, edge.right))] = edge
     return graph, lookup
+
+
+def diagnose_true_core_connectivity(
+    fragments: list[Fragment],
+    scored_edges: list[TearFitEdge],
+    *,
+    minimum_raw_coverage: float,
+) -> dict:
+    """Measure simulator-truth connectivity of the automatic core-edge graph."""
+
+    if not (0.0 < minimum_raw_coverage <= 1.0):
+        raise ValueError("minimum_raw_coverage must be in (0, 1]")
+    if any("note_id" not in fragment.meta for fragment in fragments):
+        raise ValueError("core connectivity requires simulated note_id ground truth")
+
+    note_indices: dict[str, list[int]] = {}
+    for index, fragment in enumerate(fragments):
+        note_indices.setdefault(str(fragment.meta["note_id"]), []).append(index)
+    adjacency: list[set[int]] = [set() for _ in fragments]
+    automatic_true_edges = 0
+    for edge in scored_edges:
+        if edge.evidence_level != "automatic":
+            continue
+        left_note = str(fragments[edge.left].meta["note_id"])
+        right_note = str(fragments[edge.right].meta["note_id"])
+        if left_note != right_note:
+            continue
+        adjacency[edge.left].add(edge.right)
+        adjacency[edge.right].add(edge.left)
+        automatic_true_edges += 1
+
+    total_area = fragments[0].mask.size if fragments else 0
+    rows: list[dict] = []
+    for note_id, indices in sorted(note_indices.items()):
+        remaining = set(indices)
+        components: list[list[int]] = []
+        while remaining:
+            start = min(remaining)
+            stack = [start]
+            remaining.remove(start)
+            component: list[int] = []
+            while stack:
+                current = stack.pop()
+                component.append(current)
+                neighbours = adjacency[current] & remaining
+                remaining.difference_update(neighbours)
+                stack.extend(sorted(neighbours, reverse=True))
+            components.append(component)
+        component_rows = []
+        for component in components:
+            union = np.logical_or.reduce(
+                [fragments[index].mask for index in component]
+            )
+            component_rows.append(
+                {
+                    "pieces": len(component),
+                    "raw_coverage": int(union.sum()) / float(max(1, total_area)),
+                }
+            )
+        component_rows.sort(
+            key=lambda item: (-item["raw_coverage"], -item["pieces"])
+        )
+        best = component_rows[0]
+        rows.append(
+            {
+                "note_id": note_id,
+                "components": len(component_rows),
+                "largest_component_pieces": best["pieces"],
+                "largest_component_raw_coverage": best["raw_coverage"],
+                "recordable_at_threshold": (
+                    best["raw_coverage"] >= minimum_raw_coverage
+                ),
+            }
+        )
+    return {
+        "simulation_truth_only": True,
+        "minimum_raw_coverage": minimum_raw_coverage,
+        "automatic_true_edges": automatic_true_edges,
+        "recordable_notes": sum(row["recordable_at_threshold"] for row in rows),
+        "unrecordable_notes": sum(
+            not row["recordable_at_threshold"] for row in rows
+        ),
+        "notes": rows,
+    }
 
 
 def _group_labels(fragments: list[Fragment], indices: Iterable[int]) -> tuple[str, ...]:
@@ -1548,6 +1691,7 @@ def augment_candidates_with_group_gap(
     core_min_pieces: int = 2,
     beam_width: int = 8,
     max_base_candidates: int = 512,
+    proposal_pool: str = "weak_pair",
     min_group_gap_score: float = 0.35,
     automatic_group_gap_score: float = 0.55,
     max_group_overlap_pixels: int = 0,
@@ -1561,7 +1705,10 @@ def augment_candidates_with_group_gap(
     in the output. Lower-coverage cores are expansion seeds only. The second
     stage searches for fragments whose joint fit against the whole core is
     stronger than any individual weak seam, so enabling it cannot erase a
-    complete core-only solution.
+    complete core-only solution. ``weak_pair`` preserves the v4.3 proposal
+    gate. ``boundary_contact`` lets every non-overlapping boundary-contact pair
+    enter the same unchanged whole-assembly scorer, including pairs whose
+    adaptive tear evidence was insufficient.
     """
 
     if not candidates:
@@ -1572,19 +1719,34 @@ def augment_candidates_with_group_gap(
         return []
     if max_expanded_states is not None and max_expanded_states < 1:
         raise ValueError("max_expanded_states must be positive")
+    if proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
+        raise ValueError(
+            "proposal_pool must be one of: "
+            + ", ".join(TEARFIT_GAP_PROPOSAL_POOLS)
+        )
     id_to_index = {fragment.id: index for index, fragment in enumerate(fragments)}
     eligible_gap_edges = [
         edge
         for edge in gap_edges
         if edge.contiguous_pixels >= 2 and edge.effectiveness > 0.0
     ]
-    gap_graph, gap_lookup = _edge_graph(eligible_gap_edges, len(fragments))
+    gap_lookup = _edge_graph(eligible_gap_edges, len(fragments))[1]
+    proposal_edges = (
+        eligible_gap_edges
+        if proposal_pool == "weak_pair"
+        else [edge for edge in gap_edges if edge.overlap_pixels > 0]
+    )
+    proposal_graph = _edge_graph(proposal_edges, len(fragments))[0]
     boundary_evidence = tear_boundary_evidence(fragments, tolerance=tolerance)
     total_area = fragments[0].mask.size
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     expanded_states = 0
     state_limit_reached = False
     time_limit_reached = False
+    proposal_evaluations = 0
+    accepted_proposals = 0
+    no_weak_edge_evaluations = 0
+    accepted_no_weak_edge_proposals = 0
 
     def budget_exhausted() -> bool:
         nonlocal state_limit_reached, time_limit_reached
@@ -1654,7 +1816,7 @@ def augment_candidates_with_group_gap(
                 expanded_states += 1
                 pool: set[int] = set()
                 for member in state_info.state:
-                    pool.update(gap_graph[member])
+                    pool.update(proposal_graph[member])
                 pool.difference_update(state_info.state)
                 for neighbour in pool:
                     new_state = frozenset((*state_info.state, neighbour))
@@ -1667,6 +1829,13 @@ def augment_candidates_with_group_gap(
                         and neighbour_label not in state_info.labels
                     ):
                         continue
+                    proposal_evaluations += 1
+                    has_weak_edge = any(
+                        (min(member, neighbour), max(member, neighbour)) in gap_lookup
+                        for member in state_info.state
+                    )
+                    if not has_weak_edge:
+                        no_weak_edge_evaluations += 1
                     evidence = score_fragment_against_assembly(
                         fragments,
                         state_info.state,
@@ -1680,6 +1849,9 @@ def augment_candidates_with_group_gap(
                     )
                     if evidence.evidence_level == "insufficient-evidence":
                         continue
+                    accepted_proposals += 1
+                    if not has_weak_edge:
+                        accepted_no_weak_edge_proposals += 1
                     new_area_sum = state_info.area_sum + fragments[neighbour].area
                     new_union = state_info.union | fragments[neighbour].mask
                     overlap = new_area_sum - int(new_union.sum())
@@ -1760,8 +1932,944 @@ def augment_candidates_with_group_gap(
             expanded_states=expanded_states,
             state_limit_reached=state_limit_reached,
             time_limit_reached=time_limit_reached,
+            weak_pair_edges=len(eligible_gap_edges),
+            proposal_edges=len(proposal_edges),
+            proposal_evaluations=proposal_evaluations,
+            accepted_proposals=accepted_proposals,
+            no_weak_edge_evaluations=no_weak_edge_evaluations,
+            accepted_no_weak_edge_proposals=accepted_no_weak_edge_proposals,
         )
     return sorted(output.values(), key=lambda item: (-item.score, item.fragment_ids))
+
+
+def _connected_components(
+    mask: np.ndarray, *, connectivity: int = 4
+) -> list[np.ndarray]:
+    """Return the connected components of a boolean mask via numpy flood-fill.
+
+    Deliberately scipy-free: an explicit iterative stack walk keeps the kernel
+    dependency-light and mirrors :func:`_largest_connected_support`.
+    """
+
+    mask = mask.astype(bool)
+    if mask.ndim != 2 or not mask.any():
+        return []
+    if connectivity not in (4, 8):
+        raise ValueError("connectivity must be 4 or 8")
+    height, width = mask.shape
+    visited = np.zeros(mask.shape, dtype=bool)
+    if connectivity == 8:
+        offsets = (
+            (-1, -1), (-1, 0), (-1, 1), (0, -1),
+            (0, 1), (1, -1), (1, 0), (1, 1),
+        )
+    else:
+        offsets = ((-1, 0), (1, 0), (0, -1), (0, 1))
+    components: list[np.ndarray] = []
+    for seed in np.argwhere(mask):
+        sy = int(seed[0])
+        sx = int(seed[1])
+        if visited[sy, sx]:
+            continue
+        component = np.zeros(mask.shape, dtype=bool)
+        stack = [(sy, sx)]
+        visited[sy, sx] = True
+        while stack:
+            y, x = stack.pop()
+            component[y, x] = True
+            for dy, dx in offsets:
+                ny = y + dy
+                nx = x + dx
+                if (
+                    0 <= ny < height
+                    and 0 <= nx < width
+                    and mask[ny, nx]
+                    and not visited[ny, nx]
+                ):
+                    visited[ny, nx] = True
+                    stack.append((ny, nx))
+        components.append(component)
+    return components
+
+
+def _exposed_perimeter(mask: np.ndarray) -> int:
+    """Count placed tear-boundary pixels (clean note-frame edges excluded)."""
+
+    return int(np.count_nonzero(tear_boundary(mask)))
+
+
+def _region_boundary_pixels(mask: np.ndarray) -> int:
+    """Count all boundary pixels of a region, including note-frame contact."""
+
+    mask = mask.astype(bool)
+    if not mask.any():
+        return 0
+    padded = np.pad(mask, 1, constant_values=False)
+    up = padded[:-2, 1:-1]
+    down = padded[2:, 1:-1]
+    left = padded[1:-1, :-2]
+    right = padded[1:-1, 2:]
+    interior = up & down & left & right
+    boundary = mask & ~interior
+    return int(np.count_nonzero(boundary))
+
+
+def _min_informative_scale(tolerance: int, *, fray_layers: int = 0) -> int:
+    """Minimum informative gap scale derived from tear tolerance and fray.
+
+    A proposal thinner than one tolerance-diameter neighbourhood (optionally
+    enlarged by the simulated fray depth) carries no reliable tear evidence.
+    This is a physical-tolerance floor and deliberately ignores locator error.
+    """
+
+    span = 2 * max(0, int(tolerance)) + 1
+    return int(max(1, span * span + max(0, int(fray_layers)) * span))
+
+
+def _gap_complexity_score(region: ResidualGapRegion) -> float:
+    """Continuous difficulty proxy from area, perimeter ratio and neighbours."""
+
+    area = max(1, region.area)
+    perimeter_ratio = region.perimeter_pixels / float(area)
+    neighbours = len(region.adjacent_fragment_indices)
+    return float(0.5 * perimeter_ratio + 0.15 * neighbours + area / 500.0)
+
+
+def classify_gap_complexity(
+    region: ResidualGapRegion,
+    *,
+    simple_max_area: int = 48,
+    complex_min_area: int = 220,
+    simple_max_neighbors: int = 2,
+    complex_min_neighbors: int = 4,
+    complex_perimeter_ratio: float = 1.6,
+) -> str:
+    """Route a residual gap to ``simple`` / ``moderate`` / ``complex`` work."""
+
+    area = max(1, region.area)
+    perimeter_ratio = region.perimeter_pixels / float(area)
+    neighbours = len(region.adjacent_fragment_indices)
+    if area >= complex_min_area or neighbours >= complex_min_neighbors:
+        return "complex"
+    if (
+        area <= simple_max_area
+        and neighbours <= simple_max_neighbors
+        and perimeter_ratio <= complex_perimeter_ratio
+    ):
+        return "simple"
+    return "moderate"
+
+
+def compute_residual_gap_components(
+    fragments: list[Fragment],
+    core_candidates: list[AssemblyCandidate],
+    *,
+    coverage_threshold: float = 0.93,
+    gap_fill_radius: int = 2,
+    max_core_candidates: int = 8,
+    boundary_touch_radius: int = 1,
+    connectivity: int = 4,
+    min_region_area: int = 1,
+) -> list[ResidualGapRegion]:
+    """Represent the residual gaps left by the highest-confidence cores.
+
+    The complement of a core union within the shared note frame is decomposed
+    into connected components. Each component is an explicit place where real
+    fragment evidence is still missing; no tear geometry is ever synthesised.
+    """
+
+    if not fragments or not core_candidates:
+        return []
+    id_to_index = {fragment.id: index for index, fragment in enumerate(fragments)}
+    frame_shape = fragments[0].mask.shape
+    ranked = sorted(
+        core_candidates,
+        key=lambda item: (-item.raw_coverage, -item.score, -len(item.fragment_ids)),
+    )
+    dilated_boundaries = [
+        _dilate(tear_boundary(fragment.mask), boundary_touch_radius)
+        for fragment in fragments
+    ]
+    regions: list[ResidualGapRegion] = []
+    seen_signatures: set[bytes] = set()
+    component_id = 0
+    for core in ranked[: max(1, max_core_candidates)]:
+        try:
+            indices = [id_to_index[fragment_id] for fragment_id in core.fragment_ids]
+        except KeyError:
+            continue
+        union = np.zeros(frame_shape, dtype=bool)
+        for index in indices:
+            union |= fragments[index].mask
+        complement = ~union
+        for component in _connected_components(complement, connectivity=connectivity):
+            area = int(np.count_nonzero(component))
+            if area < min_region_area:
+                continue
+            signature = np.packbits(component.reshape(-1)).tobytes()
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            dilated_component = _dilate(component, boundary_touch_radius)
+            adjacent = tuple(
+                sorted(
+                    index
+                    for index in range(len(fragments))
+                    if np.any(dilated_boundaries[index] & component)
+                    or np.any(dilated_component & fragments[index].mask)
+                )
+            )
+            region = ResidualGapRegion(
+                mask=component,
+                area=area,
+                perimeter_pixels=_region_boundary_pixels(component),
+                component_id=component_id,
+                adjacent_fragment_indices=adjacent,
+            )
+            region = replace(
+                region,
+                complexity=_gap_complexity_score(region),
+                routing_class=classify_gap_complexity(region),
+            )
+            regions.append(region)
+            component_id += 1
+    return regions
+
+
+def evaluate_gap_proposal(
+    fragments: list[Fragment],
+    base_state: frozenset[int],
+    base_union: np.ndarray,
+    added_indices: tuple[int, ...],
+    region: ResidualGapRegion,
+    *,
+    gap_lookup: dict[tuple[int, int], TearFitEdge],
+    boundary_evidence: list[TearBoundaryEvidence],
+    tolerance: int = 2,
+    coverage_threshold: float = 0.93,
+    gap_fill_radius: int = 2,
+    min_informative_scale: int | None = None,
+    max_group_overlap_pixels: int = 0,
+    base_support: int = 0,
+    base_evidence_score: float = 1.0,
+    base_evidence_level: str = "automatic",
+    min_group_gap_score: float = 0.35,
+    automatic_group_gap_score: float = 0.55,
+    alpha: float = 1.0,
+    gamma: float = 1.0,
+    delta: float = 1.0,
+    eps: float = 1.0,
+    zeta: float = 1.0,
+    denom_epsilon: float = 1.0,
+    min_proposal_effectiveness: float = 0.0,
+) -> GapProposalEvaluation:
+    """Score a whole-assembly fragment-set proposal against a residual gap.
+
+    Insufficient-evidence seams are admitted as *soft* evidence: they are not
+    hard-rejected, they only weaken ``E_proposal``. Sub-tolerance slivers and
+    overlapping placements are rejected on physical grounds.
+    """
+
+    if min_informative_scale is None:
+        min_informative_scale = _min_informative_scale(tolerance)
+    total_area = float(fragments[0].mask.size)
+    base_area = int(np.count_nonzero(base_union))
+    base_perimeter = _exposed_perimeter(base_union)
+    state = set(base_state)
+    union = base_union.copy()
+    seam_total = 0
+    matched_pixels_total = 0
+    unmatched_perimeter_total = 0.0
+    unmatched_ratio_total = 0.0
+    pose_total = 0.0
+    sliver_area = 0.0
+    sum_added_area = 0
+    evidence_scores: list[float] = []
+    levels: list[str] = []
+    for index in added_indices:
+        fragment = fragments[index]
+        evidence = score_fragment_against_assembly(
+            fragments,
+            frozenset(state),
+            union,
+            index,
+            gap_lookup,
+            boundary_evidence,
+            tolerance=tolerance,
+            min_score=min_group_gap_score,
+            automatic_score=automatic_group_gap_score,
+        )
+        seam_total += evidence.seam_count
+        matched_pixels_total += evidence.matched_pixels
+        boundary_pixels = int(np.count_nonzero(boundary_evidence[index].boundary_mask))
+        unmatched_perimeter_total += evidence.unmatched_perimeter_ratio * boundary_pixels
+        unmatched_ratio_total += evidence.unmatched_perimeter_ratio
+        pose_total += evidence.pose_uncertainty
+        evidence_scores.append(evidence.score)
+        levels.append(evidence.evidence_level)
+        if fragment.area < min_informative_scale:
+            sliver_area += float(fragment.area)
+        sum_added_area += fragment.area
+        state.add(index)
+        union = union | fragment.mask
+    new_area = int(np.count_nonzero(union))
+    net_new_area = new_area - base_area
+    overlap_pixels = (base_area + sum_added_area) - new_area
+    closed_perimeter_delta = float(base_perimeter - _exposed_perimeter(union))
+    independent_seam_support = float(seam_total)
+    tolerance_instability = float(pose_total + unmatched_ratio_total)
+    residual_gap_delta = float(int(np.count_nonzero(region.mask & ~union)))
+    newly_exposed_perimeter = float(unmatched_perimeter_total)
+    numerator = closed_perimeter_delta + alpha * independent_seam_support
+    denominator = (
+        gamma * sliver_area
+        + delta * tolerance_instability
+        + eps * residual_gap_delta
+        + zeta * newly_exposed_perimeter
+        + denom_epsilon
+    )
+    effectiveness = numerator / denominator if denominator > 0.0 else 0.0
+    raw_coverage = new_area / total_area
+    coverage = (
+        int(_dilate(union, gap_fill_radius).sum()) / total_area
+        if raw_coverage >= coverage_threshold - 0.15
+        else raw_coverage
+    )
+    support_pixels = base_support + matched_pixels_total
+    evidence_score = (
+        min([base_evidence_score, *evidence_scores])
+        if evidence_scores
+        else base_evidence_score
+    )
+    if base_evidence_level == "automatic" and all(
+        level == "automatic" for level in levels
+    ):
+        evidence_level = "automatic"
+    else:
+        evidence_level = "review"
+    reason = "accepted"
+    accepted = True
+    if not added_indices:
+        accepted = False
+        reason = "empty_proposal"
+    elif overlap_pixels > max_group_overlap_pixels:
+        accepted = False
+        reason = "overlap"
+    elif net_new_area < min_informative_scale:
+        accepted = False
+        reason = "sub_tolerance_sliver"
+    elif effectiveness < min_proposal_effectiveness:
+        accepted = False
+        reason = "low_effectiveness"
+    return GapProposalEvaluation(
+        accepted=accepted,
+        reason=reason,
+        effectiveness=float(effectiveness),
+        closed_perimeter_delta=closed_perimeter_delta,
+        independent_seam_support=independent_seam_support,
+        sliver_area=float(sliver_area),
+        tolerance_instability=tolerance_instability,
+        residual_gap_delta=residual_gap_delta,
+        newly_exposed_perimeter=newly_exposed_perimeter,
+        net_new_area=int(net_new_area),
+        overlap_pixels=int(overlap_pixels),
+        coverage=float(coverage),
+        raw_coverage=float(raw_coverage),
+        support_pixels=int(support_pixels),
+        evidence_score=float(evidence_score),
+        evidence_level=evidence_level,
+    )
+
+
+def augment_candidates_gap_first(
+    fragments: list[Fragment],
+    core_candidates: list[AssemblyCandidate],
+    edges: list[TearFitEdge],
+    gap_edges: list[TearFitEdge],
+    residual_regions: list[ResidualGapRegion],
+    *,
+    tolerance: int = 2,
+    coverage_threshold: float = 0.93,
+    gap_fill_radius: int = 2,
+    max_pieces: int = 12,
+    core_min_pieces: int = 2,
+    max_base_candidates: int = 512,
+    proposal_pool: str = "boundary_contact",
+    gap_routing: str = "complexity",
+    min_group_gap_score: float = 0.35,
+    automatic_group_gap_score: float = 0.55,
+    max_group_overlap_pixels: int = 0,
+    fray_layers: int = 0,
+    min_informative_scale: int | None = None,
+    min_proposal_effectiveness: float = 0.0,
+    simple_top_k: int = 4,
+    moderate_beam_width: int = 6,
+    moderate_max_set_size: int = 3,
+    complex_window: int = 6,
+    complex_max_set_size: int = 3,
+    max_universe: int = 12,
+    alpha: float = 1.0,
+    gamma: float = 1.0,
+    delta: float = 1.0,
+    eps: float = 1.0,
+    zeta: float = 1.0,
+    denom_epsilon: float = 1.0,
+    time_limit_seconds: float | None = 20.0,
+    max_expanded_states: int | None = None,
+    search_stats: dict[str, int | bool] | None = None,
+) -> list[AssemblyCandidate]:
+    """Gap-first candidate construction over explicit residual regions.
+
+    High-confidence complete cores are always preserved. Each residual gap is
+    attached to the most-complete core whose complement still contains it, and
+    per-gap routing proposes whole-assembly fragment sets: single fragments for
+    ``simple`` gaps, a small subset beam for ``moderate`` gaps, and a windowed
+    local exact cover for ``complex`` gaps. Every proposal is filtered by
+    :func:`evaluate_gap_proposal` (proposal effectiveness + tolerance floor)
+    before entering the same candidate list consumed by the exact-cover pass.
+    """
+
+    if proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
+        raise ValueError(
+            "proposal_pool must be one of: " + ", ".join(TEARFIT_GAP_PROPOSAL_POOLS)
+        )
+    if gap_routing not in TEARFIT_GAP_ROUTING:
+        raise ValueError(
+            "gap_routing must be one of: " + ", ".join(TEARFIT_GAP_ROUTING)
+        )
+    if max_expanded_states is not None and max_expanded_states < 1:
+        raise ValueError("max_expanded_states must be positive")
+
+    routing_counts = {"simple": 0, "moderate": 0, "complex": 0}
+    for region in residual_regions:
+        routing_counts[region.routing_class] = (
+            routing_counts.get(region.routing_class, 0) + 1
+        )
+    output: dict[tuple[str, ...], AssemblyCandidate] = {
+        _candidate_key(candidate.fragment_ids): candidate
+        for candidate in core_candidates
+        if candidate.coverage >= coverage_threshold
+    }
+    if not core_candidates or not residual_regions:
+        if search_stats is not None:
+            search_stats.update(
+                expanded_states=0,
+                state_limit_reached=False,
+                time_limit_reached=False,
+                gap_regions=len(residual_regions),
+                gap_proposals_made=0,
+                accepted_proposals=0,
+                proposal_pool_size=0,
+                routing_simple=routing_counts.get("simple", 0),
+                routing_moderate=routing_counts.get("moderate", 0),
+                routing_complex=routing_counts.get("complex", 0),
+            )
+        return sorted(
+            output.values(), key=lambda item: (-item.score, item.fragment_ids)
+        )
+
+    if min_informative_scale is None:
+        min_informative_scale = _min_informative_scale(
+            tolerance, fray_layers=fray_layers
+        )
+    id_to_index = {fragment.id: index for index, fragment in enumerate(fragments)}
+    boundary_evidence = tear_boundary_evidence(fragments, tolerance=tolerance)
+    gap_lookup = _edge_graph(list(edges) + list(gap_edges), len(fragments))[1]
+
+    viable_bases: list[tuple[AssemblyCandidate, frozenset[int], np.ndarray]] = []
+    base_order = sorted(
+        core_candidates,
+        key=lambda item: (-item.raw_coverage, -item.score, -len(item.fragment_ids)),
+    )[: max(1, max_base_candidates)]
+    for base in base_order:
+        try:
+            base_state = frozenset(
+                id_to_index[fragment_id] for fragment_id in base.fragment_ids
+            )
+        except KeyError:
+            continue
+        if base.coverage >= coverage_threshold:
+            continue
+        if len(base_state) < core_min_pieces or len(base_state) >= max_pieces:
+            continue
+        base_union = np.zeros(fragments[0].mask.shape, dtype=bool)
+        for index in base_state:
+            base_union |= fragments[index].mask
+        viable_bases.append((base, base_state, base_union))
+
+    deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
+    expanded_states = 0
+    state_limit_reached = False
+    time_limit_reached = False
+    proposals_made = 0
+    accepted_proposals = 0
+    proposal_pool_size = 0
+
+    def budget_exhausted() -> bool:
+        nonlocal state_limit_reached, time_limit_reached
+        if max_expanded_states is not None and expanded_states >= max_expanded_states:
+            state_limit_reached = True
+            return True
+        if deadline is not None and monotonic() >= deadline:
+            time_limit_reached = True
+            return True
+        return False
+
+    def emit(
+        base: AssemblyCandidate,
+        base_state: frozenset[int],
+        added: tuple[int, ...],
+        evaluation: GapProposalEvaluation,
+    ) -> None:
+        if evaluation.coverage < coverage_threshold:
+            return
+        combined = frozenset(base_state) | set(added)
+        if len(combined) > max_pieces:
+            return
+        ids = tuple(sorted(fragments[index].id for index in combined))
+        labels = set(base.labels)
+        for index in added:
+            label = fragments[index].label
+            if label:
+                labels.add(label)
+        gap_steps = base.gap_steps + len(added)
+        score = (
+            evaluation.coverage * 10_000.0
+            + evaluation.support_pixels
+            + 100.0 * len(labels)
+            + 250.0 * evaluation.evidence_score
+            - 25.0 * gap_steps
+        )
+        candidate = AssemblyCandidate(
+            fragment_ids=ids,
+            coverage=evaluation.coverage,
+            raw_coverage=evaluation.raw_coverage,
+            score=score,
+            support_pixels=evaluation.support_pixels,
+            labels=tuple(sorted(labels)),
+            base_score=score,
+            evidence_score=evaluation.evidence_score,
+            evidence_level=evaluation.evidence_level,
+            gap_steps=gap_steps,
+        )
+        previous = output.get(ids)
+        if previous is None or candidate.score > previous.score:
+            output[ids] = candidate
+
+    def build_universe(
+        base_state: frozenset[int], region: ResidualGapRegion
+    ) -> list[int]:
+        base_labels = {
+            fragments[index].label for index in base_state if fragments[index].label
+        }
+        pool: dict[int, int] = {}
+        candidate_indices = set(region.adjacent_fragment_indices)
+        for index in range(len(fragments)):
+            if index in base_state:
+                continue
+            overlap = int(np.count_nonzero(fragments[index].mask & region.mask))
+            touches = index in candidate_indices
+            if overlap <= 0 and not touches:
+                continue
+            label = fragments[index].label
+            if label and base_labels and label not in base_labels:
+                continue
+            pool[index] = overlap
+        ranked = sorted(pool, key=lambda index: (-pool[index], index))
+        return ranked[: max(1, max_universe)]
+
+    def evaluate(
+        base: AssemblyCandidate,
+        base_state: frozenset[int],
+        base_union: np.ndarray,
+        region: ResidualGapRegion,
+        added: tuple[int, ...],
+    ) -> GapProposalEvaluation:
+        nonlocal expanded_states, proposals_made, accepted_proposals
+        expanded_states += 1
+        proposals_made += 1
+        evaluation = evaluate_gap_proposal(
+            fragments,
+            base_state,
+            base_union,
+            added,
+            region,
+            gap_lookup=gap_lookup,
+            boundary_evidence=boundary_evidence,
+            tolerance=tolerance,
+            coverage_threshold=coverage_threshold,
+            gap_fill_radius=gap_fill_radius,
+            min_informative_scale=min_informative_scale,
+            max_group_overlap_pixels=max_group_overlap_pixels,
+            base_support=base.support_pixels,
+            base_evidence_score=base.evidence_score,
+            base_evidence_level=base.evidence_level,
+            min_group_gap_score=min_group_gap_score,
+            automatic_group_gap_score=automatic_group_gap_score,
+            alpha=alpha,
+            gamma=gamma,
+            delta=delta,
+            eps=eps,
+            zeta=zeta,
+            denom_epsilon=denom_epsilon,
+            min_proposal_effectiveness=min_proposal_effectiveness,
+        )
+        if evaluation.accepted:
+            accepted_proposals += 1
+        return evaluation
+
+    for region in residual_regions:
+        if budget_exhausted():
+            break
+        base_entry = None
+        for base, base_state, base_union in viable_bases:
+            if int(np.count_nonzero(region.mask & base_union)) == 0:
+                base_entry = (base, base_state, base_union)
+                break
+        if base_entry is None:
+            continue
+        base, base_state, base_union = base_entry
+        universe = build_universe(base_state, region)
+        proposal_pool_size += len(universe)
+        if not universe:
+            continue
+        remaining = max_pieces - len(base_state)
+        if remaining < 1:
+            continue
+        routing = region.routing_class if gap_routing == "complexity" else "moderate"
+
+        accepted_singles: list[tuple[float, int]] = []
+        for index in universe:
+            if budget_exhausted():
+                break
+            evaluation = evaluate(base, base_state, base_union, region, (index,))
+            if evaluation.accepted:
+                accepted_singles.append((evaluation.effectiveness, index))
+                emit(base, base_state, (index,), evaluation)
+        accepted_singles.sort(key=lambda item: (-item[0], item[1]))
+
+        if routing == "simple":
+            continue
+
+        if routing == "moderate":
+            beam = [
+                (frozenset({index}), effectiveness)
+                for effectiveness, index in accepted_singles[: max(1, moderate_beam_width)]
+            ]
+            max_set = min(moderate_max_set_size, remaining)
+            for _size in range(2, max_set + 1):
+                if budget_exhausted():
+                    break
+                next_beam: dict[frozenset[int], float] = {}
+                for current, _score in beam:
+                    for index in universe:
+                        if index in current:
+                            continue
+                        if budget_exhausted():
+                            break
+                        added = tuple(sorted(current | {index}))
+                        evaluation = evaluate(
+                            base, base_state, base_union, region, added
+                        )
+                        if not evaluation.accepted:
+                            continue
+                        emit(base, base_state, added, evaluation)
+                        key = frozenset(added)
+                        if (
+                            key not in next_beam
+                            or evaluation.effectiveness > next_beam[key]
+                        ):
+                            next_beam[key] = evaluation.effectiveness
+                if not next_beam:
+                    break
+                beam = sorted(
+                    next_beam.items(), key=lambda item: -item[1]
+                )[: max(1, moderate_beam_width)]
+            continue
+
+        # complex: windowed local exact cover over the near-neighbour universe
+        window = universe[: max(1, complex_window)]
+        max_set = min(complex_max_set_size, remaining)
+        restricted: dict[tuple[str, ...], AssemblyCandidate] = {}
+        for size in range(1, max_set + 1):
+            if budget_exhausted():
+                break
+            for combo in combinations(window, size):
+                if budget_exhausted():
+                    break
+                evaluation = evaluate(base, base_state, base_union, region, combo)
+                if not evaluation.accepted:
+                    continue
+                if evaluation.coverage < coverage_threshold:
+                    continue
+                combined = frozenset(base_state) | set(combo)
+                ids = tuple(sorted(fragments[index].id for index in combined))
+                labels = set(base.labels)
+                for index in combo:
+                    if fragments[index].label:
+                        labels.add(fragments[index].label)
+                gap_steps = base.gap_steps + len(combo)
+                score = (
+                    evaluation.coverage * 10_000.0
+                    + evaluation.support_pixels
+                    + 100.0 * len(labels)
+                    + 250.0 * evaluation.evidence_score
+                    - 25.0 * gap_steps
+                )
+                restricted[ids] = AssemblyCandidate(
+                    fragment_ids=ids,
+                    coverage=evaluation.coverage,
+                    raw_coverage=evaluation.raw_coverage,
+                    score=score,
+                    support_pixels=evaluation.support_pixels,
+                    labels=tuple(sorted(labels)),
+                    base_score=score,
+                    evidence_score=evaluation.evidence_score,
+                    evidence_level=evaluation.evidence_level,
+                    gap_steps=gap_steps,
+                )
+        if restricted:
+            selected_local = select_exact_cover_candidates(
+                list(restricted.values()),
+                time_limit_seconds=None,
+                objective="score_then_count",
+            )
+            for candidate in selected_local:
+                previous = output.get(candidate.fragment_ids)
+                if previous is None or candidate.score > previous.score:
+                    output[candidate.fragment_ids] = candidate
+
+    if search_stats is not None:
+        search_stats.update(
+            expanded_states=expanded_states,
+            state_limit_reached=state_limit_reached,
+            time_limit_reached=time_limit_reached,
+            gap_regions=len(residual_regions),
+            gap_proposals_made=proposals_made,
+            accepted_proposals=accepted_proposals,
+            proposal_pool_size=proposal_pool_size,
+            routing_simple=routing_counts.get("simple", 0),
+            routing_moderate=routing_counts.get("moderate", 0),
+            routing_complex=routing_counts.get("complex", 0),
+        )
+    return sorted(output.values(), key=lambda item: (-item.score, item.fragment_ids))
+
+
+def diagnose_gap_candidate_funnel(
+    fragments: list[Fragment],
+    generated_candidates: list[AssemblyCandidate],
+    final_candidates: list[AssemblyCandidate],
+    gap_edges: list[TearFitEdge],
+    *,
+    tolerance: int = 2,
+    coverage_threshold: float = 0.93,
+    gap_fill_radius: int = 2,
+    core_min_pieces: int = 2,
+    min_group_gap_score: float = 0.35,
+    automatic_group_gap_score: float = 0.55,
+    max_partial_core_candidates: int = 128,
+    complete_base_limit: int = 512,
+    beam_width: int = 8,
+    max_bases_per_note: int = 4,
+) -> dict:
+    """Audit where simulated truth falls out of group-gap construction.
+
+    Ground-truth ``note_id`` is used only to restrict a diagnostic replay to the
+    correct note. Production scoring, thresholds, and candidate generation do
+    not consume this output.
+    """
+
+    if max_bases_per_note < 1:
+        raise ValueError("max_bases_per_note must be positive")
+    missing_truth = [
+        fragment.id for fragment in fragments if "note_id" not in fragment.meta
+    ]
+    if missing_truth:
+        raise ValueError("candidate funnel requires simulated note_id ground truth")
+
+    truth_by_key = _true_note_candidate_keys(fragments)
+    note_indices: dict[str, list[int]] = {}
+    note_by_fragment_id: dict[str, str] = {}
+    for index, fragment in enumerate(fragments):
+        note_id = str(fragment.meta["note_id"])
+        note_indices.setdefault(note_id, []).append(index)
+        note_by_fragment_id[fragment.id] = note_id
+
+    complete_cores = [
+        candidate
+        for candidate in generated_candidates
+        if candidate.coverage >= coverage_threshold
+    ]
+    partial_cores = [
+        candidate
+        for candidate in generated_candidates
+        if candidate.coverage < coverage_threshold
+    ]
+
+    def base_order(candidates: list[AssemblyCandidate]) -> list[AssemblyCandidate]:
+        return sorted(
+            candidates,
+            key=lambda item: (
+                -len(item.fragment_ids),
+                -item.raw_coverage,
+                -item.evidence_score,
+                -item.score,
+                item.fragment_ids,
+            ),
+        )
+
+    selected_complete = base_order(complete_cores)[:complete_base_limit]
+    selected_partial = base_order(partial_cores)[:max_partial_core_candidates]
+    selected_bases = [
+        ("complete", rank + 1, candidate)
+        for rank, candidate in enumerate(selected_complete)
+    ] + [
+        ("partial", rank + 1, candidate)
+        for rank, candidate in enumerate(selected_partial)
+    ]
+    all_pure_bases: dict[str, list[tuple[str, int, AssemblyCandidate]]] = {}
+    selected_pure_bases: dict[str, list[tuple[str, int, AssemblyCandidate]]] = {}
+
+    def candidate_note(candidate: AssemblyCandidate) -> str | None:
+        notes = {
+            note_by_fragment_id[fragment_id]
+            for fragment_id in candidate.fragment_ids
+        }
+        return next(iter(notes)) if len(notes) == 1 else None
+
+    for source, candidates in (
+        ("complete", base_order(complete_cores)),
+        ("partial", base_order(partial_cores)),
+    ):
+        for rank, candidate in enumerate(candidates, start=1):
+            note_id = candidate_note(candidate)
+            if note_id is not None:
+                all_pure_bases.setdefault(note_id, []).append(
+                    (source, rank, candidate)
+                )
+    for source, rank, candidate in selected_bases:
+        note_id = candidate_note(candidate)
+        if note_id is not None:
+            selected_pure_bases.setdefault(note_id, []).append(
+                (source, rank, candidate)
+            )
+
+    final_keys = {_candidate_key(item.fragment_ids) for item in final_candidates}
+    core_keys = {_candidate_key(item.fragment_ids) for item in complete_cores}
+
+    def truth_restricted_recovery(
+        note_id: str,
+        bases: list[tuple[str, int, AssemblyCandidate]],
+        proposal_pool: str,
+    ) -> tuple[bool, int, int]:
+        indices = note_indices[note_id]
+        global_to_local = {
+            global_index: local_index
+            for local_index, global_index in enumerate(indices)
+        }
+        local_fragments = [fragments[index] for index in indices]
+        local_edges = [
+            replace(
+                edge,
+                left=global_to_local[edge.left],
+                right=global_to_local[edge.right],
+            )
+            for edge in gap_edges
+            if edge.left in global_to_local and edge.right in global_to_local
+        ]
+        truth_key = _candidate_key(fragment.id for fragment in local_fragments)
+        attempted = 0
+        expanded = 0
+        for _source, _rank, base in bases[:max_bases_per_note]:
+            attempted += 1
+            stats: dict[str, int | bool] = {}
+            candidates = augment_candidates_with_group_gap(
+                local_fragments,
+                [base],
+                local_edges,
+                tolerance=tolerance,
+                coverage_threshold=coverage_threshold,
+                gap_fill_radius=gap_fill_radius,
+                max_pieces=len(local_fragments),
+                core_min_pieces=core_min_pieces,
+                beam_width=beam_width,
+                max_base_candidates=1,
+                proposal_pool=proposal_pool,
+                min_group_gap_score=min_group_gap_score,
+                automatic_group_gap_score=automatic_group_gap_score,
+                time_limit_seconds=None,
+                max_expanded_states=None,
+                search_stats=stats,
+            )
+            expanded += int(stats.get("expanded_states", 0))
+            if any(_candidate_key(item.fragment_ids) == truth_key for item in candidates):
+                return True, attempted, expanded
+        return False, attempted, expanded
+
+    rows: list[dict] = []
+    for truth_key, note_id in sorted(truth_by_key.items(), key=lambda item: item[1]):
+        if truth_key in core_keys:
+            rows.append({"note_id": note_id, "category": "core_exact"})
+            continue
+        if truth_key in final_keys:
+            rows.append({"note_id": note_id, "category": "production_gap_exact"})
+            continue
+
+        all_bases = all_pure_bases.get(note_id, [])
+        selected = selected_pure_bases.get(note_id, [])
+        row = {
+            "note_id": note_id,
+            "pure_base_count": len(all_bases),
+            "selected_pure_base_count": len(selected),
+        }
+        if all_bases:
+            source, rank, best = all_bases[0]
+            row.update(
+                best_base_source=source,
+                best_base_rank=rank,
+                best_base_pieces=len(best.fragment_ids),
+                best_base_raw_coverage=best.raw_coverage,
+            )
+        if not all_bases:
+            row["category"] = "no_pure_core_base"
+        elif not selected:
+            row["category"] = "pure_core_base_not_selected"
+        else:
+            weak_recovered, weak_attempts, weak_expanded = truth_restricted_recovery(
+                note_id, selected, "weak_pair"
+            )
+            contact_recovered, contact_attempts, contact_expanded = (
+                truth_restricted_recovery(note_id, selected, "boundary_contact")
+            )
+            row.update(
+                weak_pair_truth_recovered=weak_recovered,
+                weak_pair_bases_attempted=weak_attempts,
+                weak_pair_expanded_states=weak_expanded,
+                boundary_contact_truth_recovered=contact_recovered,
+                boundary_contact_bases_attempted=contact_attempts,
+                boundary_contact_expanded_states=contact_expanded,
+            )
+            if weak_recovered:
+                row["category"] = "cross_note_beam_or_ranking"
+            elif contact_recovered:
+                row["category"] = "weak_pair_proposal_gate"
+            else:
+                row["category"] = "whole_assembly_scorer_or_local_beam"
+        rows.append(row)
+
+    category_counts: dict[str, int] = {}
+    for row in rows:
+        category = str(row["category"])
+        category_counts[category] = category_counts.get(category, 0) + 1
+    return {
+        "simulation_truth_only": True,
+        "complete_base_limit": complete_base_limit,
+        "partial_base_limit": max_partial_core_candidates,
+        "beam_width": beam_width,
+        "max_bases_per_note": max_bases_per_note,
+        "category_counts": category_counts,
+        "notes": rows,
+    }
 
 
 def select_exact_cover_candidates(
@@ -2024,7 +3132,9 @@ def run_tearfit_trial(
     gap_fill_radius: int = 2,
     max_pieces: int | None = None,
     beam_width: int = 64,
+    max_complete_core_candidates: int = 512,
     max_partial_core_candidates: int = 128,
+    gap_proposal_pool: str = "weak_pair",
     use_labels: bool = True,
     seed_strategy: str = "anchor_priority",
     require_anchor: bool | None = None,
@@ -2041,7 +3151,17 @@ def run_tearfit_trial(
     cover_node_limit: int | None = None,
     cover_nodes_per_note: float | None = None,
     cover_objective: str = "score_then_count",
+    enable_residual_gap_proposals: bool = True,
+    gap_routing: str = "complexity",
+    gap_region_max_core_candidates: int = 8,
+    gap_proposal_alpha: float = 1.0,
+    gap_proposal_gamma: float = 1.0,
+    gap_proposal_delta: float = 1.0,
+    gap_proposal_eps: float = 1.0,
+    gap_proposal_zeta: float = 1.0,
+    gap_proposal_min_effectiveness: float = 0.0,
     diagnostic_oracle_drop_false_accepted_edges: bool = False,
+    diagnostic_candidate_funnel: bool = False,
 ) -> TearFitTrialResult:
     """Run one labelled exact-cover tear-fit trial.
 
@@ -2062,8 +3182,17 @@ def run_tearfit_trial(
         raise ValueError(
             "core_raw_coverage_threshold must be in (0, coverage_threshold)"
         )
-    if max_partial_core_candidates < 1:
-        raise ValueError("max_partial_core_candidates must be positive")
+    if max_complete_core_candidates < 1 or max_partial_core_candidates < 1:
+        raise ValueError("core candidate limits must be positive")
+    if gap_proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
+        raise ValueError(
+            "gap_proposal_pool must be one of: "
+            + ", ".join(TEARFIT_GAP_PROPOSAL_POOLS)
+        )
+    if gap_routing not in TEARFIT_GAP_ROUTING:
+        raise ValueError(
+            "gap_routing must be one of: " + ", ".join(TEARFIT_GAP_ROUTING)
+        )
     seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
     if serial_ocr_rate is not None:
         config = FractalTearConfig(
@@ -2182,7 +3311,7 @@ def run_tearfit_trial(
         coverage_threshold=coverage_threshold,
         minimum_candidate_raw_coverage=(
             core_raw_coverage_threshold
-            if resolved_algorithm == "effectiveness_gap"
+            if resolved_algorithm in ("effectiveness_gap", "v44_gap_first")
             else None
         ),
         gap_fill_radius=gap_fill_radius,
@@ -2218,9 +3347,11 @@ def run_tearfit_trial(
         "time_limit_reached": False,
     }
     partial_gap_search_stats = dict(complete_gap_search_stats)
+    gap_first_search_stats: dict[str, int | bool] = {}
+    proposal_efficiency = 0.0
     stage_timings["complete_gap_search"] = 0.0
     stage_timings["partial_gap_search"] = 0.0
-    if resolved_algorithm == "effectiveness_gap":
+    if resolved_algorithm in ("effectiveness_gap", "v44_gap_first"):
         complete_gap_started = monotonic()
         from_complete = augment_candidates_with_group_gap(
             fragments,
@@ -2231,6 +3362,8 @@ def run_tearfit_trial(
             gap_fill_radius=gap_fill_radius,
             max_pieces=max_pieces or config.pieces_per_note + 2,
             core_min_pieces=core_min_pieces,
+            max_base_candidates=max_complete_core_candidates,
+            proposal_pool=gap_proposal_pool,
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
             time_limit_seconds=candidate_time_limit_seconds,
@@ -2249,6 +3382,7 @@ def run_tearfit_trial(
             max_pieces=max_pieces or config.pieces_per_note + 2,
             core_min_pieces=core_min_pieces,
             max_base_candidates=max_partial_core_candidates,
+            proposal_pool=gap_proposal_pool,
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
             time_limit_seconds=partial_gap_time_limit_seconds,
@@ -2277,6 +3411,74 @@ def run_tearfit_trial(
         )
         complete_gap_keys = gap_candidate_keys - partial_gap_keys
         gap_candidate_count = len(gap_candidate_keys)
+    if resolved_algorithm == "v44_gap_first" and enable_residual_gap_proposals:
+        # Residual-gap-first proposals are layered ON TOP of the v4.3 group-gap
+        # pool: v44 is a strict superset of effectiveness_gap, so getting the
+        # true fragment set into the pool can only raise oracle recall.
+        gap_first_started = monotonic()
+        residual_regions = compute_residual_gap_components(
+            fragments,
+            generated_candidates,
+            coverage_threshold=coverage_threshold,
+            gap_fill_radius=gap_fill_radius,
+            max_core_candidates=gap_region_max_core_candidates,
+        )
+        gap_first_candidates = augment_candidates_gap_first(
+            fragments,
+            generated_candidates,
+            core_edges,
+            label_filtered_scores,
+            residual_regions,
+            tolerance=tolerance,
+            coverage_threshold=coverage_threshold,
+            gap_fill_radius=gap_fill_radius,
+            max_pieces=max_pieces or config.pieces_per_note + 2,
+            core_min_pieces=core_min_pieces,
+            max_base_candidates=max_complete_core_candidates,
+            proposal_pool="boundary_contact",
+            gap_routing=gap_routing,
+            min_group_gap_score=min_group_gap_score,
+            automatic_group_gap_score=automatic_group_gap_score,
+            fray_layers=config.fray_layers,
+            min_proposal_effectiveness=gap_proposal_min_effectiveness,
+            alpha=gap_proposal_alpha,
+            gamma=gap_proposal_gamma,
+            delta=gap_proposal_delta,
+            eps=gap_proposal_eps,
+            zeta=gap_proposal_zeta,
+            time_limit_seconds=candidate_time_limit_seconds,
+            max_expanded_states=resolved_gap_state_limit,
+            search_stats=gap_first_search_stats,
+        )
+        stage_timings["gap_first"] = monotonic() - gap_first_started
+        pool_v44: dict[tuple[str, ...], AssemblyCandidate] = {
+            _candidate_key(candidate.fragment_ids): candidate
+            for candidate in candidates
+        }
+        gap_first_only_keys: set[tuple[str, ...]] = set()
+        for candidate in gap_first_candidates:
+            key = _candidate_key(candidate.fragment_ids)
+            if key not in complete_core_keys:
+                gap_first_only_keys.add(key)
+            previous = pool_v44.get(key)
+            if previous is None or candidate.score > previous.score:
+                pool_v44[key] = candidate
+        candidates = sorted(
+            pool_v44.values(), key=lambda item: (-item.score, item.fragment_ids)
+        )
+        gap_candidate_keys = set(pool_v44) - complete_core_keys
+        complete_gap_keys = gap_candidate_keys - partial_gap_keys
+        gap_candidate_count = len(gap_candidate_keys)
+        expanded = int(gap_first_search_stats.get("expanded_states", 0) or 0)
+        proposals_made = int(
+            gap_first_search_stats.get("gap_proposals_made", 0) or 0
+        )
+        budget_units = expanded if expanded > 0 else proposals_made
+        proposal_efficiency = (
+            len(gap_first_only_keys) / float(budget_units)
+            if budget_units > 0
+            else 0.0
+        )
     cover_search_stats: dict[str, int | bool] = {}
     exact_cover_started = monotonic()
     selected = select_exact_cover_candidates(
@@ -2327,6 +3529,24 @@ def run_tearfit_trial(
     candidate_keys = {
         _candidate_key(candidate.fragment_ids) for candidate in candidates
     }
+    candidate_funnel = (
+        diagnose_gap_candidate_funnel(
+            fragments,
+            generated_candidates,
+            candidates,
+            label_filtered_scores,
+            tolerance=tolerance,
+            coverage_threshold=coverage_threshold,
+            gap_fill_radius=gap_fill_radius,
+            core_min_pieces=core_min_pieces,
+            min_group_gap_score=min_group_gap_score,
+            automatic_group_gap_score=automatic_group_gap_score,
+            max_partial_core_candidates=max_partial_core_candidates,
+            complete_base_limit=max_complete_core_candidates,
+        )
+        if diagnostic_candidate_funnel
+        else {}
+    )
     oracle_note_ids = {
         truth_by_key[key] for key in candidate_keys & truth_keys
     }
@@ -2380,7 +3600,9 @@ def run_tearfit_trial(
             "core_raw_coverage_threshold": core_raw_coverage_threshold,
             "gap_fill_radius": gap_fill_radius,
             "beam_width": beam_width,
+            "max_complete_core_candidates": max_complete_core_candidates,
             "max_partial_core_candidates": max_partial_core_candidates,
+            "gap_proposal_pool": gap_proposal_pool,
             "use_labels": use_labels,
             "seed_strategy": seed_strategy,
             "candidate_time_limit_seconds": candidate_time_limit_seconds,
@@ -2402,6 +3624,7 @@ def run_tearfit_trial(
             "diagnostic_oracle_drop_false_accepted_edges": (
                 diagnostic_oracle_drop_false_accepted_edges
             ),
+            "diagnostic_candidate_funnel": diagnostic_candidate_funnel,
         },
         fragments=len(fragments),
         pair_scores=len(all_scores),
@@ -2423,6 +3646,7 @@ def run_tearfit_trial(
             "core": core_search_stats,
             "complete_gap": complete_gap_search_stats,
             "partial_gap": partial_gap_search_stats,
+            "gap_first": gap_first_search_stats,
             "exact_cover": cover_search_stats,
         },
         core_candidates=len(generated_candidates),
@@ -2449,6 +3673,8 @@ def run_tearfit_trial(
             diagnostic_removed_false_accepted_edges
         ),
         diagnostic_removed_false_core_edges=diagnostic_removed_false_core_edges,
+        candidate_funnel=candidate_funnel,
+        proposal_efficiency=proposal_efficiency,
     )
 
 
@@ -2703,6 +3929,15 @@ def run_tearfit_v43_ablation(
     cover_time_limit_seconds: float | None = 5.0,
     cover_node_limit: int | None = 250_000,
     cover_nodes_per_note: float | None = None,
+    enable_residual_gap_proposals: bool = True,
+    gap_routing: str = "complexity",
+    gap_region_max_core_candidates: int = 8,
+    gap_proposal_alpha: float = 1.0,
+    gap_proposal_gamma: float = 1.0,
+    gap_proposal_delta: float = 1.0,
+    gap_proposal_eps: float = 1.0,
+    gap_proposal_zeta: float = 1.0,
+    gap_proposal_min_effectiveness: float = 0.0,
 ) -> dict:
     """Run same-seed baseline -> Etear -> group-gap head-to-head trials."""
 
@@ -2767,6 +4002,15 @@ def run_tearfit_v43_ablation(
                         cover_time_limit_seconds=cover_time_limit_seconds,
                         cover_node_limit=cover_node_limit,
                         cover_nodes_per_note=cover_nodes_per_note,
+                        enable_residual_gap_proposals=enable_residual_gap_proposals,
+                        gap_routing=gap_routing,
+                        gap_region_max_core_candidates=gap_region_max_core_candidates,
+                        gap_proposal_alpha=gap_proposal_alpha,
+                        gap_proposal_gamma=gap_proposal_gamma,
+                        gap_proposal_delta=gap_proposal_delta,
+                        gap_proposal_eps=gap_proposal_eps,
+                        gap_proposal_zeta=gap_proposal_zeta,
+                        gap_proposal_min_effectiveness=gap_proposal_min_effectiveness,
                     )
                     elapsed_seconds = monotonic() - started
                     resolved = str(result.config["resolved_algorithm"])
@@ -2810,6 +4054,7 @@ def run_tearfit_v43_ablation(
                         "selected_false_gap_candidates": result.selected_false_gap_candidates,
                         "oracle_candidate_notes": result.oracle_candidate_notes,
                         "oracle_candidate_recall": result.oracle_candidate_recall,
+                        "proposal_efficiency": result.proposal_efficiency,
                         "selected_score_total": result.selected_score_total,
                         "selected_solution_fingerprint": result.selected_solution_fingerprint,
                         "candidate_provenance_fingerprint": result.candidate_provenance_fingerprint,
@@ -2948,6 +4193,9 @@ def run_tearfit_v43_ablation(
                     "mean_oracle_candidate_recall": float(
                         np.mean([row["oracle_candidate_recall"] for row in selected])
                     ),
+                    "mean_proposal_efficiency": float(
+                        np.mean([row["proposal_efficiency"] for row in selected])
+                    ),
                     "mean_manual_notes_remaining": float(
                         np.mean([row["manual_notes_remaining"] for row in selected])
                     ),
@@ -2997,6 +4245,8 @@ def run_tearfit_v43_ablation(
         "gap_candidates": "mean_gap_candidates",
         "selected_gap_candidates": "mean_selected_gap_candidates",
         "selected_partial_gap_candidates": "mean_selected_partial_gap_candidates",
+        "oracle_candidate_recall": "mean_oracle_candidate_recall",
+        "proposal_efficiency": "mean_proposal_efficiency",
         "manual_notes_remaining": "mean_manual_notes_remaining",
         "elapsed_seconds": "mean_elapsed_seconds",
     }
@@ -3006,6 +4256,7 @@ def run_tearfit_v43_ablation(
             ("adaptive_edge", "baseline", "effectiveness"),
             ("group_gap", "effectiveness", "effectiveness_gap"),
             ("routing", "effectiveness_gap", "v43_routed"),
+            ("gap_first", "effectiveness_gap", "v44_gap_first"),
         ):
             previous = summary_by_key.get((pieces, previous_algorithm))
             current = summary_by_key.get((pieces, current_algorithm))

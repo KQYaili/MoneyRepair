@@ -41,14 +41,20 @@ from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.scale import (
     V433_ORACLE_RESCUE_THRESHOLD,
     V433_SEED7_NORMALIZED_RATES,
+    V44_MAX_PRECISION_DROP,
+    V44_PROPOSAL_RESCUE_THRESHOLD,
     run_v432_scale_protocol,
     run_v433_oracle_false_edge_diagnostic,
+    run_v44_boundary_contact_proposal_diagnostic,
+    run_v44_candidate_funnel_diagnostic,
+    run_v44_core_connectivity_diagnostic,
 )
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import (
     TEARFIT_ALGORITHMS,
     TEARFIT_COVER_OBJECTIVES,
+    TEARFIT_GAP_ROUTING,
     TEARFIT_SEED_STRATEGIES,
     TEARFIT_V43_FINE_FRACTION,
     run_tearfit_strategy_comparison,
@@ -875,6 +881,15 @@ def _cmd_tearfit_v43_ablation(args: argparse.Namespace) -> None:
         partial_gap_state_limit=args.partial_gap_state_limit,
         cover_time_limit_seconds=None if args.no_time_limits else args.cover_time_limit,
         cover_node_limit=args.cover_node_limit,
+        enable_residual_gap_proposals=args.enable_residual_gap_proposals,
+        gap_routing=args.gap_routing,
+        gap_region_max_core_candidates=args.gap_region_max_core_candidates,
+        gap_proposal_alpha=args.gap_proposal_alpha,
+        gap_proposal_gamma=args.gap_proposal_gamma,
+        gap_proposal_delta=args.gap_proposal_delta,
+        gap_proposal_eps=args.gap_proposal_eps,
+        gap_proposal_zeta=args.gap_proposal_zeta,
+        gap_proposal_min_effectiveness=args.gap_proposal_min_effectiveness,
     )
     if args.output:
         output = Path(args.output)
@@ -1025,6 +1040,131 @@ def _cmd_tearfit_v433_oracle_edges(args: argparse.Namespace) -> None:
     )
     print(
         "status={status} v44_priority={v44_priority}".format(**assessment)
+    )
+
+
+def _cmd_tearfit_v44_proposal_pool(args: argparse.Namespace) -> None:
+    payload = run_v44_boundary_contact_proposal_diagnostic(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_states_per_pair_score=args.candidate_states_per_pair_score,
+        gap_states_per_fragment=args.gap_states_per_fragment,
+        partial_gap_states_per_fragment=args.partial_gap_states_per_fragment,
+        cover_nodes_per_note=args.cover_nodes_per_note,
+        minimum_oracle_rescue=args.minimum_oracle_rescue,
+        minimum_yield_rescue=args.minimum_yield_rescue,
+        maximum_precision_drop=args.maximum_precision_drop,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.4 proposal-pool diagnostic to {output}")
+    control = payload["weak_pair_control"]
+    intervention = payload["boundary_contact_intervention"]
+    assessment = payload["assessment"]
+    print(
+        "control_oracle={:.3f} intervention_oracle={:.3f} delta={:+.3f}".format(
+            control["oracle_candidate_recall"],
+            intervention["oracle_candidate_recall"],
+            assessment["oracle_candidate_recall_delta"],
+        )
+    )
+    print(
+        "control_yield={:.3f} intervention_yield={:.3f} precision_drop={:+.3f}".format(
+            control["exact_yield"],
+            intervention["exact_yield"],
+            assessment["exact_precision_drop"],
+        )
+    )
+    print(f"status={assessment['status']}")
+
+
+def _cmd_tearfit_v44_candidate_funnel(args: argparse.Namespace) -> None:
+    payload = run_v44_candidate_funnel_diagnostic(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_complete_core_candidates=args.max_complete_core_candidates,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_states_per_pair_score=args.candidate_states_per_pair_score,
+        gap_states_per_fragment=args.gap_states_per_fragment,
+        partial_gap_states_per_fragment=args.partial_gap_states_per_fragment,
+        cover_nodes_per_note=args.cover_nodes_per_note,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.4 candidate-funnel diagnostic to {output}")
+    trial = payload["trial"]
+    assessment = payload["assessment"]
+    print(
+        "oracle={:.3f} yield={:.3f} precision={:.3f}".format(
+            trial["oracle_candidate_recall"],
+            trial["exact_yield"],
+            trial["exact_precision"],
+        )
+    )
+    print(
+        "categories="
+        + json.dumps(assessment["category_counts"], sort_keys=True)
+    )
+
+
+def _cmd_tearfit_v44_core_connectivity(args: argparse.Namespace) -> None:
+    payload = run_v44_core_connectivity_diagnostic(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        tolerance=args.tolerance,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.4 core-connectivity diagnostic to {output}")
+    connectivity = payload["connectivity"]
+    print(
+        "recordable_notes={} unrecordable_notes={}".format(
+            connectivity["recordable_notes"],
+            connectivity["unrecordable_notes"],
+        )
     )
 
 
@@ -1617,6 +1757,36 @@ def build_parser() -> argparse.ArgumentParser:
     tearfit_v43.add_argument("--cover-time-limit", type=float, default=5.0)
     tearfit_v43.add_argument("--cover-node-limit", type=int, default=250_000)
     tearfit_v43.add_argument(
+        "--enable-residual-gap-proposals",
+        dest="enable_residual_gap_proposals",
+        action="store_true",
+        default=True,
+        help="enable v4.4 residual-gap-first candidate proposals (v44_gap_first)",
+    )
+    tearfit_v43.add_argument(
+        "--disable-residual-gap-proposals",
+        dest="enable_residual_gap_proposals",
+        action="store_false",
+        help="disable v4.4 gap-first proposals (v44_gap_first falls back to group-gap)",
+    )
+    tearfit_v43.add_argument(
+        "--gap-routing",
+        choices=TEARFIT_GAP_ROUTING,
+        default="complexity",
+        help="per-gap routing: complexity-aware or uniform",
+    )
+    tearfit_v43.add_argument(
+        "--gap-region-max-core-candidates", type=int, default=8
+    )
+    tearfit_v43.add_argument("--gap-proposal-alpha", type=float, default=1.0)
+    tearfit_v43.add_argument("--gap-proposal-gamma", type=float, default=1.0)
+    tearfit_v43.add_argument("--gap-proposal-delta", type=float, default=1.0)
+    tearfit_v43.add_argument("--gap-proposal-eps", type=float, default=1.0)
+    tearfit_v43.add_argument("--gap-proposal-zeta", type=float, default=1.0)
+    tearfit_v43.add_argument(
+        "--gap-proposal-min-effectiveness", type=float, default=0.0
+    )
+    tearfit_v43.add_argument(
         "--no-time-limits",
         action="store_true",
         help="use deterministic state/node budgets without wall-clock cutoffs",
@@ -1724,6 +1894,162 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tearfit_v433.add_argument("--output", help="write the v4.3.3 diagnostic JSON")
     tearfit_v433.set_defaults(func=_cmd_tearfit_v433_oracle_edges)
+
+    tearfit_v44 = sub.add_parser(
+        "tearfit-v44-proposal-pool",
+        help="test boundary-contact proposals against the v4.3 weak-pair gate",
+    )
+    tearfit_v44.add_argument("--notes", type=int, default=100)
+    tearfit_v44.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v44.add_argument("--seed", type=int, default=7)
+    tearfit_v44.add_argument("--width", type=int, default=180)
+    tearfit_v44.add_argument("--height", type=int, default=90)
+    tearfit_v44.add_argument(
+        "--route-fragment-fraction",
+        type=float,
+        default=TEARFIT_V43_FINE_FRACTION,
+    )
+    tearfit_v44.add_argument("--tolerance", type=int, default=2)
+    tearfit_v44.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v44.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v44.add_argument("--automatic-effectiveness", type=float, default=2.0)
+    tearfit_v44.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v44.add_argument("--automatic-contiguous-pixels", type=int, default=5)
+    tearfit_v44.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v44.add_argument("--core-raw-coverage", type=float)
+    tearfit_v44.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v44.add_argument("--beam-width", type=int, default=32)
+    tearfit_v44.add_argument("--max-partial-core-candidates", type=int, default=128)
+    tearfit_v44.add_argument(
+        "--candidate-states-per-pair-score",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["candidate_states_per_pair_score"],
+    )
+    tearfit_v44.add_argument(
+        "--gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["gap_states_per_fragment"],
+    )
+    tearfit_v44.add_argument(
+        "--partial-gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES[
+            "partial_gap_states_per_fragment"
+        ],
+    )
+    tearfit_v44.add_argument(
+        "--cover-nodes-per-note",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["cover_nodes_per_note"],
+    )
+    tearfit_v44.add_argument(
+        "--minimum-oracle-rescue",
+        type=float,
+        default=V44_PROPOSAL_RESCUE_THRESHOLD,
+    )
+    tearfit_v44.add_argument(
+        "--minimum-yield-rescue",
+        type=float,
+        default=V44_PROPOSAL_RESCUE_THRESHOLD,
+    )
+    tearfit_v44.add_argument(
+        "--maximum-precision-drop",
+        type=float,
+        default=V44_MAX_PRECISION_DROP,
+    )
+    tearfit_v44.add_argument("--output", help="write the v4.4 proposal diagnostic JSON")
+    tearfit_v44.set_defaults(func=_cmd_tearfit_v44_proposal_pool)
+
+    tearfit_v44_funnel = sub.add_parser(
+        "tearfit-v44-candidate-funnel",
+        help="audit missing exact candidates with simulator truth after production search",
+    )
+    tearfit_v44_funnel.add_argument("--notes", type=int, default=100)
+    tearfit_v44_funnel.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v44_funnel.add_argument("--seed", type=int, default=7)
+    tearfit_v44_funnel.add_argument("--width", type=int, default=180)
+    tearfit_v44_funnel.add_argument("--height", type=int, default=90)
+    tearfit_v44_funnel.add_argument(
+        "--route-fragment-fraction",
+        type=float,
+        default=TEARFIT_V43_FINE_FRACTION,
+    )
+    tearfit_v44_funnel.add_argument("--tolerance", type=int, default=2)
+    tearfit_v44_funnel.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v44_funnel.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v44_funnel.add_argument(
+        "--automatic-effectiveness", type=float, default=2.0
+    )
+    tearfit_v44_funnel.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v44_funnel.add_argument(
+        "--automatic-contiguous-pixels", type=int, default=5
+    )
+    tearfit_v44_funnel.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v44_funnel.add_argument("--core-raw-coverage", type=float)
+    tearfit_v44_funnel.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v44_funnel.add_argument("--beam-width", type=int, default=32)
+    tearfit_v44_funnel.add_argument(
+        "--max-complete-core-candidates", type=int, default=512
+    )
+    tearfit_v44_funnel.add_argument(
+        "--max-partial-core-candidates", type=int, default=128
+    )
+    tearfit_v44_funnel.add_argument(
+        "--candidate-states-per-pair-score",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["candidate_states_per_pair_score"],
+    )
+    tearfit_v44_funnel.add_argument(
+        "--gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["gap_states_per_fragment"],
+    )
+    tearfit_v44_funnel.add_argument(
+        "--partial-gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES[
+            "partial_gap_states_per_fragment"
+        ],
+    )
+    tearfit_v44_funnel.add_argument(
+        "--cover-nodes-per-note",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["cover_nodes_per_note"],
+    )
+    tearfit_v44_funnel.add_argument(
+        "--output", help="write the v4.4 truth-funnel diagnostic JSON"
+    )
+    tearfit_v44_funnel.set_defaults(func=_cmd_tearfit_v44_candidate_funnel)
+
+    tearfit_v44_connectivity = sub.add_parser(
+        "tearfit-v44-core-connectivity",
+        help="audit true automatic-edge components against the core record threshold",
+    )
+    tearfit_v44_connectivity.add_argument("--notes", type=int, default=100)
+    tearfit_v44_connectivity.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v44_connectivity.add_argument("--seed", type=int, default=7)
+    tearfit_v44_connectivity.add_argument("--width", type=int, default=180)
+    tearfit_v44_connectivity.add_argument("--height", type=int, default=90)
+    tearfit_v44_connectivity.add_argument("--tolerance", type=int, default=2)
+    tearfit_v44_connectivity.add_argument(
+        "--min-effectiveness", type=float, default=1.0
+    )
+    tearfit_v44_connectivity.add_argument(
+        "--automatic-effectiveness", type=float, default=2.0
+    )
+    tearfit_v44_connectivity.add_argument(
+        "--min-contiguous-pixels", type=int, default=3
+    )
+    tearfit_v44_connectivity.add_argument(
+        "--automatic-contiguous-pixels", type=int, default=5
+    )
+    tearfit_v44_connectivity.add_argument(
+        "--core-raw-coverage", type=float, default=0.78
+    )
+    tearfit_v44_connectivity.add_argument(
+        "--output", help="write the v4.4 core-connectivity diagnostic JSON"
+    )
+    tearfit_v44_connectivity.set_defaults(func=_cmd_tearfit_v44_core_connectivity)
 
     experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
     exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)

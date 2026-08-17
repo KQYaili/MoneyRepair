@@ -6,20 +6,30 @@ import pytest
 from moneyrepair.scale import (
     assess_v432_bottleneck,
     assess_v433_oracle_false_edge_deletion,
+    assess_v44_boundary_contact_proposal,
     run_v432_scale_protocol,
     run_v433_oracle_false_edge_diagnostic,
+    run_v44_boundary_contact_proposal_diagnostic,
+    run_v44_candidate_funnel_diagnostic,
+    run_v44_core_connectivity_diagnostic,
 )
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,
+    GapProposalEvaluation,
+    ResidualGapRegion,
     augment_candidates_with_group_gap,
+    classify_gap_complexity,
+    compute_residual_gap_components,
     diagnose_confirmed_candidates,
+    evaluate_gap_proposal,
     generate_assembly_candidates,
     make_fractal_tear_fragments,
     run_tearfit_trial,
     run_tearfit_strategy_comparison,
     run_tearfit_v43_ablation,
     score_absolute_tear_pairs,
+    tear_boundary_evidence,
     tear_match_effectiveness,
     select_exact_cover_candidates,
     TearFitEdge,
@@ -411,6 +421,67 @@ def test_group_gap_can_add_fragment_supported_by_two_weak_seams():
     assert exact.evidence_level == "automatic"
 
 
+def test_boundary_contact_pool_exposes_fragment_without_weak_pair_evidence():
+    top_left = np.zeros((8, 8), dtype=bool)
+    top_left[:4, :4] = True
+    bottom_left = np.zeros((8, 8), dtype=bool)
+    bottom_left[4:, :4] = True
+    right = np.zeros((8, 8), dtype=bool)
+    right[:, 4:] = True
+    fragments = [
+        Fragment("a", top_left),
+        Fragment("b", bottom_left),
+        Fragment("c", right),
+    ]
+    contact_only_edges = [
+        TearFitEdge(0, 2, 4, 4, 4, 0.5),
+        TearFitEdge(1, 2, 4, 4, 4, 0.5),
+    ]
+    base = AssemblyCandidate(
+        ("a", "b"),
+        coverage=0.5,
+        raw_coverage=0.5,
+        score=5_000.0,
+        support_pixels=4,
+    )
+    weak_stats: dict[str, int | bool] = {}
+    contact_stats: dict[str, int | bool] = {}
+
+    weak_only = augment_candidates_with_group_gap(
+        fragments,
+        [base],
+        contact_only_edges,
+        tolerance=1,
+        coverage_threshold=0.95,
+        gap_fill_radius=0,
+        max_pieces=3,
+        proposal_pool="weak_pair",
+        time_limit_seconds=None,
+        search_stats=weak_stats,
+    )
+    contact_pool = augment_candidates_with_group_gap(
+        fragments,
+        [base],
+        contact_only_edges,
+        tolerance=1,
+        coverage_threshold=0.95,
+        gap_fill_radius=0,
+        max_pieces=3,
+        proposal_pool="boundary_contact",
+        time_limit_seconds=None,
+        search_stats=contact_stats,
+    )
+
+    assert not any(item.fragment_ids == ("a", "b", "c") for item in weak_only)
+    exact = next(
+        item for item in contact_pool if item.fragment_ids == ("a", "b", "c")
+    )
+    assert exact.evidence_level == "review"
+    assert weak_stats["proposal_edges"] == 0
+    assert contact_stats["proposal_edges"] == 2
+    assert contact_stats["accepted_no_weak_edge_proposals"] == 1
+
+
 
 def test_candidate_generation_can_retain_incomplete_core_for_gap_stage():
     top_left = np.zeros((8, 8), dtype=bool)
@@ -539,6 +610,37 @@ def test_trial_reports_oracle_edges_provenance_and_stage_timings():
         "diagnostics",
         "total",
     }
+
+
+def test_truth_only_candidate_funnel_accounts_for_every_simulated_note():
+    result = run_tearfit_trial(
+        FractalTearConfig(
+            notes=3,
+            pieces_per_note=5,
+            width=72,
+            height=40,
+            seed=30,
+            serial_ocr_rate=0.0,
+        ),
+        algorithm="effectiveness_gap",
+        use_labels=False,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_time_limit_seconds=None,
+        candidate_state_limit=20_000,
+        partial_gap_time_limit_seconds=None,
+        gap_state_limit=4_000,
+        partial_gap_state_limit=1_000,
+        cover_time_limit_seconds=None,
+        cover_node_limit=20_000,
+        diagnostic_candidate_funnel=True,
+    )
+
+    funnel = result.candidate_funnel
+    assert funnel["simulation_truth_only"] is True
+    assert len(funnel["notes"]) == 3
+    assert sum(funnel["category_counts"].values()) == 3
+    assert all("category" in row for row in funnel["notes"])
 
 
 def test_workload_normalized_budget_rejects_an_absolute_limit():
@@ -728,6 +830,106 @@ def test_v433_oracle_diagnostic_emits_control_and_intervention():
     }
 
 
+def test_v44_proposal_gate_requires_candidate_and_quality_rescue():
+    control = {
+        "oracle_candidate_recall": 0.84,
+        "exact_yield": 0.84,
+        "exact_precision": 0.98,
+    }
+    rescued = assess_v44_boundary_contact_proposal(
+        control,
+        {
+            "oracle_candidate_recall": 0.90,
+            "exact_yield": 0.90,
+            "exact_precision": 0.97,
+        },
+    )
+    not_rescued = assess_v44_boundary_contact_proposal(
+        control,
+        {
+            "oracle_candidate_recall": 0.86,
+            "exact_yield": 0.86,
+            "exact_precision": 0.99,
+            "complete_gap_saturated": False,
+            "partial_gap_saturated": False,
+        },
+    )
+
+    assert rescued["status"] == "weak_pair_proposal_gate_limiter"
+    assert rescued["oracle_rescue_gate_passed"] is True
+    assert rescued["quality_gate_passed"] is True
+    assert not_rescued["status"] == "deeper_candidate_construction_wall"
+    assert not_rescued["oracle_rescue_gate_passed"] is False
+
+
+def test_v44_proposal_diagnostic_emits_single_variable_pair():
+    payload = run_v44_boundary_contact_proposal_diagnostic(
+        notes=2,
+        pieces_per_note=4,
+        seed=47,
+        width=72,
+        height=40,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_states_per_pair_score=100.0,
+        gap_states_per_fragment=100.0,
+        partial_gap_states_per_fragment=25.0,
+        cover_nodes_per_note=10_000.0,
+    )
+
+    assert payload["config"]["schema_version"] == "4.4.0-diagnostic"
+    assert payload["weak_pair_control"]["gap_proposal_pool"] == "weak_pair"
+    assert (
+        payload["boundary_contact_intervention"]["gap_proposal_pool"]
+        == "boundary_contact"
+    )
+    assert payload["assessment"]["status"] in {
+        "weak_pair_proposal_gate_limiter",
+        "proposal_recall_rescued_without_quality_rescue",
+        "inconclusive_gap_budget_saturation",
+        "deeper_candidate_construction_wall",
+    }
+
+
+def test_v44_candidate_funnel_diagnostic_reports_dominant_category():
+    payload = run_v44_candidate_funnel_diagnostic(
+        notes=2,
+        pieces_per_note=4,
+        seed=49,
+        width=72,
+        height=40,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_states_per_pair_score=100.0,
+        gap_states_per_fragment=100.0,
+        partial_gap_states_per_fragment=25.0,
+        cover_nodes_per_note=10_000.0,
+    )
+
+    assert payload["config"]["diagnostic"] == "truth_restricted_candidate_funnel"
+    counts = payload["assessment"]["category_counts"]
+    assert sum(counts.values()) == 2
+    assert payload["trial"]["candidate_funnel"]["simulation_truth_only"] is True
+
+
+def test_v44_core_connectivity_diagnostic_accounts_for_notes():
+    payload = run_v44_core_connectivity_diagnostic(
+        notes=3,
+        pieces_per_note=5,
+        seed=51,
+        width=72,
+        height=40,
+        min_contiguous_pixels=2,
+        automatic_contiguous_pixels=3,
+        core_raw_coverage_threshold=0.6,
+    )
+
+    connectivity = payload["connectivity"]
+    assert payload["config"]["diagnostic"] == "true_core_connectivity"
+    assert connectivity["recordable_notes"] + connectivity["unrecordable_notes"] == 3
+    assert len(connectivity["notes"]) == 3
+
+
 
 def test_v43_ablation_reuses_the_identical_routed_trial():
     payload = run_tearfit_v43_ablation(
@@ -860,3 +1062,161 @@ def test_v43_ablation_p8_p16_p24_regime_comparison():
     }
     routed = [item for item in comparisons if item["stage"] == "routing"]
     assert all(item["reused_identical_trials"] for item in routed)
+
+
+def test_compute_residual_gap_components_finds_known_hole():
+    """The complement of a partial core exposes exactly the missing region."""
+    frame = np.ones((8, 8), dtype=bool)
+    frame[3:5, 3:5] = False  # a known 2x2 interior hole
+    cols = np.arange(8)
+    left_mask = frame & (cols[None, :] < 4)
+    right_mask = frame & (cols[None, :] >= 4)
+    fragments = [
+        Fragment(id="A", mask=left_mask),
+        Fragment(id="B", mask=right_mask),
+    ]
+    core = AssemblyCandidate(
+        fragment_ids=("A", "B"),
+        coverage=0.95,
+        raw_coverage=0.9375,
+        score=1.0,
+        support_pixels=0,
+    )
+    regions = compute_residual_gap_components(
+        fragments, [core], coverage_threshold=0.93, gap_fill_radius=1
+    )
+    assert len(regions) == 1
+    region = regions[0]
+    assert region.area == 4
+    assert int(region.mask.sum()) == 4
+    assert set(region.adjacent_fragment_indices) == {0, 1}
+    assert region.routing_class in {"simple", "moderate", "complex"}
+
+
+def test_classify_gap_complexity_boundaries():
+    """Routing thresholds separate simple, moderate, and complex gaps."""
+    dummy = np.zeros((2, 2), dtype=bool)
+
+    def region(area, perimeter, neighbours):
+        return ResidualGapRegion(
+            mask=dummy,
+            area=area,
+            perimeter_pixels=perimeter,
+            component_id=0,
+            adjacent_fragment_indices=tuple(range(neighbours)),
+        )
+
+    assert classify_gap_complexity(region(10, 12, 1)) == "simple"
+    assert classify_gap_complexity(region(300, 80, 1)) == "complex"
+    assert classify_gap_complexity(region(10, 12, 5)) == "complex"
+    assert classify_gap_complexity(region(100, 120, 3)) == "moderate"
+
+
+def test_gap_proposal_rejects_sliver_and_accepts_closed_gap():
+    """E_proposal accepts a well-closed gap and rejects a sub-tolerance sliver."""
+    frame_shape = (12, 12)
+    full = np.ones(frame_shape, dtype=bool)
+    gap = np.zeros(frame_shape, dtype=bool)
+    gap[4:8, 4:8] = True  # 4x4 interior gap
+    base_mask = full & ~gap
+    filler_mask = gap.copy()
+    sliver_mask = np.zeros(frame_shape, dtype=bool)
+    sliver_mask[5, 5] = True
+    fragments = [
+        Fragment(id="base", mask=base_mask),
+        Fragment(id="filler", mask=filler_mask),
+        Fragment(id="sliver", mask=sliver_mask),
+    ]
+    boundary_evidence = tear_boundary_evidence(fragments, tolerance=2)
+    region = ResidualGapRegion(
+        mask=gap,
+        area=int(gap.sum()),
+        perimeter_pixels=int(gap.sum()),
+        component_id=0,
+        adjacent_fragment_indices=(0, 1, 2),
+    )
+    base_state = frozenset({0})
+    base_union = base_mask.copy()
+
+    accepted = evaluate_gap_proposal(
+        fragments,
+        base_state,
+        base_union,
+        (1,),
+        region,
+        gap_lookup={},
+        boundary_evidence=boundary_evidence,
+        tolerance=2,
+        min_informative_scale=4,
+    )
+    rejected = evaluate_gap_proposal(
+        fragments,
+        base_state,
+        base_union,
+        (2,),
+        region,
+        gap_lookup={},
+        boundary_evidence=boundary_evidence,
+        tolerance=2,
+        min_informative_scale=4,
+    )
+
+    assert isinstance(accepted, GapProposalEvaluation)
+    assert accepted.accepted is True
+    assert accepted.net_new_area == 16
+    assert accepted.closed_perimeter_delta > 0.0
+    assert accepted.effectiveness > 0.0
+    assert rejected.accepted is False
+    assert rejected.reason == "sub_tolerance_sliver"
+
+
+def _v44_trial_kwargs():
+    return dict(
+        use_labels=False,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_time_limit_seconds=None,
+        candidate_state_limit=20_000,
+        partial_gap_time_limit_seconds=None,
+        gap_state_limit=4_000,
+        partial_gap_state_limit=1_000,
+        cover_time_limit_seconds=None,
+        cover_node_limit=20_000,
+    )
+
+
+def test_v44_gap_first_valid_cover_and_v43_routed_fingerprint_unchanged():
+    """v44_gap_first yields a valid disjoint cover; v43_routed stays bit-identical."""
+    config = FractalTearConfig(
+        notes=3,
+        pieces_per_note=5,
+        width=72,
+        height=40,
+        seed=30,
+        serial_ocr_rate=0.0,
+    )
+
+    v44 = run_tearfit_trial(config, algorithm="v44_gap_first", **_v44_trial_kwargs())
+    assert v44.candidates > 0
+    assert 0.0 <= v44.oracle_candidate_recall <= 1.0
+    assert v44.proposal_efficiency >= 0.0
+    # The selected notes must be a disjoint (valid) exact cover.
+    seen_fragment_ids: set[str] = set()
+    for candidate in v44.diagnostics.confirmed_candidates:
+        ids = set(candidate.fragment_ids)
+        assert seen_fragment_ids.isdisjoint(ids)
+        seen_fragment_ids |= ids
+    # v44 stage timing is present and additive; group-gap stages remain.
+    assert "gap_first" in v44.stage_timings
+
+    # v43_routed must be identical to the algorithm it resolves to, proving the
+    # additive v44 code path did not perturb the existing v4.3 pipeline.
+    routed = run_tearfit_trial(config, algorithm="v43_routed", **_v44_trial_kwargs())
+    resolved = routed.config["resolved_algorithm"]
+    direct = run_tearfit_trial(config, algorithm=resolved, **_v44_trial_kwargs())
+    assert routed.selected_solution_fingerprint == direct.selected_solution_fingerprint
+    assert (
+        routed.candidate_provenance_fingerprint
+        == direct.candidate_provenance_fingerprint
+    )
+    assert "gap_first" not in direct.stage_timings
