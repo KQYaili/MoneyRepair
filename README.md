@@ -107,8 +107,9 @@ moneyrepair tearfit-v433-oracle-edges \
 
 The measured intervention removes every accepted cross-note edge but improves
 oracle candidate recall only from `0.840` to `0.860`, below the preregistered
-`+0.050` rescue gate. It cuts candidate count and runtime, but falsifies
-false-edge reduction as the next quality-first route.
+`+0.050` rescue gate. It cuts candidate count and runtime and raises precision
+from `0.966` to `0.989`, so false-edge reduction remains a secondary
+precision/performance lever but is falsified as the next yield-quality route.
 
 ### 5. Production Batch Pipeline
 

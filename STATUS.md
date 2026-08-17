@@ -76,9 +76,11 @@ constraints; appearance is at most a tie-breaker.
   threshold and search budget unchanged. Oracle recall reaches only `0.860`
   (`+0.020`), below the preregistered `+0.050` rescue gate. False edges are a
   workload burden (30,828 -> 24,243 candidates; 510.4 -> 396.8 s), but not the
-  current yield limiter. The measured seed-7 wall is therefore narrowed from
-  generic candidate evidence to **gap proposal / candidate construction**. See
-  [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
+  current yield limiter. Their removal also raises precision from `0.966` to
+  `0.989`, so false-edge reduction remains a secondary precision/performance
+  lever rather than the v4.4 yield-quality priority. The measured seed-7 wall
+  is therefore narrowed from generic candidate evidence to **gap proposal /
+  candidate construction**. See [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
 
 ## Where the wall is (measured, simulation)
 
@@ -164,7 +166,8 @@ Four pieces of work, in this order:
    construction** — use deterministic whole-assembly evidence to recover exact
    candidates missing before final selection. Do not spend the next quality
    iteration only reducing false accepted pairs; v4.3.3 falsified that route at
-   the measured N=100 seed-7 point.
+   the measured N=100 seed-7 point. False-pair reduction remains useful as a
+   secondary precision and performance optimization.
 3. **Learned fine-tear edge descriptor, only if real data requires it** — replace
    the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a

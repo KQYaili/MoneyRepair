@@ -75,6 +75,10 @@ runtime, mostly from core search. They are not the dominant cause of the
 remaining exact-candidate deficit. Combined gap time is essentially unchanged,
 and only two additional ground-truth notes enter the candidate pool.
 
+Precision nevertheless rises from `0.966` to `0.989`. False-edge reduction is
+therefore not the current yield limiter, but it remains a secondary precision
+and performance lever.
+
 For this measured N=100 seed-7 simulation, the causal diagnostic tree therefore
 stops at:
 
@@ -89,7 +93,7 @@ candidate-evidence wall
 The next simulation algorithm iteration should improve deterministic
 whole-assembly proposal and candidate construction. It should not treat lower
 false-edge count alone as a quality objective. Faster pair/core filtering may
-still be useful later as a performance optimization.
+still be useful later as a secondary precision/performance optimization.
 
 ## Limits
 

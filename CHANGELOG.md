@@ -16,9 +16,10 @@ Simulation-only causal localization of the v4.3.2 candidate-evidence wall:
 - records that candidate count falls from 30,828 to 24,243 and total runtime
   from 510.4 s to 396.8 s, while combined gap runtime remains effectively
   unchanged at about 275 s;
-- therefore falsifies false-edge reduction as the next quality-first route and
-  narrows the measured seed-7 bottleneck to gap proposal / candidate
-  construction, without extending the claim to other seeds or real fragments.
+- therefore falsifies false-edge reduction as the next yield-quality route,
+  retains it as a secondary precision/performance lever, and narrows the
+  measured seed-7 bottleneck to gap proposal / candidate construction without
+  extending the claim to other seeds or real fragments.
 
 ## 4.3.2
 
