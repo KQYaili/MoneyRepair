@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.3
+
+Simulation-only causal localization of the v4.3.2 candidate-evidence wall:
+
+- adds an oracle false-edge deletion counterfactual that preserves every true
+  accepted edge, removes every accepted cross-note edge after pair scoring,
+  and leaves thresholds, search budgets, gap proposal, and exact cover fixed;
+- adds `tearfit-v433-oracle-edges`, paired control/intervention reporting, and
+  a preregistered `+0.05` oracle-candidate-recall falsification gate;
+- exactly reproduces the N=100, p=24, seed-7 normalized control at
+  `oracle recall = yield = 0.840`;
+- removes all 466 false core edges and 2,064 accepted cross-note edges, but
+  raises oracle recall only to `0.860` (`+0.020`), below the gate;
+- records that candidate count falls from 30,828 to 24,243 and total runtime
+  from 510.4 s to 396.8 s, while combined gap runtime remains effectively
+  unchanged at about 275 s;
+- therefore falsifies false-edge reduction as the next quality-first route and
+  narrows the measured seed-7 bottleneck to gap proposal / candidate
+  construction, without extending the claim to other seeds or real fragments.
+
 ## 4.3.2
 
 Preregistered scale-fineness diagnostics without changing reconstruction logic:

@@ -38,7 +38,12 @@ from moneyrepair.reference import load_references, load_score_thresholds, score_
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
-from moneyrepair.scale import run_v432_scale_protocol
+from moneyrepair.scale import (
+    V433_ORACLE_RESCUE_THRESHOLD,
+    V433_SEED7_NORMALIZED_RATES,
+    run_v432_scale_protocol,
+    run_v433_oracle_false_edge_diagnostic,
+)
 from moneyrepair.simulate import load_dataset, make_multi_note_fragments, make_synthetic_fragments, save_dataset
 from moneyrepair.solver import CoverageSolution, solve_covering_sets
 from moneyrepair.tearfit import (
@@ -978,6 +983,51 @@ def _cmd_tearfit_v432_scale(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_tearfit_v433_oracle_edges(args: argparse.Namespace) -> None:
+    payload = run_v433_oracle_false_edge_diagnostic(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_states_per_pair_score=args.candidate_states_per_pair_score,
+        gap_states_per_fragment=args.gap_states_per_fragment,
+        partial_gap_states_per_fragment=args.partial_gap_states_per_fragment,
+        cover_nodes_per_note=args.cover_nodes_per_note,
+        minimum_oracle_rescue=args.minimum_oracle_rescue,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.3.3 oracle-edge diagnostic to {output}")
+    control = payload["control"]
+    intervention = payload["oracle_false_edge_deleted"]
+    assessment = payload["assessment"]
+    print(
+        "control_oracle={:.3f} intervention_oracle={:.3f} delta={:+.3f}".format(
+            control["oracle_candidate_recall"],
+            intervention["oracle_candidate_recall"],
+            assessment["oracle_candidate_recall_delta"],
+        )
+    )
+    print(
+        "status={status} v44_priority={v44_priority}".format(**assessment)
+    )
+
+
 def _cmd_policy_compare(args: argparse.Namespace) -> None:
     print("================================================================================")
     print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
@@ -1621,6 +1671,59 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tearfit_v432.add_argument("--output", help="write the complete v4.3.2 JSON report")
     tearfit_v432.set_defaults(func=_cmd_tearfit_v432_scale)
+
+    tearfit_v433 = sub.add_parser(
+        "tearfit-v433-oracle-edges",
+        help="run the simulation-only oracle false-edge falsification gate",
+    )
+    tearfit_v433.add_argument("--notes", type=int, default=100)
+    tearfit_v433.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v433.add_argument("--seed", type=int, default=7)
+    tearfit_v433.add_argument("--width", type=int, default=180)
+    tearfit_v433.add_argument("--height", type=int, default=90)
+    tearfit_v433.add_argument(
+        "--route-fragment-fraction",
+        type=float,
+        default=TEARFIT_V43_FINE_FRACTION,
+    )
+    tearfit_v433.add_argument("--tolerance", type=int, default=2)
+    tearfit_v433.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v433.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v433.add_argument("--automatic-effectiveness", type=float, default=2.0)
+    tearfit_v433.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v433.add_argument("--automatic-contiguous-pixels", type=int, default=5)
+    tearfit_v433.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v433.add_argument("--core-raw-coverage", type=float)
+    tearfit_v433.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v433.add_argument("--beam-width", type=int, default=32)
+    tearfit_v433.add_argument("--max-partial-core-candidates", type=int, default=128)
+    tearfit_v433.add_argument(
+        "--candidate-states-per-pair-score",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["candidate_states_per_pair_score"],
+    )
+    tearfit_v433.add_argument(
+        "--gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["gap_states_per_fragment"],
+    )
+    tearfit_v433.add_argument(
+        "--partial-gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["partial_gap_states_per_fragment"],
+    )
+    tearfit_v433.add_argument(
+        "--cover-nodes-per-note",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["cover_nodes_per_note"],
+    )
+    tearfit_v433.add_argument(
+        "--minimum-oracle-rescue",
+        type=float,
+        default=V433_ORACLE_RESCUE_THRESHOLD,
+    )
+    tearfit_v433.add_argument("--output", help="write the v4.3.3 diagnostic JSON")
+    tearfit_v433.set_defaults(func=_cmd_tearfit_v433_oracle_edges)
 
     experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
     exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)

@@ -92,7 +92,25 @@ when adjacent anchor budgets do not stabilize the selected assemblies and
 candidate-provenance fingerprint; an already truncated N=20 run is never used
 as a scaling baseline.
 
-### 4. Production Batch Pipeline
+### 4. v4.3.3 Oracle False-Edge Falsification
+
+Run the final simulation-only causal fork at N=100, p=24, seed 7. This command
+uses simulator `note_id` truth and is not a production reconstruction mode:
+
+```bash
+moneyrepair tearfit-v433-oracle-edges \
+  --notes 100 \
+  --pieces-per-note 24 \
+  --seed 7 \
+  --output runs/v4_3_3/oracle_false_edge_n100_seed7.json
+```
+
+The measured intervention removes every accepted cross-note edge but improves
+oracle candidate recall only from `0.840` to `0.860`, below the preregistered
+`+0.050` rescue gate. It cuts candidate count and runtime, but falsifies
+false-edge reduction as the next quality-first route.
+
+### 5. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
 
@@ -126,6 +144,13 @@ places the measured failure before exact cover, in edge discrimination and/or
 gap proposal. N=100 replication, N=200, and real-data validation remain open.
 See **[docs/v4_3_2_scale_fineness.md](docs/v4_3_2_scale_fineness.md)**.
 
+The v4.3.3 oracle intervention removes all 466 false core edges and all 2,064
+accepted cross-note edges in the same N=100 seed-7 case. Candidate count falls
+from 30,828 to 24,243, but oracle recall and yield rise only from `0.840` to
+`0.860`. The current measured sub-bottleneck is therefore gap proposal /
+candidate construction, not false accepted-edge contamination. See
+**[docs/v4_3_3_oracle_false_edges.md](docs/v4_3_3_oracle_false_edges.md)**.
+
 ---
 
 ## 📚 Documentation Directory
@@ -136,6 +161,7 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 - **[v4.3 Adaptive Geometry](docs/v4_3_tear_effectiveness.md)**: Math formulas for $E_{\text{tear}}$ and whole-assembly gap fit $G$.
 - **[v4.3.1 Mechanism Validation](docs/v4_3_1_mechanism_validation.md)**: Canonical N=20 edge, gap, routing, and search-budget decomposition.
 - **[v4.3.2 Scale-Fineness Protocol](docs/v4_3_2_scale_fineness.md)**: Anchor calibration, fixed/normalized compute tracks, oracle candidate recall, and bottleneck rules.
+- **[v4.3.3 Oracle False-Edge Falsification](docs/v4_3_3_oracle_false_edges.md)**: Single-variable counterfactual that narrows the seed-7 wall to gap proposal / candidate construction.
 - **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
 - **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.

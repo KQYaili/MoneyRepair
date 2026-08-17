@@ -69,6 +69,17 @@ constraints; appearance is at most a tie-breaker.
   unmeasured, so N=100 is a diagnostic, not a replicated headline result. See
   [the v4.3.2 report](docs/v4_3_2_scale_fineness.md).
 
+- **v4.3.3 causal falsification:** the paired N=100, p=24, seed-7 control
+  exactly reproduces `oracle candidate recall = exact yield = 0.840`. An oracle
+  intervention then removes all 466 false core edges and all 2,064 accepted
+  cross-note edges while preserving every accepted true edge, with every
+  threshold and search budget unchanged. Oracle recall reaches only `0.860`
+  (`+0.020`), below the preregistered `+0.050` rescue gate. False edges are a
+  workload burden (30,828 -> 24,243 candidates; 510.4 -> 396.8 s), but not the
+  current yield limiter. The measured seed-7 wall is therefore narrowed from
+  generic candidate evidence to **gap proposal / candidate construction**. See
+  [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining
@@ -88,8 +99,10 @@ Heavy fraying *alone* on coarse pieces is tolerated (yield 1.00). **Combined
 fineness and scale remain the killers, not fray.** Serials rescue precision (the
 no-duplicate-serial constraint blocks chimeras) but not yield. v4.3.2 confirms
 the adaptive/gap gain at N=50 under normalized compute and locates the first
-N=100 seed failure before exact cover. N=100 replication, N=200, and real paper
-remain unmeasured.
+N=100 seed failure before exact cover. v4.3.3 additionally falsifies accepted
+false-edge removal as the dominant quality rescue (`+0.020 < +0.050`) and
+narrows that seed-7 failure to gap proposal / candidate construction. N=100
+replication, N=200, and real paper remain unmeasured.
 
 ## Figures (measured)
 
@@ -142,18 +155,23 @@ threshold whose true/false distributions overlap. That is the recurring trap.
 
 ## The resume-path (if anyone continues)
 
-Three pieces of work, in this order:
+Four pieces of work, in this order:
 
 1. **Real-data validation** — tear a small set of notes, capture raw crops, and
    measure locator uncertainty, automatic precision, and the human queue. This
    is now more informative than another synthetic architecture layer.
-2. **Learned fine-tear edge descriptor, only if real data requires it** — replace
+2. **If simulation work continues, improve gap proposal / candidate
+   construction** — use deterministic whole-assembly evidence to recover exact
+   candidates missing before final selection. Do not spend the next quality
+   iteration only reducing false accepted pairs; v4.3.3 falsified that route at
+   the measured N=100 seed-7 point.
+3. **Learned fine-tear edge descriptor, only if real data requires it** — replace
    the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a
    small CNN on the resampled edge), trained to discriminate true vs false
    tear-mates **specifically on fine, frayed edges**, and benchmarked head-to-head
    against scalar coincidence **on the pieces=16/24 regime**.
-3. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
+4. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
    generation, so N≈hundreds–thousands does not hit time limits.
 
 > Honest expectation: v4.3 shifts the simulated wall; it does not remove the

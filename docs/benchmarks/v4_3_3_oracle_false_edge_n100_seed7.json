@@ -1,0 +1,66 @@
+{
+  "schema_version": "4.3.3",
+  "diagnostic": "oracle_false_edge_deletion",
+  "simulation_boundary": "placed fragments with simulator note_id truth; no locator or OCR errors",
+  "case": {
+    "notes": 100,
+    "pieces_per_note": 24,
+    "seed": 7,
+    "algorithm": "v43_routed",
+    "minimum_oracle_rescue": 0.05
+  },
+  "control": {
+    "oracle_candidate_recall": 0.84,
+    "exact_yield": 0.84,
+    "exact_precision": 0.9655172413793104,
+    "accepted_edges": 3449,
+    "false_accepted_edges": 466,
+    "candidates": 30828,
+    "gap_candidates": 230,
+    "true_gap_candidates": 7,
+    "false_gap_candidates": 223,
+    "stage_timings": {
+      "pair_scoring": 56.62792742199963,
+      "core_search": 173.01233127500745,
+      "complete_gap_search": 152.3607941079972,
+      "partial_gap_search": 122.80993614099862,
+      "exact_cover": 3.5403779040061636,
+      "total": 510.3890135380061
+    },
+    "core_saturated": false,
+    "complete_gap_saturated": false,
+    "partial_gap_saturated": false,
+    "exact_cover_saturated": true
+  },
+  "oracle_false_edge_deleted": {
+    "oracle_candidate_recall": 0.86,
+    "exact_yield": 0.86,
+    "exact_precision": 0.9885057471264368,
+    "accepted_edges": 2983,
+    "false_accepted_edges": 0,
+    "removed_false_accepted_edges": 2064,
+    "removed_false_core_edges": 466,
+    "candidates": 24243,
+    "gap_candidates": 189,
+    "true_gap_candidates": 9,
+    "false_gap_candidates": 180,
+    "stage_timings": {
+      "pair_scoring": 48.63638610699854,
+      "core_search": 67.95276859500154,
+      "complete_gap_search": 162.68100472699734,
+      "partial_gap_search": 112.96481800900074,
+      "exact_cover": 2.7100305880012456,
+      "total": 396.764596189998
+    },
+    "core_saturated": false,
+    "complete_gap_saturated": false,
+    "partial_gap_saturated": false,
+    "exact_cover_saturated": true
+  },
+  "assessment": {
+    "oracle_candidate_recall_delta": 0.020000000000000018,
+    "falsification_gate_passed": false,
+    "status": "gap_proposal_candidate_construction_wall",
+    "v44_priority": "improve_gap_proposal_and_candidate_construction"
+  }
+}

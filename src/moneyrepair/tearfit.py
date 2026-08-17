@@ -176,6 +176,8 @@ class TearFitTrialResult:
     selected_solution_fingerprint: str = ""
     candidate_provenance_fingerprint: str = ""
     stage_timings: dict[str, float] = field(default_factory=dict)
+    diagnostic_removed_false_accepted_edges: int = 0
+    diagnostic_removed_false_core_edges: int = 0
 
     def to_jsonable(self) -> dict:
         return {
@@ -209,6 +211,12 @@ class TearFitTrialResult:
             "selected_solution_fingerprint": self.selected_solution_fingerprint,
             "candidate_provenance_fingerprint": self.candidate_provenance_fingerprint,
             "stage_timings": dict(self.stage_timings),
+            "diagnostic_removed_false_accepted_edges": (
+                self.diagnostic_removed_false_accepted_edges
+            ),
+            "diagnostic_removed_false_core_edges": (
+                self.diagnostic_removed_false_core_edges
+            ),
             "edge_decisions": dict(self.edge_decisions),
             "candidate_decisions": dict(self.candidate_decisions),
             "search_stats": self.search_stats,
@@ -2033,8 +2041,15 @@ def run_tearfit_trial(
     cover_node_limit: int | None = None,
     cover_nodes_per_note: float | None = None,
     cover_objective: str = "score_then_count",
+    diagnostic_oracle_drop_false_accepted_edges: bool = False,
 ) -> TearFitTrialResult:
-    """Run one labelled exact-cover tear-fit trial."""
+    """Run one labelled exact-cover tear-fit trial.
+
+    ``diagnostic_oracle_drop_false_accepted_edges`` is a simulation-only
+    counterfactual. It reads ``note_id`` ground truth after pair scoring and
+    removes accepted cross-note edges before candidate generation. It must
+    never be used as a reconstruction feature or on real inputs.
+    """
 
     trial_started = monotonic()
     if algorithm not in TEARFIT_ALGORITHMS:
@@ -2096,6 +2111,40 @@ def run_tearfit_trial(
         label_filtered_scores = all_scores
         edges = raw_edges
     stage_timings["pair_scoring"] = monotonic() - pair_scoring_started
+    diagnostic_removed_false_accepted_edges = 0
+    diagnostic_removed_false_core_edges = 0
+    if diagnostic_oracle_drop_false_accepted_edges:
+        missing_note_ids = [
+            fragment.id for fragment in fragments if "note_id" not in fragment.meta
+        ]
+        if missing_note_ids:
+            raise ValueError(
+                "oracle false-edge deletion requires simulated note_id ground truth"
+            )
+
+        def is_true_pair(edge: TearFitEdge) -> bool:
+            return (
+                fragments[edge.left].meta["note_id"]
+                == fragments[edge.right].meta["note_id"]
+            )
+
+        preintervention_core_edges = (
+            edges
+            if resolved_algorithm == "baseline"
+            else [edge for edge in edges if edge.evidence_level == "automatic"]
+        )
+        diagnostic_removed_false_accepted_edges = sum(
+            not is_true_pair(edge) for edge in edges
+        )
+        diagnostic_removed_false_core_edges = sum(
+            not is_true_pair(edge) for edge in preintervention_core_edges
+        )
+        edges = [edge for edge in edges if is_true_pair(edge)]
+        label_filtered_scores = [
+            edge
+            for edge in label_filtered_scores
+            if edge.evidence_level == "insufficient-evidence" or is_true_pair(edge)
+        ]
     resolved_candidate_state_limit = _resolve_workload_budget(
         candidate_state_limit,
         len(all_scores),
@@ -2350,6 +2399,9 @@ def run_tearfit_trial(
             "cover_nodes_per_note": cover_nodes_per_note,
             "resolved_cover_node_limit": resolved_cover_node_limit,
             "cover_objective": cover_objective,
+            "diagnostic_oracle_drop_false_accepted_edges": (
+                diagnostic_oracle_drop_false_accepted_edges
+            ),
         },
         fragments=len(fragments),
         pair_scores=len(all_scores),
@@ -2393,6 +2445,10 @@ def run_tearfit_trial(
         selected_solution_fingerprint=selected_solution_fingerprint,
         candidate_provenance_fingerprint=candidate_provenance_fingerprint,
         stage_timings=stage_timings,
+        diagnostic_removed_false_accepted_edges=(
+            diagnostic_removed_false_accepted_edges
+        ),
+        diagnostic_removed_false_core_edges=diagnostic_removed_false_core_edges,
     )
 
 

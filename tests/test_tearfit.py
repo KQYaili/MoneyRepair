@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from moneyrepair.scale import assess_v432_bottleneck, run_v432_scale_protocol
+from moneyrepair.scale import (
+    assess_v432_bottleneck,
+    assess_v433_oracle_false_edge_deletion,
+    run_v432_scale_protocol,
+    run_v433_oracle_false_edge_diagnostic,
+)
 from moneyrepair.tearfit import (
     AssemblyCandidate,
     FractalTearConfig,
@@ -645,6 +650,82 @@ def test_v432_bottleneck_excludes_cover_when_oracle_equals_yield():
     assert assessment["first_failed_notes"] == 100
     assert assessment["dominant_runtime_stage"] == "complete_gap_search"
     assert assessment["exact_cover_excluded_as_quality_limiter"] is True
+
+
+def test_oracle_false_edge_deletion_preserves_true_core_edges():
+    config = FractalTearConfig(
+        notes=3,
+        pieces_per_note=4,
+        width=72,
+        height=40,
+        seed=41,
+        serial_ocr_rate=0.0,
+    )
+    common = {
+        "algorithm": "effectiveness",
+        "use_labels": False,
+        "min_overlap_pixels": 4,
+        "beam_width": 8,
+        "candidate_time_limit_seconds": None,
+        "candidate_state_limit": 20_000,
+        "cover_time_limit_seconds": None,
+        "cover_node_limit": 20_000,
+    }
+    control = run_tearfit_trial(config, **common)
+    intervention = run_tearfit_trial(
+        config,
+        **common,
+        diagnostic_oracle_drop_false_accepted_edges=True,
+    )
+
+    assert intervention.true_accepted_edges == control.true_accepted_edges
+    assert intervention.false_accepted_edges == 0
+    assert (
+        intervention.diagnostic_removed_false_core_edges
+        == control.false_accepted_edges
+    )
+    assert intervention.accepted_edges == control.true_accepted_edges
+
+
+def test_v433_oracle_gate_selects_one_causal_branch():
+    control = {"oracle_candidate_recall": 0.84}
+    rescued = assess_v433_oracle_false_edge_deletion(
+        control,
+        {"oracle_candidate_recall": 0.90},
+    )
+    not_rescued = assess_v433_oracle_false_edge_deletion(
+        control,
+        {"oracle_candidate_recall": 0.88},
+    )
+
+    assert rescued["status"] == "false_edge_contamination_limiter"
+    assert rescued["falsification_gate_passed"] is True
+    assert not_rescued["status"] == "gap_proposal_candidate_construction_wall"
+    assert not_rescued["falsification_gate_passed"] is False
+
+
+def test_v433_oracle_diagnostic_emits_control_and_intervention():
+    payload = run_v433_oracle_false_edge_diagnostic(
+        notes=2,
+        pieces_per_note=4,
+        seed=43,
+        width=72,
+        height=40,
+        min_overlap_pixels=4,
+        beam_width=8,
+        candidate_states_per_pair_score=100.0,
+        gap_states_per_fragment=100.0,
+        partial_gap_states_per_fragment=25.0,
+        cover_nodes_per_note=10_000.0,
+    )
+
+    assert payload["config"]["schema_version"] == "4.3.3"
+    assert payload["control"]["false_accepted_edges"] >= 0
+    assert payload["oracle_false_edge_deleted"]["false_accepted_edges"] == 0
+    assert payload["assessment"]["status"] in {
+        "false_edge_contamination_limiter",
+        "gap_proposal_candidate_construction_wall",
+    }
 
 
 

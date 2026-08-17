@@ -7,8 +7,11 @@ from statistics import fmean
 from typing import Callable, Iterable
 
 from moneyrepair.tearfit import (
+    FractalTearConfig,
     TEARFIT_ALGORITHMS,
     TEARFIT_V43_FINE_FRACTION,
+    TearFitTrialResult,
+    run_tearfit_trial,
     run_tearfit_v43_ablation,
 )
 
@@ -19,6 +22,14 @@ V432_QUALITY_THRESHOLDS = {
     "minimum_yield": 0.80,
     "maximum_yield_drop": 0.10,
     "maximum_manual_fraction": 0.20,
+}
+
+V433_ORACLE_RESCUE_THRESHOLD = 0.05
+V433_SEED7_NORMALIZED_RATES = {
+    "candidate_states_per_pair_score": 12.691965985531159,
+    "gap_states_per_fragment": 83.33333333333333,
+    "partial_gap_states_per_fragment": 20.833333333333332,
+    "cover_nodes_per_note": 25_000.0,
 }
 
 
@@ -737,4 +748,215 @@ def run_v432_scale_protocol(
         "bottleneck_assessment": assess_v432_bottleneck(
             summary, quality_assessment
         ),
+    }
+
+
+def _v433_trial_snapshot(result: TearFitTrialResult) -> dict:
+    diagnostics = result.diagnostics
+    return {
+        "oracle_candidate_recall": result.oracle_candidate_recall,
+        "exact_yield": diagnostics.exact_yield,
+        "exact_precision": diagnostics.exact_precision,
+        "manual_notes_remaining": diagnostics.manual_notes_remaining,
+        "accepted_edges": result.accepted_edges,
+        "true_accepted_edges": result.true_accepted_edges,
+        "false_accepted_edges": result.false_accepted_edges,
+        "false_edge_rate": result.false_edge_rate,
+        "candidates": result.candidates,
+        "core_candidates": result.core_candidates,
+        "gap_candidates": result.gap_candidates,
+        "true_gap_candidates": result.true_gap_candidates,
+        "false_gap_candidates": result.false_gap_candidates,
+        "selected_true_gap_candidates": result.selected_true_gap_candidates,
+        "selected_false_gap_candidates": result.selected_false_gap_candidates,
+        "diagnostic_removed_false_accepted_edges": (
+            result.diagnostic_removed_false_accepted_edges
+        ),
+        "diagnostic_removed_false_core_edges": (
+            result.diagnostic_removed_false_core_edges
+        ),
+        "search_stats": deepcopy(result.search_stats),
+        "stage_timings": dict(result.stage_timings),
+        "selected_solution_fingerprint": result.selected_solution_fingerprint,
+        "candidate_provenance_fingerprint": (
+            result.candidate_provenance_fingerprint
+        ),
+    }
+
+
+def assess_v433_oracle_false_edge_deletion(
+    control: dict,
+    intervention: dict,
+    *,
+    minimum_oracle_rescue: float = V433_ORACLE_RESCUE_THRESHOLD,
+) -> dict:
+    """Classify the final v4.3 candidate-evidence falsification gate."""
+
+    if not (0.0 < minimum_oracle_rescue <= 1.0):
+        raise ValueError("minimum_oracle_rescue must be in (0, 1]")
+    control_oracle = float(control["oracle_candidate_recall"])
+    intervention_oracle = float(intervention["oracle_candidate_recall"])
+    delta = intervention_oracle - control_oracle
+    rescued = delta + 1e-12 >= minimum_oracle_rescue
+    if rescued:
+        status = "false_edge_contamination_limiter"
+        statement = (
+            "Deleting accepted cross-note edges rescues enough exact candidates "
+            "to identify false-edge contamination as the current candidate-evidence limiter."
+        )
+        v44_priority = "reduce_false_pair_and_candidate_workload"
+    else:
+        status = "gap_proposal_candidate_construction_wall"
+        statement = (
+            "Deleting every accepted cross-note edge does not rescue enough exact "
+            "candidates; stop the false-pair route and prioritize gap proposal and "
+            "candidate construction."
+        )
+        v44_priority = "improve_gap_proposal_and_candidate_construction"
+    return {
+        "status": status,
+        "minimum_oracle_rescue": minimum_oracle_rescue,
+        "control_oracle_candidate_recall": control_oracle,
+        "intervention_oracle_candidate_recall": intervention_oracle,
+        "oracle_candidate_recall_delta": delta,
+        "falsification_gate_passed": rescued,
+        "v44_priority": v44_priority,
+        "statement": statement,
+    }
+
+
+def run_v433_oracle_false_edge_diagnostic(
+    *,
+    notes: int = 100,
+    pieces_per_note: int = 24,
+    seed: int = 7,
+    width: int = 180,
+    height: int = 90,
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
+    tolerance: int = 2,
+    min_overlap_pixels: int = 14,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    coverage_threshold: float = 0.93,
+    core_raw_coverage_threshold: float | None = None,
+    gap_fill_radius: int = 2,
+    beam_width: int = 32,
+    max_partial_core_candidates: int = 128,
+    candidate_states_per_pair_score: float = V433_SEED7_NORMALIZED_RATES[
+        "candidate_states_per_pair_score"
+    ],
+    gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "gap_states_per_fragment"
+    ],
+    partial_gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "partial_gap_states_per_fragment"
+    ],
+    cover_nodes_per_note: float = V433_SEED7_NORMALIZED_RATES[
+        "cover_nodes_per_note"
+    ],
+    minimum_oracle_rescue: float = V433_ORACLE_RESCUE_THRESHOLD,
+) -> dict:
+    """Run the control and oracle false-edge deletion counterfactual.
+
+    This command is diagnostic only: it consumes simulator ``note_id`` truth
+    and cannot be used on real fragments or in the production pipeline.
+    """
+
+    if notes < 1 or pieces_per_note < 2:
+        raise ValueError("notes and pieces_per_note must be positive")
+    config = FractalTearConfig(
+        notes=notes,
+        pieces_per_note=pieces_per_note,
+        width=width,
+        height=height,
+        seed=seed,
+        serial_ocr_rate=0.0,
+    )
+    common = {
+        "algorithm": "v43_routed",
+        "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
+        "tolerance": tolerance,
+        "min_overlap_pixels": min_overlap_pixels,
+        "min_effectiveness": min_effectiveness,
+        "automatic_effectiveness": automatic_effectiveness,
+        "min_contiguous_pixels": min_contiguous_pixels,
+        "automatic_contiguous_pixels": automatic_contiguous_pixels,
+        "coverage_threshold": coverage_threshold,
+        "core_raw_coverage_threshold": core_raw_coverage_threshold,
+        "gap_fill_radius": gap_fill_radius,
+        "beam_width": beam_width,
+        "max_partial_core_candidates": max_partial_core_candidates,
+        "use_labels": False,
+        "candidate_time_limit_seconds": None,
+        "candidate_state_limit": None,
+        "candidate_states_per_pair_score": candidate_states_per_pair_score,
+        "partial_gap_time_limit_seconds": None,
+        "gap_state_limit": None,
+        "gap_states_per_fragment": gap_states_per_fragment,
+        "partial_gap_state_limit": None,
+        "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
+        "cover_time_limit_seconds": None,
+        "cover_node_limit": None,
+        "cover_nodes_per_note": cover_nodes_per_note,
+    }
+    control_result = run_tearfit_trial(config, **common)
+    intervention_result = run_tearfit_trial(
+        config,
+        **common,
+        diagnostic_oracle_drop_false_accepted_edges=True,
+    )
+    control = _v433_trial_snapshot(control_result)
+    intervention = _v433_trial_snapshot(intervention_result)
+    assessment = assess_v433_oracle_false_edge_deletion(
+        control,
+        intervention,
+        minimum_oracle_rescue=minimum_oracle_rescue,
+    )
+    return {
+        "config": {
+            "schema_version": "4.3.3",
+            "diagnostic": "oracle_false_edge_deletion",
+            "notes": notes,
+            "pieces_per_note": pieces_per_note,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "algorithm": "v43_routed",
+            "normalized_rates": {
+                "candidate_states_per_pair_score": candidate_states_per_pair_score,
+                "gap_states_per_fragment": gap_states_per_fragment,
+                "partial_gap_states_per_fragment": (
+                    partial_gap_states_per_fragment
+                ),
+                "cover_nodes_per_note": cover_nodes_per_note,
+            },
+            "minimum_oracle_rescue": minimum_oracle_rescue,
+            "simulation_boundary": (
+                "placed fragments with simulator note_id truth; no locator or OCR errors"
+            ),
+        },
+        "control": control,
+        "oracle_false_edge_deleted": intervention,
+        "comparison": {
+            "oracle_candidate_recall_delta": (
+                intervention["oracle_candidate_recall"]
+                - control["oracle_candidate_recall"]
+            ),
+            "exact_yield_delta": intervention["exact_yield"] - control["exact_yield"],
+            "candidate_count_delta": intervention["candidates"] - control["candidates"],
+            "gap_candidate_count_delta": (
+                intervention["gap_candidates"] - control["gap_candidates"]
+            ),
+            "complete_gap_seconds_delta": (
+                intervention["stage_timings"]["complete_gap_search"]
+                - control["stage_timings"]["complete_gap_search"]
+            ),
+            "total_seconds_delta": (
+                intervention["stage_timings"]["total"]
+                - control["stage_timings"]["total"]
+            ),
+        },
+        "assessment": assessment,
     }

@@ -11,10 +11,11 @@ docs/
 ├── README.md                          # 👈 You are here: Master Documentation Index
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
-├── 🔬 Version 4.3.2 Scale-Fineness Validation (Latest)
+├── 🔬 Version 4.3.3 Candidate-Evidence Localization (Latest)
 │   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
 │   ├── v4_3_1_mechanism_validation.md # Canonical N=20 mechanism decomposition
 │   ├── v4_3_2_scale_fineness.md        # Compute calibration and bottleneck protocol
+│   ├── v4_3_3_oracle_false_edges.md    # Oracle false-edge causal falsification
 │   └── v4_3_ab_benchmark.md           # Supplemental N=10 consistency audit
 │
 ├── 📐 Auto-Locator & Candidate Pose Search
@@ -44,10 +45,11 @@ docs/
 ### 1. System Architecture & Workflows
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
-### 2. v4.3.2 Adaptive Physical Evidence (Latest)
+### 2. v4.3.3 Adaptive Physical Evidence (Latest)
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
 * **[v4_3_1_mechanism_validation.md](v4_3_1_mechanism_validation.md)**: Canonical N=20 mechanism decomposition comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` under fixed search budgets.
 * **[v4_3_2_scale_fineness.md](v4_3_2_scale_fineness.md)**: Preregistered anchor staircase, fixed and normalized compute tracks, checkpointing, and causal wall diagnostics.
+* **[v4_3_3_oracle_false_edges.md](v4_3_3_oracle_false_edges.md)**: Paired oracle false-edge deletion diagnostic that falsifies false-pair reduction as the next quality route and narrows the measured seed-7 wall to gap proposal / candidate construction.
 * **[v4_3_ab_benchmark.md](v4_3_ab_benchmark.md)**: Supplemental N=10 same-seed audit retained for reproducibility; it is not used for headline claims.
 
 ### 3. Pose Locator & Solver Optimization

@@ -143,6 +143,11 @@ the pool, while exact cover is excluded as the current quality limiter. The
 N=100 conclusion remains a deterministic seed-7 diagnostic until seeds 8/9 are
 completed. It does not establish behavior on real fragments.
 
+The follow-up v4.3.3 oracle false-edge deletion test raises oracle recall only
+from `0.840` to `0.860`, below its preregistered `+0.050` gate. The measured
+seed-7 wall is therefore narrowed further to gap proposal / candidate
+construction. See [the v4.3.3 report](v4_3_3_oracle_false_edges.md).
+
 Machine-readable summaries are checked in as
 [`v4_3_2_n50.json`](benchmarks/v4_3_2_n50.json) and
 [`v4_3_2_n100_seed7.json`](benchmarks/v4_3_2_n100_seed7.json).
