@@ -11,7 +11,10 @@ docs/
 ├── README.md                          # 👈 You are here: Master Documentation Index
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
-├── 🔬 Version 4.3.3 Candidate-Evidence Localization (Latest)
+├── 🔬 Version 4.4 Residual-Gap Candidate Proposal (Latest)
+│   └── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
+│
+├── 🔬 Version 4.3.3 Candidate-Evidence Localization
 │   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
 │   ├── v4_3_1_mechanism_validation.md # Canonical N=20 mechanism decomposition
 │   ├── v4_3_2_scale_fineness.md        # Compute calibration and bottleneck protocol
@@ -45,7 +48,10 @@ docs/
 ### 1. System Architecture & Workflows
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
-### 2. v4.3.3 Adaptive Physical Evidence (Latest)
+### 2. v4.4 Residual-Gap Candidate Proposal (Latest)
+* **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.
+
+### 3. v4.3.3 Adaptive Physical Evidence
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
 * **[v4_3_1_mechanism_validation.md](v4_3_1_mechanism_validation.md)**: Canonical N=20 mechanism decomposition comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` under fixed search budgets.
 * **[v4_3_2_scale_fineness.md](v4_3_2_scale_fineness.md)**: Preregistered anchor staircase, fixed and normalized compute tracks, checkpointing, and causal wall diagnostics.

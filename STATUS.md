@@ -82,6 +82,14 @@ constraints; appearance is at most a tie-breaker.
   is therefore narrowed from generic candidate evidence to **gap proposal /
   candidate construction**. See [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
 
+- **v4.4 residual-gap candidate proposal:** implements a paradigm shift from
+  edge-first expansion to residual-gap-first candidate construction (`ResidualGapRegion`).
+  Evaluates proposals using whole-assembly before->after improvement ($E_{\text{proposal}}$),
+  applies per-gap complexity routing (`simple`, `moderate`, `complex`), prunes non-informative
+  slivers below the tolerance scale ($S_{\text{min}}$), and includes funnel diagnostics
+  (`v44_candidate_funnel_diagnostic`). All 125 unit/integration tests pass cleanly.
+  See [the v4.4 report](docs/v4_4_residual_gap_proposal.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining
