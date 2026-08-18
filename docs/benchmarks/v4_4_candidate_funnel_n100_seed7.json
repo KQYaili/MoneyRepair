@@ -1,0 +1,586 @@
+{
+  "config": {
+    "schema_version": "4.4.0-diagnostic",
+    "diagnostic": "truth_restricted_candidate_funnel",
+    "notes": 100,
+    "pieces_per_note": 24,
+    "seed": 7,
+    "algorithm": "v43_routed",
+    "gap_proposal_pool": "weak_pair",
+    "max_complete_core_candidates": 512,
+    "max_partial_core_candidates": 128,
+    "simulation_boundary": "placed fragments; simulator note_id is used only after production candidate generation to replay missing notes"
+  },
+  "trial": {
+    "oracle_candidate_recall": 0.84,
+    "exact_yield": 0.84,
+    "exact_precision": 0.9655172413793104,
+    "manual_notes_remaining": 16,
+    "accepted_edges": 3449,
+    "true_accepted_edges": 2983,
+    "false_accepted_edges": 466,
+    "false_edge_rate": 0.13511162655842274,
+    "candidates": 30828,
+    "core_candidates": 134672,
+    "gap_candidates": 230,
+    "true_gap_candidates": 7,
+    "false_gap_candidates": 223,
+    "selected_true_gap_candidates": 7,
+    "selected_false_gap_candidates": 0,
+    "diagnostic_removed_false_accepted_edges": 0,
+    "diagnostic_removed_false_core_edges": 0,
+    "search_stats": {
+      "core": {
+        "expanded_states": 555117,
+        "state_limit_reached": false,
+        "time_limit_reached": false
+      },
+      "complete_gap": {
+        "expanded_states": 890,
+        "state_limit_reached": false,
+        "time_limit_reached": false,
+        "weak_pair_edges": 76344,
+        "proposal_edges": 76344,
+        "proposal_evaluations": 934815,
+        "accepted_proposals": 1245,
+        "no_weak_edge_evaluations": 0,
+        "accepted_no_weak_edge_proposals": 0
+      },
+      "partial_gap": {
+        "expanded_states": 712,
+        "state_limit_reached": false,
+        "time_limit_reached": false,
+        "weak_pair_edges": 76344,
+        "proposal_edges": 76344,
+        "proposal_evaluations": 743968,
+        "accepted_proposals": 5960,
+        "no_weak_edge_evaluations": 0,
+        "accepted_no_weak_edge_proposals": 0
+      },
+      "gap_first": {},
+      "exact_cover": {
+        "search_nodes": 2500000,
+        "node_limit_reached": true,
+        "time_limit_reached": false
+      }
+    },
+    "stage_timings": {
+      "simulation": 2.5771625820198096,
+      "pair_scoring": 55.288303298992105,
+      "core_search": 154.0565795970033,
+      "complete_gap_search": 165.24298496198026,
+      "partial_gap_search": 155.34524185600458,
+      "exact_cover": 3.1147178309911396,
+      "diagnostics": 0.0011004020052496344,
+      "total": 536.4910177069833
+    },
+    "selected_solution_fingerprint": "e8f06590552be2f9a35fe1d5b1b8da8fff9a96f4abbb7437a6051278707ee3fa",
+    "candidate_provenance_fingerprint": "2d4110b3020996aed0eba4179183759c531f18aa418c6b0728ad72f92ea88362",
+    "gap_proposal_pool": "weak_pair",
+    "gap_proposal_stats": {
+      "complete_gap": {
+        "weak_pair_edges": 76344,
+        "proposal_edges": 76344,
+        "proposal_evaluations": 934815,
+        "accepted_proposals": 1245,
+        "no_weak_edge_evaluations": 0,
+        "accepted_no_weak_edge_proposals": 0
+      },
+      "partial_gap": {
+        "weak_pair_edges": 76344,
+        "proposal_edges": 76344,
+        "proposal_evaluations": 743968,
+        "accepted_proposals": 5960,
+        "no_weak_edge_evaluations": 0,
+        "accepted_no_weak_edge_proposals": 0
+      }
+    },
+    "candidate_funnel": {
+      "simulation_truth_only": true,
+      "complete_base_limit": 512,
+      "partial_base_limit": 128,
+      "beam_width": 8,
+      "max_bases_per_note": 4,
+      "category_counts": {
+        "core_exact": 77,
+        "production_gap_exact": 7,
+        "no_pure_core_base": 10,
+        "pure_core_base_not_selected": 6
+      },
+      "notes": [
+        {
+          "note_id": "note-000",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-001",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-002",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-003",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-004",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-005",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-006",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-007",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-008",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-009",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-010",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-011",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-012",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-013",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-014",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-015",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-016",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-017",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-018",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-019",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-020",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-021",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-022",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-023",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-024",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-025",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-026",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-027",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-028",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-029",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-030",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-031",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-032",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-033",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-034",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-035",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-036",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-037",
+          "pure_base_count": 823,
+          "selected_pure_base_count": 0,
+          "best_base_source": "complete",
+          "best_base_rank": 550,
+          "best_base_pieces": 23,
+          "best_base_raw_coverage": 0.932962962962963,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-038",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-039",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-040",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-041",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-042",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-043",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-044",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-045",
+          "pure_base_count": 16,
+          "selected_pure_base_count": 0,
+          "best_base_source": "partial",
+          "best_base_rank": 10641,
+          "best_base_pieces": 21,
+          "best_base_raw_coverage": 0.8321604938271605,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-046",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-047",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-048",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-049",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-050",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-051",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-052",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-053",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-054",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-055",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-056",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-057",
+          "pure_base_count": 203,
+          "selected_pure_base_count": 0,
+          "best_base_source": "complete",
+          "best_base_rank": 861,
+          "best_base_pieces": 23,
+          "best_base_raw_coverage": 0.9238888888888889,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-058",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-059",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-060",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-061",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-062",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-063",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-064",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-065",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-066",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-067",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-068",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-069",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-070",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-071",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-072",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-073",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-074",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-075",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-076",
+          "category": "production_gap_exact"
+        },
+        {
+          "note_id": "note-077",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-078",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-079",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-080",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-081",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-082",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-083",
+          "pure_base_count": 567,
+          "selected_pure_base_count": 0,
+          "best_base_source": "complete",
+          "best_base_rank": 578,
+          "best_base_pieces": 23,
+          "best_base_raw_coverage": 0.9320987654320988,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-084",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-085",
+          "pure_base_count": 0,
+          "selected_pure_base_count": 0,
+          "category": "no_pure_core_base"
+        },
+        {
+          "note_id": "note-086",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-087",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-088",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-089",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-090",
+          "pure_base_count": 49,
+          "selected_pure_base_count": 0,
+          "best_base_source": "partial",
+          "best_base_rank": 7215,
+          "best_base_pieces": 21,
+          "best_base_raw_coverage": 0.8448765432098766,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-091",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-092",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-093",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-094",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-095",
+          "pure_base_count": 3,
+          "selected_pure_base_count": 0,
+          "best_base_source": "partial",
+          "best_base_rank": 41756,
+          "best_base_pieces": 20,
+          "best_base_raw_coverage": 0.8056172839506173,
+          "category": "pure_core_base_not_selected"
+        },
+        {
+          "note_id": "note-096",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-097",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-098",
+          "category": "core_exact"
+        },
+        {
+          "note_id": "note-099",
+          "category": "production_gap_exact"
+        }
+      ]
+    }
+  },
+  "assessment": {
+    "category_counts": {
+      "core_exact": 77,
+      "production_gap_exact": 7,
+      "no_pure_core_base": 10,
+      "pure_core_base_not_selected": 6
+    },
+    "unresolved_category_counts": {
+      "no_pure_core_base": 10,
+      "pure_core_base_not_selected": 6
+    },
+    "dominant_unresolved_categories": [
+      "no_pure_core_base"
+    ],
+    "statement": "The category counts localize missing exact candidates among core base construction, base selection, whole-assembly scoring, and cross-note beam competition without feeding truth to production."
+  }
+}

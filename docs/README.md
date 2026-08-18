@@ -12,7 +12,8 @@ docs/
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
 ├── 🔬 Version 4.4 Residual-Gap Candidate Proposal (Latest)
-│   └── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
+│   ├── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
+│   └── v4_4_empirical_validation.md   # Preregistered A/B NULL result & relocated bottleneck
 │
 ├── 🔬 Version 4.3.3 Candidate-Evidence Localization
 │   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
@@ -50,6 +51,7 @@ docs/
 
 ### 2. v4.4 Residual-Gap Candidate Proposal (Latest)
 * **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.
+* **[v4_4_empirical_validation.md](v4_4_empirical_validation.md)**: Preregistered N=100 seed-7 normalized-compute A/B returning a NULL (`0.840 -> 0.840`, `+0.05` gate not cleared); gap-first inert and candidate funnel relocating the measured wall upstream to pure core-base construction & selection.
 
 ### 3. v4.3.3 Adaptive Physical Evidence
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).

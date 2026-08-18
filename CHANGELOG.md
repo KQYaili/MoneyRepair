@@ -1,5 +1,41 @@
 # Changelog
 
+## 4.4 — empirical validation (NULL result; bottleneck relocated)
+
+Preregistered same-seed A/B validation of the v4.4 residual-gap-first
+construction, without changing reconstruction logic (docs + benchmark artifacts
+only):
+
+- runs the decisive N=100, p=24, seed-7 A/B under the stabilized v4.3.3
+  workload-normalized compute budgets (`candidate_states_per_pair_score`
+  12.6919659855, `gap_states_per_fragment` 83.3333, `partial_gap_states_per_fragment`
+  20.8333, `cover_nodes_per_note` 25000), with identical same-seed
+  `FractalTearConfig` arms that exactly reproduce the v4.3.3 control;
+- measures the NULL: residual-gap-first construction does **not** raise oracle
+  candidate recall (`0.840 -> 0.840`, delta `0.000`), so the preregistered
+  `+0.05` rescue gate (`>= 0.890`) is not cleared; precision holds (`0.9655`) and
+  the only effect is `+33.28 s` (`+3.4%`) runtime;
+- records that gap-first was inert here: `augment_candidates_gap_first` found
+  2,716 residual gap regions, all routed `complex` (`routing_simple`=0,
+  `routing_moderate`=0), yet `gap_proposals_made`=0, `accepted_proposals`=0,
+  `expanded_states`=0, with neither state nor time limit reached;
+- adds the truth-restricted candidate funnel (reproduces the control at
+  `oracle recall = yield = 0.840`) that relocates the binding constraint
+  **upstream** of the gap stage — `category_counts` = {`core_exact`:77,
+  `production_gap_exact`:7, `no_pure_core_base`:10, `pure_core_base_not_selected`:6},
+  dominant unresolved `no_pure_core_base`, with zero misses attributed to the
+  weak-pair / gap-proposal gate;
+- concludes that v4.4 does not solve the candidate wall; the measured seed-7 wall
+  moves from *gap proposal / candidate construction* to **pure core-base
+  construction & base selection**, and notes the secondary implementation
+  follow-up (the `complex`-routing branch emits no proposals under normalized
+  budgets) as a non-primary limiter;
+- keeps all claims simulation-only and single-seed (`STATUS.md` remains the sole
+  capability authority; no extrapolation to N=200 replication or real fragments);
+- adds `docs/v4_4_empirical_validation.md`,
+  `docs/benchmarks/v4_4_gap_first_n100_seed7.json`, and
+  `docs/benchmarks/v4_4_candidate_funnel_n100_seed7.json`.
+
 ## 4.3.3
 
 Simulation-only causal localization of the v4.3.2 candidate-evidence wall:

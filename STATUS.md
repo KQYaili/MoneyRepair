@@ -82,13 +82,32 @@ constraints; appearance is at most a tie-breaker.
   is therefore narrowed from generic candidate evidence to **gap proposal /
   candidate construction**. See [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
 
-- **v4.4 residual-gap candidate proposal:** implements a paradigm shift from
-  edge-first expansion to residual-gap-first candidate construction (`ResidualGapRegion`).
-  Evaluates proposals using whole-assembly before->after improvement ($E_{\text{proposal}}$),
-  applies per-gap complexity routing (`simple`, `moderate`, `complex`), prunes non-informative
-  slivers below the tolerance scale ($S_{\text{min}}$), and includes funnel diagnostics
+- **v4.4 residual-gap candidate proposal (implementation complete):** implements
+  a paradigm shift from edge-first expansion to residual-gap-first candidate
+  construction (`ResidualGapRegion`). Evaluates proposals using whole-assembly
+  before->after improvement ($E_{\text{proposal}}$), applies per-gap complexity
+  routing (`simple`, `moderate`, `complex`), prunes non-informative slivers below
+  the tolerance scale ($S_{\text{min}}$), and includes funnel diagnostics
   (`v44_candidate_funnel_diagnostic`). All 125 unit/integration tests pass cleanly.
   See [the v4.4 report](docs/v4_4_residual_gap_proposal.md).
+
+- **v4.4 empirical validation (NULL result; bottleneck relocated):** under the
+  preregistered N=100, p=24, seed-7 normalized-compute protocol (identical
+  same-seed arms; exactly reproduces the v4.3.3 control), residual-gap-first
+  construction **did not raise oracle candidate recall** — `0.840 -> 0.840`
+  (delta `0.000`), so the `+0.05` rescue gate (`>= 0.890`) was **not** cleared.
+  Precision held at `0.9655`; the only measurable effect was `+33.28 s` (`+3.4%`)
+  runtime. v4.4 does **not** solve the candidate wall. Two independent findings
+  explain the NULL: (1) gap-first was inert here — it found 2,716 residual gap
+  regions, all routed `complex`, yet made `0` proposals with neither state nor
+  time limit reached; (2) the candidate funnel localizes the binding constraint
+  **upstream** of the gap stage — the 16 missing notes are 10 `no_pure_core_base`
+  + 6 `pure_core_base_not_selected`, with **zero** misses attributed to the
+  weak-pair / gap-proposal gate. So even a fully-firing gap-first stage could not
+  rescue those notes. The measured seed-7 wall therefore moves from *gap
+  proposal / candidate construction* to **pure core-base construction & base
+  selection**. This is one deterministic seed, not a cross-seed claim. See
+  [the v4.4 empirical-validation report](docs/v4_4_empirical_validation.md).
 
 ## Where the wall is (measured, simulation)
 
@@ -111,8 +130,15 @@ no-duplicate-serial constraint blocks chimeras) but not yield. v4.3.2 confirms
 the adaptive/gap gain at N=50 under normalized compute and locates the first
 N=100 seed failure before exact cover. v4.3.3 additionally falsifies accepted
 false-edge removal as the dominant quality rescue (`+0.020 < +0.050`) and
-narrows that seed-7 failure to gap proposal / candidate construction. N=100
-replication, N=200, and real paper remain unmeasured.
+narrows that seed-7 failure to gap proposal / candidate construction. v4.4 then
+tests residual-gap-first construction against that narrowed wall and returns a
+NULL (`0.840 -> 0.840`, `+0.05` gate not cleared): gap-first is inert (2,716
+regions, all `complex`, `0` proposals), and the candidate funnel relocates the
+binding constraint **upstream to pure core-base construction & base selection**
+(10 `no_pure_core_base` + 6 `pure_core_base_not_selected`; zero gap-gate misses).
+The measured seed-7 wall is therefore now pure core-base construction and
+selection, not the gap-proposal stage. N=100 replication, N=200, and real paper
+remain unmeasured.
 
 ## Figures (measured)
 
@@ -170,12 +196,17 @@ Four pieces of work, in this order:
 1. **Real-data validation** — tear a small set of notes, capture raw crops, and
    measure locator uncertainty, automatic precision, and the human queue. This
    is now more informative than another synthetic architecture layer.
-2. **If simulation work continues, improve gap proposal / candidate
-   construction** — use deterministic whole-assembly evidence to recover exact
-   candidates missing before final selection. Do not spend the next quality
-   iteration only reducing false accepted pairs; v4.3.3 falsified that route at
-   the measured N=100 seed-7 point. False-pair reduction remains useful as a
-   secondary precision and performance optimization.
+2. **If simulation work continues, improve pure core-base construction &
+   selection** — v4.4 falsified residual-gap-first construction as the rescue at
+   the measured N=100 seed-7 point (NULL, `+0.05` gate not cleared) and the
+   candidate funnel relocated the wall upstream: 10 notes have no pure core base
+   and 6 have a pure base that is never selected. Recover a pure core base for
+   the notes that lack one, and promote the pure base into the selected solution
+   for the notes that have one but rank it too deep. Do not spend the next
+   quality iteration only reducing false accepted pairs (v4.3.3 falsified that)
+   or only firing gap proposal (v4.4 falsified that as the primary limiter here);
+   both remain secondary levers. A follow-up is also open in the `complex`-gap
+   routing branch, which currently emits no proposals under normalized budgets.
 3. **Learned fine-tear edge descriptor, only if real data requires it** — replace
    the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a

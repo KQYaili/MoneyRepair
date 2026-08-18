@@ -1,0 +1,132 @@
+{
+  "config": {
+    "schema_version": "4.4.0-ab",
+    "notes": 100,
+    "pieces_per_note": 24,
+    "seed": 7,
+    "width": 180,
+    "height": 90,
+    "algorithms": [
+      "v43_routed",
+      "v44_gap_first"
+    ],
+    "normalized_budgets": {
+      "candidate_states_per_pair_score": 12.691965985531159,
+      "gap_states_per_fragment": 83.33333333333333,
+      "partial_gap_states_per_fragment": 20.833333333333332,
+      "cover_nodes_per_note": 25000.0
+    },
+    "description": "Decisive A/B test using normalized compute budgets from V433_SEED7_NORMALIZED_RATES"
+  },
+  "arms": [
+    {
+      "algorithm": "v43_routed",
+      "oracle_candidate_recall": 0.84,
+      "exact_yield": 0.84,
+      "exact_precision": 0.9655172413793104,
+      "candidates": 30828,
+      "gap_candidates": 230,
+      "manual_notes_remaining": 16,
+      "elapsed_seconds": 965.8736670509097,
+      "search_stats": {
+        "core": {
+          "expanded_states": 555117,
+          "state_limit_reached": false,
+          "time_limit_reached": false
+        },
+        "complete_gap": {
+          "expanded_states": 890,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 934815,
+          "accepted_proposals": 1245,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0
+        },
+        "partial_gap": {
+          "expanded_states": 712,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 743968,
+          "accepted_proposals": 5960,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0
+        },
+        "gap_first": {},
+        "exact_cover": {
+          "search_nodes": 2500000,
+          "node_limit_reached": true,
+          "time_limit_reached": false
+        }
+      }
+    },
+    {
+      "algorithm": "v44_gap_first",
+      "oracle_candidate_recall": 0.84,
+      "exact_yield": 0.84,
+      "exact_precision": 0.9655172413793104,
+      "candidates": 30828,
+      "gap_candidates": 230,
+      "manual_notes_remaining": 16,
+      "elapsed_seconds": 999.1504782949924,
+      "search_stats": {
+        "core": {
+          "expanded_states": 555117,
+          "state_limit_reached": false,
+          "time_limit_reached": false
+        },
+        "complete_gap": {
+          "expanded_states": 890,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 934815,
+          "accepted_proposals": 1245,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0
+        },
+        "partial_gap": {
+          "expanded_states": 712,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 743968,
+          "accepted_proposals": 5960,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0
+        },
+        "gap_first": {
+          "expanded_states": 0,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "gap_regions": 2716,
+          "gap_proposals_made": 0,
+          "accepted_proposals": 0,
+          "proposal_pool_size": 0,
+          "routing_simple": 0,
+          "routing_moderate": 0,
+          "routing_complex": 2716
+        },
+        "exact_cover": {
+          "search_nodes": 2500000,
+          "node_limit_reached": true,
+          "time_limit_reached": false
+        }
+      }
+    }
+  ],
+  "comparison": {
+    "delta_oracle_candidate_recall": 0.0,
+    "delta_exact_yield": 0.0,
+    "delta_exact_precision": 0.0,
+    "delta_candidates": 0,
+    "delta_gap_candidates": 0,
+    "delta_elapsed_seconds": 33.27681124408264
+  }
+}
