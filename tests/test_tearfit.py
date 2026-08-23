@@ -6,9 +6,11 @@ import pytest
 from moneyrepair.scale import (
     assess_v432_bottleneck,
     assess_v433_oracle_false_edge_deletion,
+    assess_v44_base_selection,
     assess_v44_boundary_contact_proposal,
     run_v432_scale_protocol,
     run_v433_oracle_false_edge_diagnostic,
+    run_v44_base_selection_diagnostic,
     run_v44_boundary_contact_proposal_diagnostic,
     run_v44_candidate_funnel_diagnostic,
     run_v44_core_connectivity_diagnostic,
@@ -29,12 +31,51 @@ from moneyrepair.tearfit import (
     run_tearfit_strategy_comparison,
     run_tearfit_v43_ablation,
     score_absolute_tear_pairs,
+    select_group_gap_bases,
     tear_boundary_evidence,
     tear_match_effectiveness,
     select_exact_cover_candidates,
     TearFitEdge,
 )
 from moneyrepair.types import Fragment
+
+
+def test_disjoint_round_robin_preserves_fixed_budget_diversity():
+    def candidate(fragment_ids: tuple[str, ...], score: float) -> AssemblyCandidate:
+        return AssemblyCandidate(
+            fragment_ids=fragment_ids,
+            coverage=0.90,
+            raw_coverage=0.80,
+            score=score,
+            support_pixels=0,
+        )
+
+    ranked = [
+        candidate(("a1", "a2"), 100.0),
+        candidate(("a1", "a3"), 99.0),
+        candidate(("a1", "a4"), 98.0),
+        candidate(("b1", "b2"), 97.0),
+        candidate(("c1", "c2"), 96.0),
+    ]
+
+    global_bases, global_rounds = select_group_gap_bases(
+        ranked, max_base_candidates=3, strategy="global"
+    )
+    diverse_bases, diverse_rounds = select_group_gap_bases(
+        ranked, max_base_candidates=3, strategy="disjoint_round_robin"
+    )
+
+    assert [item.fragment_ids for item in global_bases] == [
+        ("a1", "a2"),
+        ("a1", "a3"),
+        ("a1", "a4"),
+    ]
+    assert [item.fragment_ids for item in diverse_bases] == [
+        ("a1", "a2"),
+        ("b1", "b2"),
+        ("c1", "c2"),
+    ]
+    assert global_rounds == diverse_rounds == 1
 
 
 def test_fractal_tears_have_serial_anchor_per_note():
@@ -889,6 +930,71 @@ def test_v44_proposal_diagnostic_emits_single_variable_pair():
         "inconclusive_gap_budget_saturation",
         "deeper_candidate_construction_wall",
     }
+
+
+def test_v44_base_selection_diagnostic_is_fixed_budget_and_causally_gated():
+    payload = run_v44_base_selection_diagnostic(
+        notes=2,
+        pieces_per_note=4,
+        seed=48,
+        width=72,
+        height=40,
+        route_fragment_fraction_threshold=0.5,
+        min_overlap_pixels=4,
+        beam_width=8,
+        max_complete_core_candidates=16,
+        max_partial_core_candidates=8,
+        candidate_states_per_pair_score=100.0,
+        gap_states_per_fragment=100.0,
+        partial_gap_states_per_fragment=25.0,
+        cover_nodes_per_note=10_000.0,
+    )
+
+    assert payload["config"]["schema_version"] == "4.4.1-diagnostic"
+    assert payload["config"]["max_complete_core_candidates"] == 16
+    assert payload["config"]["max_partial_core_candidates"] == 8
+    assert payload["global_control"]["search_stats"]["complete_gap"][
+        "selected_base_candidates"
+    ] <= 16
+    assert payload["disjoint_round_robin_intervention"]["search_stats"][
+        "complete_gap"
+    ]["selected_base_candidates"] <= 16
+    assert payload["assessment"]["status"] in {
+        "global_base_ranking_limiter",
+        "base_recall_rescued_without_quality_rescue",
+        "inconclusive_gap_budget_saturation",
+        "global_base_ranking_not_dominant",
+    }
+
+
+def test_v44_base_selection_gate_requires_recall_and_quality_rescue():
+    control = {
+        "oracle_candidate_recall": 0.84,
+        "exact_yield": 0.84,
+        "exact_precision": 0.98,
+    }
+    rescued = assess_v44_base_selection(
+        control,
+        {
+            "oracle_candidate_recall": 0.90,
+            "exact_yield": 0.90,
+            "exact_precision": 0.97,
+            "search_stats": {},
+        },
+    )
+    null = assess_v44_base_selection(
+        control,
+        {
+            "oracle_candidate_recall": 0.86,
+            "exact_yield": 0.86,
+            "exact_precision": 0.99,
+            "search_stats": {},
+        },
+    )
+
+    assert rescued["status"] == "global_base_ranking_limiter"
+    assert rescued["quality_gate_passed"] is True
+    assert null["status"] == "global_base_ranking_not_dominant"
 
 
 def test_v44_candidate_funnel_diagnostic_reports_dominant_category():

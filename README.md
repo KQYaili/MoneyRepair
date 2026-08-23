@@ -111,7 +111,25 @@ oracle candidate recall only from `0.840` to `0.860`, below the preregistered
 from `0.966` to `0.989`, so false-edge reduction remains a secondary
 precision/performance lever but is falsified as the next yield-quality route.
 
-### 5. Production Batch Pipeline
+### 5. v4.4.1 Fixed-Budget Base-Selection A/B
+
+Compare the historical global top-K base ranking with fragment-disjoint rounds
+while keeping the `512/128` complete/partial base limits and all normalized
+search budgets fixed:
+
+```bash
+moneyrepair tearfit-v44-base-selection \
+  --notes 100 \
+  --pieces-per-note 24 \
+  --seed 7 \
+  --output runs/v4_4/base_selection_n100_seed7.json
+```
+
+This is a simulation-only causal diagnostic. On the measured seed it raises
+oracle recall and exact yield from `0.840` to `0.900` with precision `1.000`,
+but N=100 seeds 8/9 and all real-data conditions remain unmeasured.
+
+### 6. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
 

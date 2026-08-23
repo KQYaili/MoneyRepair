@@ -5,11 +5,12 @@ from hashlib import sha256
 import json
 from statistics import fmean
 from time import monotonic
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from moneyrepair.tearfit import (
     FractalTearConfig,
     TEARFIT_ALGORITHMS,
+    TEARFIT_BASE_SELECTION_STRATEGIES,
     TEARFIT_V43_FINE_FRACTION,
     TearFitTrialResult,
     diagnose_true_core_connectivity,
@@ -880,7 +881,7 @@ def run_v433_oracle_false_edge_diagnostic(
         seed=seed,
         serial_ocr_rate=0.0,
     )
-    common = {
+    common: dict[str, Any] = {
         "algorithm": "v43_routed",
         "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
         "tolerance": tolerance,
@@ -1114,7 +1115,7 @@ def run_v44_boundary_contact_proposal_diagnostic(
         seed=seed,
         serial_ocr_rate=0.0,
     )
-    common = {
+    common: dict[str, Any] = {
         "algorithm": "v43_routed",
         "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
         "tolerance": tolerance,
@@ -1197,6 +1198,216 @@ def run_v44_boundary_contact_proposal_diagnostic(
         },
         "weak_pair_control": control,
         "boundary_contact_intervention": intervention,
+        "assessment": assessment,
+    }
+
+
+def assess_v44_base_selection(
+    control: dict,
+    intervention: dict,
+    *,
+    minimum_oracle_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    minimum_yield_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    maximum_precision_drop: float = V44_MAX_PRECISION_DROP,
+) -> dict:
+    """Classify the fixed-budget disjoint-round base-selection intervention."""
+
+    if not (0.0 < minimum_oracle_rescue <= 1.0):
+        raise ValueError("minimum_oracle_rescue must be in (0, 1]")
+    if not (0.0 < minimum_yield_rescue <= 1.0):
+        raise ValueError("minimum_yield_rescue must be in (0, 1]")
+    if not (0.0 <= maximum_precision_drop <= 1.0):
+        raise ValueError("maximum_precision_drop must be in [0, 1]")
+
+    oracle_delta = float(intervention["oracle_candidate_recall"]) - float(
+        control["oracle_candidate_recall"]
+    )
+    yield_delta = float(intervention["exact_yield"]) - float(control["exact_yield"])
+    precision_drop = float(control["exact_precision"]) - float(
+        intervention["exact_precision"]
+    )
+    oracle_rescued = oracle_delta + 1e-12 >= minimum_oracle_rescue
+    quality_rescued = (
+        yield_delta + 1e-12 >= minimum_yield_rescue
+        and precision_drop <= maximum_precision_drop + 1e-12
+    )
+    gap_saturated = any(
+        bool(intervention.get("search_stats", {}).get(stage, {}).get(field, False))
+        for stage in ("complete_gap", "partial_gap")
+        for field in ("state_limit_reached", "time_limit_reached")
+    )
+    if oracle_rescued and quality_rescued:
+        status = "global_base_ranking_limiter"
+        statement = (
+            "Fixed-budget disjoint rounds rescue both exact candidates and selected "
+            "notes without excessive precision loss; global top-K base ranking is a "
+            "measured limiter."
+        )
+    elif oracle_rescued:
+        status = "base_recall_rescued_without_quality_rescue"
+        statement = (
+            "Diverse base selection restores enough exact candidates, but the final "
+            "set-packing solution does not pass the yield/precision gate."
+        )
+    elif gap_saturated:
+        status = "inconclusive_gap_budget_saturation"
+        statement = (
+            "The fixed-budget selector does not meet the rescue gate and a downstream "
+            "gap budget is saturated, so selection quality is not isolated."
+        )
+    else:
+        status = "global_base_ranking_not_dominant"
+        statement = (
+            "Disjoint-round base selection does not rescue enough exact candidates "
+            "under unsaturated search; stop expanding the global top-K route and test "
+            "multi-component core construction."
+        )
+    return {
+        "status": status,
+        "minimum_oracle_rescue": minimum_oracle_rescue,
+        "minimum_yield_rescue": minimum_yield_rescue,
+        "maximum_precision_drop": maximum_precision_drop,
+        "oracle_candidate_recall_delta": oracle_delta,
+        "exact_yield_delta": yield_delta,
+        "exact_precision_drop": precision_drop,
+        "oracle_rescue_gate_passed": oracle_rescued,
+        "quality_gate_passed": quality_rescued,
+        "intervention_gap_saturated": gap_saturated,
+        "statement": statement,
+    }
+
+
+def run_v44_base_selection_diagnostic(
+    *,
+    notes: int = 100,
+    pieces_per_note: int = 24,
+    seed: int = 7,
+    width: int = 180,
+    height: int = 90,
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION,
+    tolerance: int = 2,
+    min_overlap_pixels: int = 14,
+    min_effectiveness: float = 1.0,
+    automatic_effectiveness: float = 2.0,
+    min_contiguous_pixels: int = 3,
+    automatic_contiguous_pixels: int = 5,
+    coverage_threshold: float = 0.93,
+    core_raw_coverage_threshold: float | None = None,
+    gap_fill_radius: int = 2,
+    beam_width: int = 32,
+    max_complete_core_candidates: int = 512,
+    max_partial_core_candidates: int = 128,
+    candidate_states_per_pair_score: float = V433_SEED7_NORMALIZED_RATES[
+        "candidate_states_per_pair_score"
+    ],
+    gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "gap_states_per_fragment"
+    ],
+    partial_gap_states_per_fragment: float = V433_SEED7_NORMALIZED_RATES[
+        "partial_gap_states_per_fragment"
+    ],
+    cover_nodes_per_note: float = V433_SEED7_NORMALIZED_RATES[
+        "cover_nodes_per_note"
+    ],
+    minimum_oracle_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    minimum_yield_rescue: float = V44_PROPOSAL_RESCUE_THRESHOLD,
+    maximum_precision_drop: float = V44_MAX_PRECISION_DROP,
+) -> dict:
+    """Compare global top-K and disjoint-round bases under identical budgets."""
+
+    config = FractalTearConfig(
+        notes=notes,
+        pieces_per_note=pieces_per_note,
+        width=width,
+        height=height,
+        seed=seed,
+        serial_ocr_rate=0.0,
+    )
+    common: dict[str, Any] = {
+        "algorithm": "v43_routed",
+        "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
+        "tolerance": tolerance,
+        "min_overlap_pixels": min_overlap_pixels,
+        "min_effectiveness": min_effectiveness,
+        "automatic_effectiveness": automatic_effectiveness,
+        "min_contiguous_pixels": min_contiguous_pixels,
+        "automatic_contiguous_pixels": automatic_contiguous_pixels,
+        "coverage_threshold": coverage_threshold,
+        "core_raw_coverage_threshold": core_raw_coverage_threshold,
+        "gap_fill_radius": gap_fill_radius,
+        "beam_width": beam_width,
+        "max_complete_core_candidates": max_complete_core_candidates,
+        "max_partial_core_candidates": max_partial_core_candidates,
+        "gap_proposal_pool": "weak_pair",
+        "use_labels": False,
+        "candidate_time_limit_seconds": None,
+        "candidate_state_limit": None,
+        "candidate_states_per_pair_score": candidate_states_per_pair_score,
+        "partial_gap_time_limit_seconds": None,
+        "gap_state_limit": None,
+        "gap_states_per_fragment": gap_states_per_fragment,
+        "partial_gap_state_limit": None,
+        "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
+        "cover_time_limit_seconds": None,
+        "cover_node_limit": None,
+        "cover_nodes_per_note": cover_nodes_per_note,
+    }
+    control_result = run_tearfit_trial(
+        config, **common, base_selection_strategy="global"
+    )
+    intervention_result = run_tearfit_trial(
+        config, **common, base_selection_strategy="disjoint_round_robin"
+    )
+    control = _v44_trial_snapshot(control_result)
+    intervention = _v44_trial_snapshot(intervention_result)
+    assessment = assess_v44_base_selection(
+        control,
+        intervention,
+        minimum_oracle_rescue=minimum_oracle_rescue,
+        minimum_yield_rescue=minimum_yield_rescue,
+        maximum_precision_drop=maximum_precision_drop,
+    )
+    return {
+        "config": {
+            "schema_version": "4.4.1-diagnostic",
+            "diagnostic": "fixed_budget_base_selection",
+            "notes": notes,
+            "pieces_per_note": pieces_per_note,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "algorithm": "v43_routed",
+            "base_selection_strategies": list(
+                TEARFIT_BASE_SELECTION_STRATEGIES
+            ),
+            "max_complete_core_candidates": max_complete_core_candidates,
+            "max_partial_core_candidates": max_partial_core_candidates,
+            "normalized_rates": {
+                "candidate_states_per_pair_score": candidate_states_per_pair_score,
+                "gap_states_per_fragment": gap_states_per_fragment,
+                "partial_gap_states_per_fragment": (
+                    partial_gap_states_per_fragment
+                ),
+                "cover_nodes_per_note": cover_nodes_per_note,
+            },
+            "unchanged_components": [
+                "simulation",
+                "pair_scoring",
+                "core_candidate_generation",
+                "whole_assembly_scorer",
+                "base_candidate_limits",
+                "state_and_node_budgets",
+                "exact_cover",
+            ],
+            "minimum_oracle_rescue": minimum_oracle_rescue,
+            "minimum_yield_rescue": minimum_yield_rescue,
+            "maximum_precision_drop": maximum_precision_drop,
+            "simulation_boundary": (
+                "placed fragments; base selection consumes no simulator note_id"
+            ),
+        },
+        "global_control": control,
+        "disjoint_round_robin_intervention": intervention,
         "assessment": assessment,
     }
 

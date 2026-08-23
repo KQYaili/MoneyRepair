@@ -45,6 +45,7 @@ from moneyrepair.scale import (
     V44_PROPOSAL_RESCUE_THRESHOLD,
     run_v432_scale_protocol,
     run_v433_oracle_false_edge_diagnostic,
+    run_v44_base_selection_diagnostic,
     run_v44_boundary_contact_proposal_diagnostic,
     run_v44_candidate_funnel_diagnostic,
     run_v44_core_connectivity_diagnostic,
@@ -1095,6 +1096,59 @@ def _cmd_tearfit_v44_proposal_pool(args: argparse.Namespace) -> None:
     print(f"status={assessment['status']}")
 
 
+def _cmd_tearfit_v44_base_selection(args: argparse.Namespace) -> None:
+    payload = run_v44_base_selection_diagnostic(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        route_fragment_fraction_threshold=args.route_fragment_fraction,
+        tolerance=args.tolerance,
+        min_overlap_pixels=args.min_overlap_pixels,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        coverage_threshold=args.coverage_threshold,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+        gap_fill_radius=args.gap_fill_radius,
+        beam_width=args.beam_width,
+        max_complete_core_candidates=args.max_complete_core_candidates,
+        max_partial_core_candidates=args.max_partial_core_candidates,
+        candidate_states_per_pair_score=args.candidate_states_per_pair_score,
+        gap_states_per_fragment=args.gap_states_per_fragment,
+        partial_gap_states_per_fragment=args.partial_gap_states_per_fragment,
+        cover_nodes_per_note=args.cover_nodes_per_note,
+        minimum_oracle_rescue=args.minimum_oracle_rescue,
+        minimum_yield_rescue=args.minimum_yield_rescue,
+        maximum_precision_drop=args.maximum_precision_drop,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote v4.4 base-selection diagnostic to {output}")
+    control = payload["global_control"]
+    intervention = payload["disjoint_round_robin_intervention"]
+    assessment = payload["assessment"]
+    print(
+        "control_oracle={:.3f} intervention_oracle={:.3f} delta={:+.3f}".format(
+            control["oracle_candidate_recall"],
+            intervention["oracle_candidate_recall"],
+            assessment["oracle_candidate_recall_delta"],
+        )
+    )
+    print(
+        "control_yield={:.3f} intervention_yield={:.3f} precision_drop={:+.3f}".format(
+            control["exact_yield"],
+            intervention["exact_yield"],
+            assessment["exact_precision_drop"],
+        )
+    )
+    print(f"status={assessment['status']}")
+
+
 def _cmd_tearfit_v44_candidate_funnel(args: argparse.Namespace) -> None:
     payload = run_v44_candidate_funnel_diagnostic(
         notes=args.notes,
@@ -1959,6 +2013,82 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tearfit_v44.add_argument("--output", help="write the v4.4 proposal diagnostic JSON")
     tearfit_v44.set_defaults(func=_cmd_tearfit_v44_proposal_pool)
+
+    tearfit_v44_base = sub.add_parser(
+        "tearfit-v44-base-selection",
+        help="compare global top-K and disjoint-round base selection at fixed budget",
+    )
+    tearfit_v44_base.add_argument("--notes", type=int, default=100)
+    tearfit_v44_base.add_argument("--pieces-per-note", type=int, default=24)
+    tearfit_v44_base.add_argument("--seed", type=int, default=7)
+    tearfit_v44_base.add_argument("--width", type=int, default=180)
+    tearfit_v44_base.add_argument("--height", type=int, default=90)
+    tearfit_v44_base.add_argument(
+        "--route-fragment-fraction",
+        type=float,
+        default=TEARFIT_V43_FINE_FRACTION,
+    )
+    tearfit_v44_base.add_argument("--tolerance", type=int, default=2)
+    tearfit_v44_base.add_argument("--min-overlap-pixels", type=int, default=14)
+    tearfit_v44_base.add_argument("--min-effectiveness", type=float, default=1.0)
+    tearfit_v44_base.add_argument(
+        "--automatic-effectiveness", type=float, default=2.0
+    )
+    tearfit_v44_base.add_argument("--min-contiguous-pixels", type=int, default=3)
+    tearfit_v44_base.add_argument(
+        "--automatic-contiguous-pixels", type=int, default=5
+    )
+    tearfit_v44_base.add_argument("--coverage-threshold", type=float, default=0.93)
+    tearfit_v44_base.add_argument("--core-raw-coverage", type=float)
+    tearfit_v44_base.add_argument("--gap-fill-radius", type=int, default=2)
+    tearfit_v44_base.add_argument("--beam-width", type=int, default=32)
+    tearfit_v44_base.add_argument(
+        "--max-complete-core-candidates", type=int, default=512
+    )
+    tearfit_v44_base.add_argument(
+        "--max-partial-core-candidates", type=int, default=128
+    )
+    tearfit_v44_base.add_argument(
+        "--candidate-states-per-pair-score",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["candidate_states_per_pair_score"],
+    )
+    tearfit_v44_base.add_argument(
+        "--gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["gap_states_per_fragment"],
+    )
+    tearfit_v44_base.add_argument(
+        "--partial-gap-states-per-fragment",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES[
+            "partial_gap_states_per_fragment"
+        ],
+    )
+    tearfit_v44_base.add_argument(
+        "--cover-nodes-per-note",
+        type=float,
+        default=V433_SEED7_NORMALIZED_RATES["cover_nodes_per_note"],
+    )
+    tearfit_v44_base.add_argument(
+        "--minimum-oracle-rescue",
+        type=float,
+        default=V44_PROPOSAL_RESCUE_THRESHOLD,
+    )
+    tearfit_v44_base.add_argument(
+        "--minimum-yield-rescue",
+        type=float,
+        default=V44_PROPOSAL_RESCUE_THRESHOLD,
+    )
+    tearfit_v44_base.add_argument(
+        "--maximum-precision-drop",
+        type=float,
+        default=V44_MAX_PRECISION_DROP,
+    )
+    tearfit_v44_base.add_argument(
+        "--output", help="write the v4.4 fixed-budget base-selection A/B JSON"
+    )
+    tearfit_v44_base.set_defaults(func=_cmd_tearfit_v44_base_selection)
 
     tearfit_v44_funnel = sub.add_parser(
         "tearfit-v44-candidate-funnel",

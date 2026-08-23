@@ -33,6 +33,7 @@ from moneyrepair.tearfit import (
     FractalTearConfig,
     GroupGapEvidence,
     TEARFIT_ALGORITHMS,
+    TEARFIT_BASE_SELECTION_STRATEGIES,
     TEARFIT_COVER_OBJECTIVES,
     TEARFIT_EDGE_SCORING,
     TEARFIT_SEED_STRATEGIES,
@@ -49,12 +50,13 @@ from moneyrepair.tearfit import (
     run_tearfit_v43_ablation,
     score_absolute_tear_pairs,
     score_fragment_against_assembly,
+    select_group_gap_bases,
     tear_match_effectiveness,
     tearfit_comparison_cases,
 )
 from moneyrepair.types import Fragment
 
-__version__ = "4.3.3"
+__version__ = "4.4.1"
 
 __all__ = [
     "AuditEvent",
@@ -76,6 +78,7 @@ __all__ = [
     "RealismProfile",
     "SyntheticBenchmark",
     "TEARFIT_ALGORITHMS",
+    "TEARFIT_BASE_SELECTION_STRATEGIES",
     "TEARFIT_COVER_OBJECTIVES",
     "TEARFIT_EDGE_SCORING",
     "TEARFIT_SEED_STRATEGIES",
@@ -118,6 +121,7 @@ __all__ = [
     "score_best_reference_side",
     "score_absolute_tear_pairs",
     "score_fragment_against_assembly",
+    "select_group_gap_bases",
     "score_fragments_by_side",
     "solve_covering_sets",
     "summarize_quality",

@@ -109,6 +109,24 @@ constraints; appearance is at most a tie-breaker.
   selection**. This is one deterministic seed, not a cross-seed claim. See
   [the v4.4 empirical-validation report](docs/v4_4_empirical_validation.md).
 
+- **v4.4.1 fixed-budget base selection (causal gate passed):** a one-variable
+  N=100, p=24, seed-7 A/B keeps the complete/partial base limits fixed at
+  `512/128` and changes only the selector from global top-K to deterministic
+  fragment-disjoint rounds. Oracle candidate recall and exact yield both rise
+  `0.840 -> 0.900` (`+0.060`, above the preregistered `+0.050` gate), while
+  precision rises `0.9655 -> 1.0000`. The selector produces exactly six extra
+  true gap candidates, matching the six prior `pure_core_base_not_selected`
+  notes; no additional false gap candidate is selected. Runtime rises
+  `564.63 -> 600.08 s` (+6.3%) with the same K. This causally confirms and
+  removes the measured **global base-ranking** limiter on seed 7. The remaining
+  ten misses are the `no_pure_core_base` notes: their automatic true-edge graphs
+  contain 2-4 components and no component reaches the 0.78 record threshold.
+  The remaining measured simulation wall is therefore **multi-component pure
+  core-base construction**, not ranking, gap proposal, false-edge removal, or
+  exact cover. This is still one seed and not a real-data claim. All 128 tests,
+  `ruff`, and `compileall` pass. See
+  [the v4.4.1 report](docs/v4_4_1_base_selection.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining
@@ -134,11 +152,12 @@ narrows that seed-7 failure to gap proposal / candidate construction. v4.4 then
 tests residual-gap-first construction against that narrowed wall and returns a
 NULL (`0.840 -> 0.840`, `+0.05` gate not cleared): gap-first is inert (2,716
 regions, all `complex`, `0` proposals), and the candidate funnel relocates the
-binding constraint **upstream to pure core-base construction & base selection**
-(10 `no_pure_core_base` + 6 `pure_core_base_not_selected`; zero gap-gate misses).
-The measured seed-7 wall is therefore now pure core-base construction and
-selection, not the gap-proposal stage. N=100 replication, N=200, and real paper
-remain unmeasured.
+binding constraint upstream to 10 `no_pure_core_base` + 6
+`pure_core_base_not_selected`. v4.4.1 removes the ranking half at fixed K:
+disjoint rounds recover all six missing selected bases and raise oracle/yield to
+`0.900`, with precision `1.000`. The measured seed-7 wall is now the remaining
+**multi-component pure core-base construction** for ten notes. N=100
+replication, N=200, and real paper remain unmeasured.
 
 ## Figures (measured)
 
@@ -196,17 +215,16 @@ Four pieces of work, in this order:
 1. **Real-data validation** — tear a small set of notes, capture raw crops, and
    measure locator uncertainty, automatic precision, and the human queue. This
    is now more informative than another synthetic architecture layer.
-2. **If simulation work continues, improve pure core-base construction &
-   selection** — v4.4 falsified residual-gap-first construction as the rescue at
-   the measured N=100 seed-7 point (NULL, `+0.05` gate not cleared) and the
-   candidate funnel relocated the wall upstream: 10 notes have no pure core base
-   and 6 have a pure base that is never selected. Recover a pure core base for
-   the notes that lack one, and promote the pure base into the selected solution
-   for the notes that have one but rank it too deep. Do not spend the next
-   quality iteration only reducing false accepted pairs (v4.3.3 falsified that)
-   or only firing gap proposal (v4.4 falsified that as the primary limiter here);
-   both remain secondary levers. A follow-up is also open in the `complex`-gap
-   routing branch, which currently emits no proposals under normalized budgets.
+2. **If simulation work continues, test multi-component pure core construction
+   once** — v4.4.1 has already solved the six base-selection misses at fixed K,
+   so do not expand global K or retune the selector. The remaining ten notes have
+   no recordable pure core because their automatic true-edge graph is split into
+   2-4 components below the 0.78 threshold. Test one production-valid bridge
+   that combines real, high-confidence components without simulator truth, with
+   the same `+0.05` recall/yield and `-0.02` precision gate. If it fails, freeze
+   deterministic simulation v4 and move to real-data acquisition/registration.
+   False-pair removal, residual-gap-first, and the inert `complex` gap branch are
+   measured secondary levers, not the next primary quality route.
 3. **Learned fine-tear edge descriptor, only if real data requires it** — replace
    the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a

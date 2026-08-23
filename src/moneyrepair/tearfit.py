@@ -46,6 +46,7 @@ TEARFIT_ALGORITHMS = (
 TEARFIT_GAP_ROUTING = ("complexity", "uniform")
 TEARFIT_EVIDENCE_LEVELS = ("automatic", "review", "insufficient-evidence")
 TEARFIT_GAP_PROPOSAL_POOLS = ("weak_pair", "boundary_contact")
+TEARFIT_BASE_SELECTION_STRATEGIES = ("global", "disjoint_round_robin")
 TEARFIT_V43_FINE_FRACTION = 0.05
 
 
@@ -1679,6 +1680,70 @@ def generate_assembly_candidates(
     )
 
 
+def select_group_gap_bases(
+    candidates: Iterable[AssemblyCandidate],
+    *,
+    max_base_candidates: int,
+    strategy: str = "global",
+    presorted: bool = False,
+) -> tuple[list[AssemblyCandidate], int]:
+    """Select expansion bases under a fixed budget without simulator truth.
+
+    ``global`` preserves the historical top-K behavior. The deterministic
+    ``disjoint_round_robin`` strategy repeatedly takes one greedy set-packing
+    round from the same ranking. Candidates selected in one round cannot share
+    fragments, so near-duplicate candidates cannot consume the entire budget;
+    a fresh round then permits another candidate from each fragment region.
+    This uses the exact-cover disjointness contract and has no similarity
+    threshold or access to ``note_id``.
+    """
+
+    if max_base_candidates < 1:
+        raise ValueError("max_base_candidates must be positive")
+    if strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
+        raise ValueError(
+            "strategy must be one of: "
+            + ", ".join(TEARFIT_BASE_SELECTION_STRATEGIES)
+        )
+    ordered = list(candidates)
+    if not presorted:
+        ordered.sort(
+            key=lambda item: (
+                -len(item.fragment_ids),
+                -item.raw_coverage,
+                -item.evidence_score,
+                -item.score,
+                item.fragment_ids,
+            )
+        )
+    limit = min(max_base_candidates, len(ordered))
+    if strategy == "global":
+        return ordered[:limit], int(limit > 0)
+
+    selected: list[AssemblyCandidate] = []
+    remaining = ordered
+    rounds = 0
+    while remaining and len(selected) < limit:
+        used_fragments: set[str] = set()
+        deferred: list[AssemblyCandidate] = []
+        selected_this_round = 0
+        for candidate in remaining:
+            if len(selected) >= limit:
+                deferred.append(candidate)
+                continue
+            if used_fragments.isdisjoint(candidate.fragment_ids):
+                selected.append(candidate)
+                used_fragments.update(candidate.fragment_ids)
+                selected_this_round += 1
+            else:
+                deferred.append(candidate)
+        if selected_this_round == 0:
+            break
+        rounds += 1
+        remaining = deferred
+    return selected, rounds
+
+
 def augment_candidates_with_group_gap(
     fragments: list[Fragment],
     candidates: list[AssemblyCandidate],
@@ -1691,6 +1756,7 @@ def augment_candidates_with_group_gap(
     core_min_pieces: int = 2,
     beam_width: int = 8,
     max_base_candidates: int = 512,
+    base_selection_strategy: str = "global",
     proposal_pool: str = "weak_pair",
     min_group_gap_score: float = 0.35,
     automatic_group_gap_score: float = 0.55,
@@ -1711,10 +1777,19 @@ def augment_candidates_with_group_gap(
     adaptive tear evidence was insufficient.
     """
 
+    if base_selection_strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
+        raise ValueError(
+            "base_selection_strategy must be one of: "
+            + ", ".join(TEARFIT_BASE_SELECTION_STRATEGIES)
+        )
     if not candidates:
         if search_stats is not None:
             search_stats.update(
-                expanded_states=0, state_limit_reached=False, time_limit_reached=False
+                expanded_states=0,
+                state_limit_reached=False,
+                time_limit_reached=False,
+                selected_base_candidates=0,
+                base_selection_rounds=0,
             )
         return []
     if max_expanded_states is not None and max_expanded_states < 1:
@@ -1774,7 +1849,13 @@ def augment_candidates_with_group_gap(
             item.fragment_ids,
         ),
     )
-    for base in base_order[: max(1, max_base_candidates)]:
+    selected_bases, selection_rounds = select_group_gap_bases(
+        base_order,
+        max_base_candidates=max_base_candidates,
+        strategy=base_selection_strategy,
+        presorted=True,
+    )
+    for base in selected_bases:
         if budget_exhausted():
             break
         try:
@@ -1938,6 +2019,8 @@ def augment_candidates_with_group_gap(
             accepted_proposals=accepted_proposals,
             no_weak_edge_evaluations=no_weak_edge_evaluations,
             accepted_no_weak_edge_proposals=accepted_no_weak_edge_proposals,
+            selected_base_candidates=len(selected_bases),
+            base_selection_rounds=selection_rounds,
         )
     return sorted(output.values(), key=lambda item: (-item.score, item.fragment_ids))
 
@@ -2669,6 +2752,7 @@ def diagnose_gap_candidate_funnel(
     automatic_group_gap_score: float = 0.55,
     max_partial_core_candidates: int = 128,
     complete_base_limit: int = 512,
+    base_selection_strategy: str = "global",
     beam_width: int = 8,
     max_bases_per_note: int = 4,
 ) -> dict:
@@ -2718,8 +2802,18 @@ def diagnose_gap_candidate_funnel(
             ),
         )
 
-    selected_complete = base_order(complete_cores)[:complete_base_limit]
-    selected_partial = base_order(partial_cores)[:max_partial_core_candidates]
+    selected_complete, complete_selection_rounds = select_group_gap_bases(
+        base_order(complete_cores),
+        max_base_candidates=complete_base_limit,
+        strategy=base_selection_strategy,
+        presorted=True,
+    )
+    selected_partial, partial_selection_rounds = select_group_gap_bases(
+        base_order(partial_cores),
+        max_base_candidates=max_partial_core_candidates,
+        strategy=base_selection_strategy,
+        presorted=True,
+    )
     selected_bases = [
         ("complete", rank + 1, candidate)
         for rank, candidate in enumerate(selected_complete)
@@ -2865,6 +2959,9 @@ def diagnose_gap_candidate_funnel(
         "simulation_truth_only": True,
         "complete_base_limit": complete_base_limit,
         "partial_base_limit": max_partial_core_candidates,
+        "base_selection_strategy": base_selection_strategy,
+        "complete_selection_rounds": complete_selection_rounds,
+        "partial_selection_rounds": partial_selection_rounds,
         "beam_width": beam_width,
         "max_bases_per_note": max_bases_per_note,
         "category_counts": category_counts,
@@ -3134,6 +3231,7 @@ def run_tearfit_trial(
     beam_width: int = 64,
     max_complete_core_candidates: int = 512,
     max_partial_core_candidates: int = 128,
+    base_selection_strategy: str = "global",
     gap_proposal_pool: str = "weak_pair",
     use_labels: bool = True,
     seed_strategy: str = "anchor_priority",
@@ -3184,6 +3282,11 @@ def run_tearfit_trial(
         )
     if max_complete_core_candidates < 1 or max_partial_core_candidates < 1:
         raise ValueError("core candidate limits must be positive")
+    if base_selection_strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
+        raise ValueError(
+            "base_selection_strategy must be one of: "
+            + ", ".join(TEARFIT_BASE_SELECTION_STRATEGIES)
+        )
     if gap_proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
         raise ValueError(
             "gap_proposal_pool must be one of: "
@@ -3363,6 +3466,7 @@ def run_tearfit_trial(
             max_pieces=max_pieces or config.pieces_per_note + 2,
             core_min_pieces=core_min_pieces,
             max_base_candidates=max_complete_core_candidates,
+            base_selection_strategy=base_selection_strategy,
             proposal_pool=gap_proposal_pool,
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
@@ -3382,6 +3486,7 @@ def run_tearfit_trial(
             max_pieces=max_pieces or config.pieces_per_note + 2,
             core_min_pieces=core_min_pieces,
             max_base_candidates=max_partial_core_candidates,
+            base_selection_strategy=base_selection_strategy,
             proposal_pool=gap_proposal_pool,
             min_group_gap_score=min_group_gap_score,
             automatic_group_gap_score=automatic_group_gap_score,
@@ -3543,6 +3648,7 @@ def run_tearfit_trial(
             automatic_group_gap_score=automatic_group_gap_score,
             max_partial_core_candidates=max_partial_core_candidates,
             complete_base_limit=max_complete_core_candidates,
+            base_selection_strategy=base_selection_strategy,
         )
         if diagnostic_candidate_funnel
         else {}
@@ -3602,6 +3708,7 @@ def run_tearfit_trial(
             "beam_width": beam_width,
             "max_complete_core_candidates": max_complete_core_candidates,
             "max_partial_core_candidates": max_partial_core_candidates,
+            "base_selection_strategy": base_selection_strategy,
             "gap_proposal_pool": gap_proposal_pool,
             "use_labels": use_labels,
             "seed_strategy": seed_strategy,

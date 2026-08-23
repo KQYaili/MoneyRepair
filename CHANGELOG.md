@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.4.1 — fixed-budget base-selection causal validation
+
+- adds opt-in `disjoint_round_robin` group-gap base selection while preserving
+  the historical `global` selector as the compatibility default;
+- keeps the complete/partial base budgets fixed at `512/128` and repeatedly
+  selects candidates that are fragment-disjoint within each round, using no
+  simulator truth or hand-tuned similarity threshold;
+- adds `tearfit-v44-base-selection`, a same-seed A/B command with the
+  preregistered `+0.05` oracle/yield and `-0.02` precision-drop gates;
+- measures N=100, p=24, seed 7 at `0.840 -> 0.900` oracle recall and exact
+  yield, with precision `0.9655 -> 1.0000` and runtime `564.63 -> 600.08 s`;
+- produces exactly six additional true gap candidates, matching the six prior
+  `pure_core_base_not_selected` notes, while selecting zero additional false
+  gap candidates;
+- causally resolves global base ranking as one limiter and relocates the
+  remaining ten-note wall to multi-component pure core-base construction;
+- adds 3 deterministic tests (128 total), the v4.4.1 report, and the measured
+  benchmark JSON; claims remain simulation-only and single-seed.
+
 ## 4.4 — empirical validation (NULL result; bottleneck relocated)
 
 Preregistered same-seed A/B validation of the v4.4 residual-gap-first

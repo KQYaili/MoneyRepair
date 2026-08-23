@@ -179,6 +179,19 @@ base selection**, not gap proposal:
 - separately, make the `complex`-routing gap branch actually emit proposals, so
   gap-first can be re-measured once it is non-inert.
 
+## Follow-up outcome (v4.4.1)
+
+The ranking branch has since been tested with a fixed-budget intervention.
+Keeping the `512/128` base limits unchanged and replacing global top-K with
+fragment-disjoint rounds raises oracle recall and exact yield from `0.840` to
+`0.900`, with precision rising to `1.000`. It creates exactly six additional
+true gap candidates, matching the six `pure_core_base_not_selected` notes.
+
+That result resolves the base-selection half of this report's relocated wall.
+The ten `no_pure_core_base` notes remain, so the current measured seed-7 target
+is now multi-component pure core-base construction. See
+[the v4.4.1 report](v4_4_1_base_selection.md).
+
 ## Limits
 
 - This is one deterministic seed, not an N=100 cross-seed claim.

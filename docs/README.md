@@ -11,9 +11,10 @@ docs/
 ├── README.md                          # 👈 You are here: Master Documentation Index
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
-├── 🔬 Version 4.4 Residual-Gap Candidate Proposal (Latest)
+├── 🔬 Version 4.4.1 Core-Base Selection (Latest)
 │   ├── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
-│   └── v4_4_empirical_validation.md   # Preregistered A/B NULL result & relocated bottleneck
+│   ├── v4_4_empirical_validation.md   # Preregistered A/B NULL result & relocated bottleneck
+│   └── v4_4_1_base_selection.md       # Fixed-budget base-ranking causal intervention
 │
 ├── 🔬 Version 4.3.3 Candidate-Evidence Localization
 │   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
@@ -49,9 +50,10 @@ docs/
 ### 1. System Architecture & Workflows
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
-### 2. v4.4 Residual-Gap Candidate Proposal (Latest)
+### 2. v4.4.1 Core-Base Selection (Latest)
 * **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.
 * **[v4_4_empirical_validation.md](v4_4_empirical_validation.md)**: Preregistered N=100 seed-7 normalized-compute A/B returning a NULL (`0.840 -> 0.840`, `+0.05` gate not cleared); gap-first inert and candidate funnel relocating the measured wall upstream to pure core-base construction & selection.
+* **[v4_4_1_base_selection.md](v4_4_1_base_selection.md)**: Fixed `512/128` base-budget A/B where fragment-disjoint rounds raise oracle recall/yield `0.840 -> 0.900` without a precision loss, resolving the six base-ranking misses and leaving multi-component core construction as the measured seed-7 wall.
 
 ### 3. v4.3.3 Adaptive Physical Evidence
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
