@@ -36,6 +36,13 @@ from moneyrepair.pressure import run_pressure_sweep
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import load_references, load_score_thresholds, score_best_reference_side, score_fragments_by_side, scores_to_jsonable
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
+from moneyrepair.reality import (
+    REALITY_ORIENTATION_MODES,
+    PhysicalToleranceModel,
+    RealityBridgeThresholds,
+    run_reality_bridge_diagnostic,
+    write_synthetic_capture_manifest,
+)
 from moneyrepair.reports import load_strategy_results, write_strategy_report
 from moneyrepair.scan import segment_scan_to_manifest
 from moneyrepair.scale import (
@@ -101,6 +108,56 @@ def _cmd_simulate_realistic(args: argparse.Namespace) -> None:
         Path(args.profile_output).parent.mkdir(parents=True, exist_ok=True)
         Path(args.profile_output).write_text(json.dumps(profile.to_dict(), indent=2), encoding="utf-8")
     print(f"wrote {len(fragments)} realistic fragments to {args.output}")
+
+
+def _cmd_simulate_capture(args: argparse.Namespace) -> None:
+    manifest = write_synthetic_capture_manifest(
+        args.output_dir,
+        pieces=args.pieces,
+        width=args.width,
+        height=args.height,
+        seed=args.seed,
+        orientation_mode=args.orientation_mode,
+        noise_sigma=args.noise_sigma,
+        mask_dropout_fraction=args.mask_dropout_fraction,
+    )
+    print(f"wrote annotated synthetic capture proxy to {manifest}")
+
+
+def _cmd_reality_bridge(args: argparse.Namespace) -> None:
+    physical_tolerance = PhysicalToleranceModel(
+        scan_dpi=args.scan_dpi,
+        segmentation_tolerance_mm=args.segmentation_tolerance_mm,
+        registration_tolerance_mm=args.registration_tolerance_mm,
+        minimum_fragment_span_mm=args.minimum_fragment_span_mm,
+        effectiveness_ratio=args.effectiveness_ratio,
+        overlay_height_mm=args.overlay_height_mm,
+    )
+    thresholds = RealityBridgeThresholds(
+        min_segmentation_confidence=args.min_segmentation_confidence,
+        max_translation_error=args.max_translation_error,
+        max_angle_error_degrees=args.max_angle_error,
+        min_pose_score=args.min_pose_score,
+        min_global_score_margin=args.min_global_score_margin,
+        max_translation_sigma=args.max_translation_sigma,
+        max_angle_sigma_degrees=args.max_angle_sigma,
+        uncertainty_interval_scale=args.uncertainty_interval_scale,
+        physical_tolerance=physical_tolerance,
+    )
+    report = run_reality_bridge_diagnostic(
+        args.manifest,
+        args.output_dir,
+        reference_front=args.reference_front,
+        reference_back=args.reference_back,
+        orientation_mode=args.orientation_mode,
+        top_k=args.top_k,
+        coarse_step=args.coarse_step,
+        score_margin=args.score_margin,
+        min_score=args.min_score,
+        thresholds=thresholds,
+    )
+    print(json.dumps(report["funnel"], indent=2))
+    print(f"wrote reality-bridge report to {report['outputs']['report']}")
 
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
@@ -459,6 +516,7 @@ def _cmd_segment_scan(args: argparse.Namespace) -> None:
         note_width=args.note_width,
         note_height=args.note_height,
         preserve_scan_coordinates=not args.origin_affine,
+        orientation_mode=args.orientation_mode,
     )
     manifest_path = Path(args.manifest) if args.manifest else Path(args.output_dir) / "manifest.json"
     print(f"wrote {len(manifest['fragments'])} segmented fragments to {args.output_dir}")
@@ -1461,6 +1519,49 @@ def build_parser() -> argparse.ArgumentParser:
     realistic.add_argument("--profile-output")
     realistic.set_defaults(func=_cmd_simulate_realistic)
 
+    capture = sub.add_parser(
+        "simulate-capture",
+        help="write an annotated synthetic raw-crop proxy for the v5 reality bridge",
+    )
+    capture.add_argument("--output-dir", required=True)
+    capture.add_argument("--pieces", type=int, default=6)
+    capture.add_argument("--width", type=int, default=160)
+    capture.add_argument("--height", type=int, default=72)
+    capture.add_argument("--seed", type=int, default=7)
+    capture.add_argument("--orientation-mode", choices=REALITY_ORIENTATION_MODES, default="cardinal")
+    capture.add_argument("--noise-sigma", type=float, default=0.0)
+    capture.add_argument("--mask-dropout-fraction", type=float, default=0.0)
+    capture.set_defaults(func=_cmd_simulate_capture)
+
+    reality = sub.add_parser(
+        "reality-bridge",
+        help="audit segmentation, top-k pose recall, and uncertainty before reconstruction",
+    )
+    reality.add_argument("--manifest", required=True)
+    reality.add_argument("--output-dir", required=True)
+    reality.add_argument("--reference-front")
+    reality.add_argument("--reference-back")
+    reality.add_argument("--orientation-mode", choices=REALITY_ORIENTATION_MODES)
+    reality.add_argument("--top-k", type=int, default=3)
+    reality.add_argument("--coarse-step", type=int, default=8)
+    reality.add_argument("--score-margin", type=float)
+    reality.add_argument("--min-score", type=float)
+    reality.add_argument("--min-segmentation-confidence", type=float, default=0.55)
+    reality.add_argument("--max-translation-error", type=float)
+    reality.add_argument("--max-angle-error", type=float)
+    reality.add_argument("--min-pose-score", type=float, default=0.70)
+    reality.add_argument("--min-global-score-margin", type=float, default=0.01)
+    reality.add_argument("--max-translation-sigma", type=float, default=2.5)
+    reality.add_argument("--max-angle-sigma", type=float, default=5.0)
+    reality.add_argument("--uncertainty-interval-scale", type=float, default=2.0)
+    reality.add_argument("--scan-dpi", type=float, default=300.0)
+    reality.add_argument("--segmentation-tolerance-mm", type=float, default=0.085)
+    reality.add_argument("--registration-tolerance-mm", type=float, default=0.085)
+    reality.add_argument("--minimum-fragment-span-mm", type=float, default=20.0)
+    reality.add_argument("--effectiveness-ratio", type=float, default=1.0)
+    reality.add_argument("--overlay-height-mm", type=float, default=0.0)
+    reality.set_defaults(func=_cmd_reality_bridge)
+
     multi = sub.add_parser("simulate-multi-note", help="generate fragments from N identical-denomination notes (chimera testbed)")
     multi.add_argument("--output", required=True)
     multi.add_argument("--notes", type=int, default=3)
@@ -1596,6 +1697,7 @@ def build_parser() -> argparse.ArgumentParser:
     segment.add_argument("--note-width", type=int)
     segment.add_argument("--note-height", type=int)
     segment.add_argument("--origin-affine", action="store_true")
+    segment.add_argument("--orientation-mode", choices=REALITY_ORIENTATION_MODES, default="free")
     segment.set_defaults(func=_cmd_segment_scan)
 
     label = sub.add_parser("label-manifest", help="fill manifest labels from CSV, filenames, ids, or optional OCR")

@@ -33,15 +33,15 @@ class CandidatePose:
             "fragment_id": self.fragment_id,
             "pose_id": self.pose_id,
             "side": self.side,
-            "tx": self.tx,
-            "ty": self.ty,
-            "angle": self.angle,
-            "score": self.score,
-            "sigma_x": self.sigma_x,
-            "sigma_y": self.sigma_y,
-            "sigma_theta": self.sigma_theta,
-            "score_margin": self.score_margin,
-            "basin_samples": self.basin_samples,
+            "tx": int(self.tx),
+            "ty": int(self.ty),
+            "angle": int(self.angle),
+            "score": float(self.score),
+            "sigma_x": float(self.sigma_x),
+            "sigma_y": float(self.sigma_y),
+            "sigma_theta": float(self.sigma_theta) if self.sigma_theta is not None else None,
+            "score_margin": float(self.score_margin),
+            "basin_samples": int(self.basin_samples),
         }
 
 
@@ -124,12 +124,12 @@ def _match_score(
             gains[c] = float(np.dot(obs[:, c], r) / denom)
 
     # Normalize gain to prevent extreme scaling
-    gains = np.clip(gains, 0.4, 2.5)
-    normalized_ref = ref * gains[None, :]
-    
+    clipped_gains = np.clip(gains, 0.4, 2.5)
+    normalized_ref = ref * clipped_gains[None, :]
+
     # Compute mean absolute error (MAE)
     mae = float(np.mean(np.abs(obs - normalized_ref)))
-    
+
     # Map MAE to similarity score in [0, 1]
     return float(np.exp(-mae / 35.0))
 
@@ -261,8 +261,8 @@ def locate_fragment_poses(
     # Pre-downsample templates for Level 1 (0.5x resolution)
     ref_front_down = downsample_2x_image(ref_front)
     ref_back_down = downsample_2x_image(ref_back)
-    ref_front_down_64 = ref_front_down.astype(np.float64)
-    ref_back_down_64 = ref_back_down.astype(np.float64)
+    ref_front_down_64: np.ndarray = ref_front_down.astype(np.float64)
+    ref_back_down_64: np.ndarray = ref_back_down.astype(np.float64)
     
     step_down = max(1, coarse_step // 2)
     candidates: list[CandidatePose] = []
@@ -286,7 +286,7 @@ def locate_fragment_poses(
             if mask_indices.size == 0:
                 continue
 
-            crop_img_down_64 = crop_img_down.astype(np.float64)
+            crop_img_down_64: np.ndarray = crop_img_down.astype(np.float64)
 
             # Call JIT-compiled search loop
             tx_arr, ty_arr, score_arr = numba_coarse_search_loop(

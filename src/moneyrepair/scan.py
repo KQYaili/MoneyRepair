@@ -4,6 +4,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -100,7 +101,7 @@ def _component_crop_mask(component: ScanComponent, padding: int, shape: tuple[in
     y0p = max(0, y0 - padding)
     x1p = min(width, x1 + padding)
     y1p = min(height, y1 + padding)
-    crop_mask = np.zeros((y1p - y0p, x1p - x0p), dtype=bool)
+    crop_mask: np.ndarray = np.zeros((y1p - y0p, x1p - x0p), dtype=bool)
     crop_mask[component.pixels_y - y0p, component.pixels_x - x0p] = True
     return crop_mask, (x0p, y0p, x1p, y1p)
 
@@ -119,8 +120,12 @@ def segment_scan_to_manifest(
     note_width: int | None = None,
     note_height: int | None = None,
     preserve_scan_coordinates: bool = True,
+    orientation_mode: str = "free",
 ) -> dict:
     """Segment one scan/photo into fragment crops and a manifest."""
+
+    if orientation_mode not in ("cardinal", "free"):
+        raise ValueError("orientation_mode must be cardinal or free")
 
     image_path = Path(image_path)
     output_dir = Path(output_dir)
@@ -136,10 +141,16 @@ def segment_scan_to_manifest(
     components = connected_components(foreground, min_area=min_area)
     overrides = load_label_overrides(labels_file)
     height, width = foreground.shape
-    manifest = {
+    manifest: dict[str, Any] = {
+        "schema": "moneyrepair-reality-bridge-v1",
         "note": {
             "width": int(note_width or width),
             "height": int(note_height or height),
+        },
+        "acquisition": {
+            "orientation_mode": orientation_mode,
+            "segmentation_method": "corner_background_distance",
+            "segmentation_threshold": threshold,
         },
         "source_scan": str(image_path),
         "fragments": [],

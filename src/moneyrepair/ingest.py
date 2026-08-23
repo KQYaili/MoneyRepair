@@ -27,7 +27,7 @@ def infer_foreground_mask(image: np.ndarray, threshold: float = 22.0) -> np.ndar
     if image.shape[2] == 4:
         return image[..., 3] > 0
 
-    rgb = image.astype(np.float32)
+    rgb: np.ndarray = image.astype(np.float32)
     corners = np.array(
         [
             rgb[0, 0],
@@ -48,7 +48,15 @@ def _inverse_affine(matrix: np.ndarray) -> tuple[float, float, float, float, flo
     hom = np.eye(3, dtype=np.float64)
     hom[:2, :] = matrix
     inv = np.linalg.inv(hom)
-    return tuple(float(value) for value in inv[:2, :].reshape(-1))
+    values = inv[:2, :].reshape(-1)
+    return (
+        float(values[0]),
+        float(values[1]),
+        float(values[2]),
+        float(values[3]),
+        float(values[4]),
+        float(values[5]),
+    )
 
 
 def warp_fragment_to_canvas(
@@ -106,6 +114,62 @@ def _canvas_shape(manifest: dict[str, Any], reference: np.ndarray | None) -> tup
     if "height" in note and "width" in note:
         return int(note["height"]), int(note["width"])
     raise ValueError("manifest needs note.height/note.width when no reference image is supplied")
+
+
+def raw_fragments_from_manifest(path: str | Path) -> list[Fragment]:
+    """Load local fragment crops without placing them in note coordinates.
+
+    This is the input contract for auto-location. Ground-truth fields may be
+    carried in ``meta`` for offline evaluation, but callers must not use them
+    to choose a production pose or route.
+    """
+
+    manifest_path = Path(path)
+    base = manifest_path.parent
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    fragments: list[Fragment] = []
+
+    for index, item in enumerate(manifest.get("fragments", [])):
+        image_path = _resolve_path(base, item.get("image"))
+        if image_path is None:
+            raise ValueError(f"fragment {index} is missing an image path")
+        raw = np.asarray(Image.open(image_path).convert("RGBA"), dtype=np.uint8)
+        rgb = raw[..., :3]
+        mask_path = _resolve_path(base, item.get("mask"))
+        local_mask = (
+            load_mask(mask_path)
+            if mask_path
+            else infer_foreground_mask(raw, threshold=float(item.get("threshold", 22.0)))
+        )
+        fragment_id = str(item.get("id", f"f{index:05d}"))
+        meta = dict(item.get("meta") or {})
+        meta.update(
+            {
+                "source_image": str(image_path),
+                "source_mask": str(mask_path) if mask_path else None,
+                "manifest_index": index,
+            }
+        )
+        for key in (
+            "capture_angle_degrees",
+            "ground_truth_mask",
+            "ground_truth_pose",
+            "scan_bbox",
+        ):
+            if key in item:
+                meta[key] = item[key]
+        fragments.append(
+            Fragment(
+                id=fragment_id,
+                label=item.get("label") or label_from_filename(image_path),
+                side=str(item.get("side", "unknown")),
+                mask=local_mask,
+                image=np.where(local_mask[..., None], rgb, 0),
+                tags=tuple(item.get("tags", ())),
+                meta=meta,
+            )
+        )
+    return fragments
 
 
 def fragments_from_manifest(path: str | Path, reference: np.ndarray | None = None) -> list[Fragment]:

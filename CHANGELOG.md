@@ -1,5 +1,21 @@
 # Changelog
 
+## 5.0.0a1 - Reality Bridge measurement baseline
+
+- freezes the deterministic v4.4.1 simulation core at `af57a41` and removes a
+  second seed-7 candidate-construction intervention from the active plan;
+- adds raw local-crop manifest loading, physically derived acquisition
+  tolerances, annotated mask/pose evaluation, observable-only uncertainty
+  routing, and automatic placed-dataset handoff;
+- adds `simulate-capture` and `reality-bridge` commands plus an explicit
+  `cardinal`/`free` acquisition orientation contract;
+- fixes `CandidatePose.to_dict()` JSON serialization for Numba scalar outputs;
+- measures the seed-7 eight-fragment proxy at `4/8` top-k recall for clean and
+  lightly degraded cardinal capture, unchanged at K=10, and `0/8` for free
+  angles; the first proxy bottleneck is pose recall before reconstruction;
+- keeps ground-truth masks and poses out of production routing, labels the
+  frozen core as `not_run`, and makes no real-fragment success claim.
+
 ## 4.4.1 — fixed-budget base-selection causal validation
 
 - adds opt-in `disjoint_round_robin` group-gap base selection while preserving

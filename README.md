@@ -1,6 +1,6 @@
 # MoneyRepair
 
-**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents.
+**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents. v4.4.1 is the frozen deterministic simulation core; v5.0 alpha adds an acquisition-to-pose diagnostic bridge, not a real-data success claim.
 
 It registers torn fragments to a canonical banknote frame, extracts physical tear-boundary coincidence, evaluates adaptive evidence ($E_{\text{tear}}$) and whole-assembly gap fit ($G$), and solves globally consistent non-overlapping, serial-deduplicated assemblies using exact-cover branch-and-bound search.
 
@@ -25,7 +25,7 @@ MoneyRepair is structured around an end-to-end batch processing pipeline:
 ![MoneyRepair Production Pipeline Flow](docs/pipeline_diagram.svg)
 
 - **1. Quality QA Gate**: Evaluates focus (Laplacian variance), glare (luminance clipping), and mask solidity.
-- **2. Auto-Locator**: Estimates candidate poses (X, Y, 0°/90°/180°/270°, front/back) using Numba JIT coarse-to-fine template matching.
+- **2. Auto-Locator**: Estimates candidate poses (X, Y, 0°/90°/180°/270°, front/back) using Numba JIT coarse-to-fine template matching. v5 measures its top-k recall and uncertainty before allowing a pose into the frozen core.
 - **3. Compatibility Matrix**: Evaluates spatial overlap, placed tear evidence, and serial constraints. Appearance remains an optional tie-breaker, not a note-identity key.
 - **4. Exact-Cover Solver**: Runs zero-allocation branch-and-bound search over packed bit-matrices to find optimal note assemblies.
 - **5. Interactive Review Loop**: Presents candidate reports to operators for confirmation or rejection.
@@ -129,7 +129,29 @@ This is a simulation-only causal diagnostic. On the measured seed it raises
 oracle recall and exact yield from `0.840` to `0.900` with precision `1.000`,
 but N=100 seeds 8/9 and all real-data conditions remain unmeasured.
 
-### 6. Production Batch Pipeline
+### 6. v5 Reality Bridge Alpha
+
+Generate an annotated synthetic capture proxy, then audit segmentation, top-k
+pose recall, and uncertainty routing:
+
+```bash
+moneyrepair simulate-capture \
+  --output-dir runs/v5_proxy/cardinal \
+  --pieces 8 \
+  --orientation-mode cardinal
+
+moneyrepair reality-bridge \
+  --manifest runs/v5_proxy/cardinal/manifest.json \
+  --output-dir runs/v5_proxy/cardinal/run
+```
+
+The report derives pixel and angle tolerances from an explicit physical
+acquisition contract and writes handoff datasets only for `automatic` poses.
+The committed alpha proxy finds pose recall failing before reconstruction; see
+**[docs/v5_reality_bridge.md](docs/v5_reality_bridge.md)**. Real masks/poses
+remain unmeasured.
+
+### 7. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
 
@@ -181,6 +203,8 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 - **[v4.3.1 Mechanism Validation](docs/v4_3_1_mechanism_validation.md)**: Canonical N=20 edge, gap, routing, and search-budget decomposition.
 - **[v4.3.2 Scale-Fineness Protocol](docs/v4_3_2_scale_fineness.md)**: Anchor calibration, fixed/normalized compute tracks, oracle candidate recall, and bottleneck rules.
 - **[v4.3.3 Oracle False-Edge Falsification](docs/v4_3_3_oracle_false_edges.md)**: Single-variable counterfactual that narrows the seed-7 wall to gap proposal / candidate construction.
+- **[v4.4.1 Fixed-Budget Base Selection](docs/v4_4_1_base_selection.md)**: The passing final v4 intervention and its single-seed boundary.
+- **[v5 Reality Bridge Alpha](docs/v5_reality_bridge.md)**: Raw-crop manifest contract, physical tolerance model, pose funnel, and first synthetic acquisition proxy result.
 - **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
 - **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.

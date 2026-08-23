@@ -127,6 +127,25 @@ constraints; appearance is at most a tie-breaker.
   `ruff`, and `compileall` pass. See
   [the v4.4.1 report](docs/v4_4_1_base_selection.md).
 
+- **v4.4.1 frozen; v5 Reality Bridge alpha started:** commit `af57a41` is the
+  frozen deterministic simulation core on `main`. The preregistered refinement
+  allowance is spent; v4 candidate construction will not be tuned again on the
+  N=100 seed-7 discovery case. The first v5 diagnostic now loads raw local
+  crops, audits segmentation against a declared physical tolerance band,
+  measures top-k/top-1 pose recall, routes pose uncertainty without reading
+  ground truth, and writes only automatically accepted placements as handoff
+  datasets. On an **annotated synthetic capture proxy** with one note, eight
+  fragments, and seed 7, clean cardinal acquisition reaches only `4/8` top-k,
+  `4/8` top-1, and `4/8` automatic handoff. Increasing returned `top_k` from 3
+  to 10 leaves recall at `4/8`, so output truncation is not the limiter. Adding
+  RGB noise sigma 5 plus 8% isolated interior mask dropout keeps the same
+  `4/8` pose result (mean mask IoU `0.932`); free-angle capture falls to `0/8`
+  because the current locator searches only cardinal angles and provides no
+  angular uncertainty. The first observed v5 proxy bottleneck is therefore
+  **pose recall**, before the frozen core. This is plumbing evidence from a
+  synthetic proxy, not real-fragment validation. See
+  [the v5 alpha report](docs/v5_reality_bridge.md).
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining
@@ -210,28 +229,29 @@ threshold whose true/false distributions overlap. That is the recurring trap.
 
 ## The resume-path (if anyone continues)
 
-Four pieces of work, in this order:
+Five pieces of work, in this order:
 
-1. **Real-data validation** — tear a small set of notes, capture raw crops, and
-   measure locator uncertainty, automatic precision, and the human queue. This
-   is now more informative than another synthetic architecture layer.
-2. **If simulation work continues, test multi-component pure core construction
-   once** — v4.4.1 has already solved the six base-selection misses at fixed K,
-   so do not expand global K or retune the selector. The remaining ten notes have
-   no recordable pure core because their automatic true-edge graph is split into
-   2-4 components below the 0.78 threshold. Test one production-valid bridge
-   that combines real, high-confidence components without simulator truth, with
-   the same `+0.05` recall/yield and `-0.02` precision gate. If it fails, freeze
-   deterministic simulation v4 and move to real-data acquisition/registration.
-   False-pair removal, residual-gap-first, and the inert `complex` gap branch are
-   measured secondary levers, not the next primary quality route.
-3. **Learned fine-tear edge descriptor, only if real data requires it** — replace
+1. **Real-data validation through the v5 funnel** — tear a small set of notes,
+   capture raw crops, annotate masks and poses for evaluation only, then measure
+   segmentation tolerance, locator top-k recall, uncertainty routing, automatic
+   precision, and the human queue. Do not let annotations select a production
+   pose.
+2. **Repair only the first failed reality stage** — if the true pose is absent
+   from top-k, work only on registration (continuous angle/scale/affine search
+   and calibrated pose uncertainty). If masks fail the declared physical
+   tolerance, work only on acquisition/segmentation. Do not retune Etear,
+   candidate construction, or exact cover while an upstream stage is failing.
+3. **Reconsider multi-component core construction only after reliable real
+   handoff** — v4.4.1 is frozen. A component bridge becomes a new, reality-driven
+   study only if real masks and true poses reliably enter the handoff yet the
+   same multi-component core wall persists. It is not another v4.4 patch.
+4. **Learned fine-tear edge descriptor, only if real data requires it** — replace
    the scalar coincidence with a
    model on the actual tear-edge profile (turning-angle/curvature sequence, or a
    small CNN on the resampled edge), trained to discriminate true vs false
    tear-mates **specifically on fine, frayed edges**, and benchmarked head-to-head
    against scalar coincidence **on the pieces=16/24 regime**.
-4. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
+5. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
    generation, so N≈hundreds–thousands does not hit time limits.
 
 > Honest expectation: v4.3 shifts the simulated wall; it does not remove the
@@ -239,14 +259,16 @@ Four pieces of work, in this order:
 
 ## The single highest-value untaken step
 
-Not more algorithms: **tear a few real notes, photograph them, and run the whole
-pipeline (including registration) on real fray.** Everything above is simulation.
-The fastest way to learn something true now is to hit it with reality.
+Not more simulation tuning: **tear a few real notes, photograph them, annotate
+the evaluation truth separately, and run `reality-bridge`.** The alpha proxy
+already shows pose recall failing before reconstruction. The fastest way to
+learn something true now is to determine whether real acquisition first breaks
+mask tolerance, pose recall, or uncertainty calibration.
 
 ## Status of the codebase
 
-- **CORE** (`tearfit`, `locator`, `simulate`, `pressure`, `diagnostics`, `compat`,
-  `solver`, `batch`, acquisition/IO, CLI): the supported, runnable system. Installs
+- **CORE** (`tearfit`, `locator`, `reality`, `simulate`, `pressure`, `diagnostics`,
+  `compat`, `solver`, `batch`, acquisition/IO, CLI): the supported, runnable system. Installs
   and runs without torch.
 - **baselines/**: superseded discriminators kept for comparison only.
 - **experimental/** (`v6_to_v10` DL stack, `llm_control`, `policy_compare`):

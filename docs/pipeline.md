@@ -63,6 +63,23 @@ Tesseract OCR. OCR is intentionally optional because it depends heavily on the
 local executable and scan quality; the manifest format keeps the recognized
 label editable either way.
 
+For v5, `segment-scan` records `acquisition.orientation_mode` as `free` by
+default. Once front/back references and optional evaluation annotations have
+been added, audit the upstream handoff before reconstruction:
+
+```bash
+moneyrepair reality-bridge \
+  --manifest runs/scan/manifest.json \
+  --reference-front references/front.png \
+  --reference-back references/back.png \
+  --output-dir runs/scan/reality_audit
+```
+
+This command keeps raw crops in local coordinates, measures segmentation and
+pose recall, and writes note-coordinate datasets only for automatically routed
+top-1 poses. Ground-truth mask/pose annotations are evaluation-only and never
+enter the route. See [the v5 alpha report](v5_reality_bridge.md).
+
 ## Image Quality Gate & Ingestion Flow
 
 Before fragment data is registered into the active pool, it is run through a sequential automated Quality Assessment (QA) Gate:
@@ -172,6 +189,12 @@ To align an input crop against the templates without given placement, the locato
   score margin, and basin sample count. Broad peaks reduce downstream tear
   confidence. `sigma_theta` remains unavailable until continuous-angle
   refinement is implemented.
+
+The v5 alpha proxy demonstrates that this locator is not yet a production
+registration solution: an eight-fragment clean cardinal proxy reaches only
+`4/8` top-k recall, and a free-angle proxy reaches `0/8`. Increasing returned K
+does not recover the missing poses. Reconstruction claims therefore stop at the
+pose handoff until real acquisition is measured and registration is repaired.
 
 ### 2. Candidate Pose Solver Integration
 - **Virtual Placed Fragments**: Each candidate pose (specifying X, Y, rotation, side, and match score) is represented as a virtual placed fragment with a unique ID format `f{piece_index}_pose{pose_index}`.

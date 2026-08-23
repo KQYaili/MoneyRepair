@@ -12,13 +12,20 @@ from moneyrepair.compat import (
 from moneyrepair.diagnostics import diagnose_groups, diagnose_solutions, solution_purity
 from moneyrepair.diagrams import DiagramSpec, production_pipeline_spec, write_diagram
 from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_report_figure, validate_report
-from moneyrepair.ingest import fragments_from_manifest
+from moneyrepair.ingest import fragments_from_manifest, raw_fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
 from moneyrepair.quality import FrameQuality, QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.reference import ReferenceScore, score_best_reference_side, score_fragments_by_side
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
+from moneyrepair.reality import (
+    REALITY_ORIENTATION_MODES,
+    PhysicalToleranceModel,
+    RealityBridgeThresholds,
+    run_reality_bridge_diagnostic,
+    write_synthetic_capture_manifest,
+)
 from moneyrepair.reports import write_strategy_report
 from moneyrepair.scan import connected_components, segment_scan_to_manifest
 from moneyrepair.scale import (
@@ -56,7 +63,7 @@ from moneyrepair.tearfit import (
 )
 from moneyrepair.types import Fragment
 
-__version__ = "4.4.1"
+__version__ = "5.0.0a1"
 
 __all__ = [
     "AuditEvent",
@@ -73,9 +80,11 @@ __all__ = [
     "GroupGapEvidence",
     "MatrixFootprint",
     "PackedCompatibilityMatrix",
+    "PhysicalToleranceModel",
     "QualityThresholds",
     "ReferenceScore",
     "RealismProfile",
+    "RealityBridgeThresholds",
     "SyntheticBenchmark",
     "TEARFIT_ALGORITHMS",
     "TEARFIT_BASE_SELECTION_STRATEGIES",
@@ -83,6 +92,7 @@ __all__ = [
     "TEARFIT_EDGE_SCORING",
     "TEARFIT_SEED_STRATEGIES",
     "TEARFIT_V43_FINE_FRACTION",
+    "REALITY_ORIENTATION_MODES",
     "V432_QUALITY_THRESHOLDS",
     "TearFitComparisonCase",
     "TearFitDiagnostics",
@@ -100,6 +110,7 @@ __all__ = [
     "diagnose_groups",
     "diagnose_solutions",
     "fragments_from_manifest",
+    "raw_fragments_from_manifest",
     "estimate_matrix_footprint",
     "make_multi_note_fragments",
     "make_fractal_tear_fragments",
@@ -111,6 +122,7 @@ __all__ = [
     "run_pressure_case",
     "run_pressure_sweep",
     "run_production_pipeline",
+    "run_reality_bridge_diagnostic",
     "run_tearfit_sweep",
     "run_tearfit_strategy_comparison",
     "run_tearfit_trial",
@@ -130,6 +142,7 @@ __all__ = [
     "update_manifest_labels",
     "validate_report",
     "write_diagram",
+    "write_synthetic_capture_manifest",
     "write_incompatible_pairs",
     "write_strategy_report",
 ]

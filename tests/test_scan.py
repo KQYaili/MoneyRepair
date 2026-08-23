@@ -54,6 +54,8 @@ def test_segment_scan_to_manifest_outputs_crops_masks_and_ingestable_manifest(tm
     manifest_path = tmp_path / "out" / "manifest.json"
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert raw["fragments"][0]["affine_to_note"] == [[1, 0, 3], [0, 1, 2]]
+    assert raw["schema"] == "moneyrepair-reality-bridge-v1"
+    assert raw["acquisition"]["orientation_mode"] == "free"
 
     template = np.zeros((32, 48, 3), dtype=np.uint8)
     fragments = fragments_from_manifest(manifest_path, reference=template)

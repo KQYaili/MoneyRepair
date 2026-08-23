@@ -11,7 +11,10 @@ docs/
 ├── README.md                          # 👈 You are here: Master Documentation Index
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
-├── 🔬 Version 4.4.1 Core-Base Selection (Latest)
+├── 🔬 Version 5 Reality Bridge (Latest)
+│   └── v5_reality_bridge.md           # Physical tolerance, raw-crop pose funnel & alpha proxy
+│
+├── 🔬 Version 4.4.1 Core-Base Selection (Frozen)
 │   ├── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
 │   ├── v4_4_empirical_validation.md   # Preregistered A/B NULL result & relocated bottleneck
 │   └── v4_4_1_base_selection.md       # Fixed-budget base-ranking causal intervention
@@ -50,24 +53,27 @@ docs/
 ### 1. System Architecture & Workflows
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
-### 2. v4.4.1 Core-Base Selection (Latest)
+### 2. v5 Reality Bridge (Latest)
+* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, physically derived tolerance gates, annotation-isolated pose audit, and the first synthetic capture proxy result.
+
+### 3. v4.4.1 Core-Base Selection (Frozen)
 * **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.
 * **[v4_4_empirical_validation.md](v4_4_empirical_validation.md)**: Preregistered N=100 seed-7 normalized-compute A/B returning a NULL (`0.840 -> 0.840`, `+0.05` gate not cleared); gap-first inert and candidate funnel relocating the measured wall upstream to pure core-base construction & selection.
 * **[v4_4_1_base_selection.md](v4_4_1_base_selection.md)**: Fixed `512/128` base-budget A/B where fragment-disjoint rounds raise oracle recall/yield `0.840 -> 0.900` without a precision loss, resolving the six base-ranking misses and leaving multi-component core construction as the measured seed-7 wall.
 
-### 3. v4.3.3 Adaptive Physical Evidence
+### 4. v4.3.3 Adaptive Physical Evidence
 * **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
 * **[v4_3_1_mechanism_validation.md](v4_3_1_mechanism_validation.md)**: Canonical N=20 mechanism decomposition comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` under fixed search budgets.
 * **[v4_3_2_scale_fineness.md](v4_3_2_scale_fineness.md)**: Preregistered anchor staircase, fixed and normalized compute tracks, checkpointing, and causal wall diagnostics.
 * **[v4_3_3_oracle_false_edges.md](v4_3_3_oracle_false_edges.md)**: Paired oracle false-edge deletion diagnostic that falsifies false-pair reduction as the next quality route and narrows the measured seed-7 wall to gap proposal / candidate construction.
 * **[v4_3_ab_benchmark.md](v4_3_ab_benchmark.md)**: Supplemental N=10 same-seed audit retained for reproducibility; it is not used for headline claims.
 
-### 3. Pose Locator & Solver Optimization
+### 5. Pose Locator & Solver Optimization
 * **[v4_0_production_reconstruction.md](v4_0_production_reconstruction.md)**: Overview of the pyramid downsampling locator, candidate pose model, and dense vectorized solver.
 * **[v4_0_algorithm_deduction.md](v4_0_algorithm_deduction.md)**: Mathematical deductions for JIT template matching, score-basin uncertainty, and time-complexity bounds.
 * **[stage4_convergence_report.md](stage4_convergence_report.md)**: Empirical timing curves, memory footprints, and scalability benchmarks.
 
-### 4. Multi-Note Pool & Chimera Hardening
+### 6. Multi-Note Pool & Chimera Hardening
 * **[v3_0_chimera_discrimination.md](v3_0_chimera_discrimination.md)**: Tone gain fitting, DBSCAN appearance clustering, and elimination of cross-note chimeras.
 * **[v4_1_pressure_realism.md](v4_1_pressure_realism.md)**: Stress tests under non-uniform spatial wear, local staining, and large banknote pools ($N \ge 50$).
 
