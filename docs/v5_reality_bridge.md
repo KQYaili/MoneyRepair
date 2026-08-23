@@ -1,4 +1,4 @@
-# v5 Reality Bridge Alpha
+# v5 Reality Bridge Alpha 2
 
 ## Decision boundary
 
@@ -11,9 +11,9 @@ case. v5 asks a different question:
 > extraction, top-k pose recall, uncertainty routing, or the frozen
 > reconstruction core?
 
-This alpha implements the measurement funnel. It does not claim real-banknote
-reconstruction and it deliberately does not change Etear, candidate generation,
-or exact cover.
+The alpha-1 implementation at `cffbb10` established the measurement funnel.
+Alpha 2 hardens only its measuring instruments: it does not change the locator
+ranking, routing thresholds, Etear, candidate generation, or exact cover.
 
 ## Pipeline
 
@@ -27,9 +27,10 @@ photo / scan
   -> v4.4.1 core (not run in this alpha)
 ```
 
-Evaluation annotations may contain a ground-truth mask and pose. They are used
-only to compute the funnel metrics. `route_pose_candidates()` does not receive
-or inspect either annotation.
+Evaluation annotations are stored in a separate JSON file and never copied into
+production `Fragment` objects. Each annotation contains a gold mask and a full
+3x3 crop-to-canonical transform. `route_pose_candidates()` receives neither;
+the production loader also strips legacy truth keys from embedded metadata.
 
 ## Physical tolerance contract
 
@@ -58,10 +59,11 @@ the physical-restoration reference:
 D_min = r_e * (2 * (T_seg + T_reg) + 0.25 * H) + T_seg + T_reg
 ```
 
-Mask IoU remains a descriptive metric. The annotated segmentation gate instead
-checks that every disagreement lies inside the declared segmentation tolerance
-band. Real runs must replace the proxy tolerances with measured scanner/camera
-and annotation repeatability.
+Mask IoU remains descriptive. External boundaries are compared using continuous
+Euclidean pixel-centre distances, so `1.004 px` is not rounded up to a 2-pixel
+Chebyshev dilation. Internal missing area, internal extraneous area, disconnected
+components, and holes are audited separately. The initial interior-area ceiling
+is 1%; real runs must replace every proxy tolerance using the calibration split.
 
 ## Commands
 
@@ -80,6 +82,7 @@ Run the diagnostic:
 ```bash
 moneyrepair reality-bridge \
   --manifest runs/v5_proxy/cardinal/manifest.json \
+  --annotations runs/v5_proxy/cardinal/annotations.json \
   --output-dir runs/v5_proxy/cardinal/run
 ```
 
@@ -91,7 +94,12 @@ reference paths to `reality-bridge`.
 The report writes:
 
 - per-fragment masks, candidate poses, uncertainty fields, and routes;
-- annotated top-k/top-1 recall without using truth for routing;
+- annotated top-k/top-1 recall and complete transform error without using truth
+  for routing;
+- coarse-position count, the fixed internal coarse top-10, refined candidates,
+  final filters, and transform-family coverage for each recall miss;
+- boundary/interior/topology mask metrics, automatic pose precision, and an
+  explicit false-automatic count;
 - `handoff_front.npz` / `handoff_back.npz` for automatic placements only;
 - `downstream_core_status: not_run`, so a placement artifact cannot be mistaken
   for a reconstruction result.
@@ -102,33 +110,42 @@ All rows use one synthetic note, eight fragments, seed 7, and the same default
 physical tolerance contract. Timings are single local WSL runs and are
 descriptive only.
 
-| acquisition proxy | mask ready | top-k recall | top-1 | automatic handoff | mean mask IoU | locator ms/fragment |
-|---|---:|---:|---:|---:|---:|---:|
-| cardinal, clean, K=3 | 8/8 | 4/8 | 4/8 | 4/8 | 1.000 | 67.4 |
-| cardinal, RGB noise 5 + 8% isolated mask dropout, K=3 | 8/8 | 4/8 | 4/8 | 4/8 | 0.932 | 65.3 |
-| cardinal, clean, K=10 | 8/8 | 4/8 | 4/8 | 4/8 | 1.000 | 114.3 |
-| free angle, clean, K=3 | 8/8 | 0/8 | 0/8 | 0/8 | 1.000 | 92.1 |
+| acquisition proxy | mask ready | top-k recall | top-1 | automatic / pose precision / release precision | mean mask IoU | localized miss |
+|---|---:|---:|---:|---:|---:|---|
+| cardinal, clean, K=3 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-shortlist misses |
+| cardinal, RGB noise 5 + 8% isolated mask dropout, K=3 | 0/8 | n/a | n/a | 4 / 1.000 / 0.000 | 0.932 | segmentation first |
+| cardinal, clean, K=10 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-shortlist misses |
+| free angle, clean, K=3 | 8/8 | 0/8 | 0/8 | 0 / n/a / n/a | 1.000 | 8 transform-family misses |
 
-The controlled result is already a useful negative finding. Increasing the
-returned K does not recover any missing truth, so the problem is upstream of
-output truncation. Even the friendly cardinal proxy loses half the true poses;
-free-angle capture loses all of them because the current locator searches only
-0/90/180/270 degrees and reports no `sigma_theta`.
+The controlled result is a more specific negative finding. Increasing returned
+K does not recover missing truth because all four clean cardinal misses occur
+before the fixed internal coarse top-10 shortlist. The truth transforms are
+inside the cardinal rigid model family, so continuous-angle search is not the
+answer to that row. Free-angle capture instead produces eight measured
+transform-family misses and no `sigma_theta`.
+
+The degraded row corrects an alpha-1 measurement flaw. Its external boundaries
+still pass, but mean interior missing area is `0.068`, above the 1% policy gate,
+so segmentation correctly becomes the first bottleneck. The observable router
+still emits four poses; this is why automatic pose precision and the dataset
+mask gate are reported separately.
 
 ## Current conclusion and stop rule
 
-The first observed v5 proxy bottleneck is **pose recall**, before uncertainty
-calibration and before v4.4.1. Therefore the next empirical action is a small,
-annotated real capture set. No downstream reconstruction change is justified
-while true poses fail to enter the candidate set.
+For clean cardinal proxy input the first observed bottleneck remains **pose
+recall**, now localized to the coarse shortlist. For the deliberately damaged
+mask proxy it is segmentation, and for free angles it is the transform family.
+The locator and router are frozen at these measurements. The next empirical
+action is the preregistered [real-capture diagnostic pilot](v5_real_capture_pilot.md),
+not another synthetic parameter search.
 
 After real capture:
 
 1. If masks exceed the physical tolerance band, change acquisition or
    segmentation only.
-2. If masks pass but truth is absent from top-k, change registration only,
-   starting with continuous angle/scale/affine refinement and calibrated
-   `sigma_theta`.
+2. If masks pass but truth is absent from top-k, inspect its measured stage and
+   model-family coverage. Add continuous angle and `sigma_theta` only for angle
+   family misses; add scale/affine only when physical residuals require them.
 3. If reliable true poses enter automatic handoff but reconstruction still
    shows the multi-component core wall, open a new component-bridge study.
 

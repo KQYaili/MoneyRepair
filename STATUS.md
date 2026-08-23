@@ -127,23 +127,27 @@ constraints; appearance is at most a tie-breaker.
   `ruff`, and `compileall` pass. See
   [the v4.4.1 report](docs/v4_4_1_base_selection.md).
 
-- **v4.4.1 frozen; v5 Reality Bridge alpha started:** commit `af57a41` is the
+- **v4.4.1 frozen; v5 Reality Bridge alpha 2 measurement-hardened:** commit `af57a41` is the
   frozen deterministic simulation core on `main`. The preregistered refinement
   allowance is spent; v4 candidate construction will not be tuned again on the
   N=100 seed-7 discovery case. The first v5 diagnostic now loads raw local
-  crops, audits segmentation against a declared physical tolerance band,
-  measures top-k/top-1 pose recall, routes pose uncertainty without reading
-  ground truth, and writes only automatically accepted placements as handoff
-  datasets. On an **annotated synthetic capture proxy** with one note, eight
-  fragments, and seed 7, clean cardinal acquisition reaches only `4/8` top-k,
-  `4/8` top-1, and `4/8` automatic handoff. Increasing returned `top_k` from 3
-  to 10 leaves recall at `4/8`, so output truncation is not the limiter. Adding
-  RGB noise sigma 5 plus 8% isolated interior mask dropout keeps the same
-  `4/8` pose result (mean mask IoU `0.932`); free-angle capture falls to `0/8`
-  because the current locator searches only cardinal angles and provides no
-  angular uncertainty. The first observed v5 proxy bottleneck is therefore
-  **pose recall**, before the frozen core. This is plumbing evidence from a
-  synthetic proxy, not real-fragment validation. See
+  crops, keeps evaluation annotations physically separate, audits external
+  boundaries with continuous Euclidean pixel-centre distance, measures
+  interior/topology errors separately, evaluates full 3x3 crop-to-canonical
+  transforms, and reports automatic pose precision plus internal locator-stage
+  recall. On an **annotated synthetic capture proxy** with one note, eight
+  fragments, and seed 7, clean cardinal acquisition reaches `4/8` top-k,
+  `4/8` top-1, `4/8` automatic handoff, and `1.000` automatic pose precision.
+  All four misses are inside the cardinal rigid model family but absent from the
+  fixed coarse top-10 shortlist. Increasing returned `top_k` from 3 to 10 still
+  leaves recall at `4/8`, confirming that final output truncation is not the
+  limiter. RGB noise sigma 5 plus 8% isolated interior mask dropout now fails
+  the separate mask gate (`0/8` ready; mean missing area `0.068`, IoU `0.932`)
+  rather than being hidden by boundary dilation. Free-angle capture remains
+  `0/8`, with all eight misses localized outside the cardinal transform family
+  and no angular uncertainty. These are synthetic measurement diagnostics, not
+  real-fragment validation; locator, router, and v4.4.1 behavior remain frozen.
+  See
   [the v5 alpha report](docs/v5_reality_bridge.md).
 
 ## Where the wall is (measured, simulation)

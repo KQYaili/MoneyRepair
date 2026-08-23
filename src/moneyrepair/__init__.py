@@ -20,9 +20,11 @@ from moneyrepair.quality import FrameQuality, QualityThresholds, assess_fragment
 from moneyrepair.reference import ReferenceScore, score_best_reference_side, score_fragments_by_side
 from moneyrepair.realism import RealismProfile, make_realistic_synthetic_fragments
 from moneyrepair.reality import (
+    EvaluationAnnotation,
     REALITY_ORIENTATION_MODES,
     PhysicalToleranceModel,
     RealityBridgeThresholds,
+    load_evaluation_annotations,
     run_reality_bridge_diagnostic,
     write_synthetic_capture_manifest,
 )
@@ -63,7 +65,7 @@ from moneyrepair.tearfit import (
 )
 from moneyrepair.types import Fragment
 
-__version__ = "5.0.0a1"
+__version__ = "5.0.0a2"
 
 __all__ = [
     "AuditEvent",
@@ -73,6 +75,7 @@ __all__ = [
     "ConfirmedNote",
     "CoverageSolution",
     "DiagramSpec",
+    "EvaluationAnnotation",
     "FigurePanel",
     "Fragment",
     "FractalTearConfig",
@@ -116,6 +119,7 @@ __all__ = [
     "make_fractal_tear_fragments",
     "make_synthetic_fragments",
     "make_realistic_synthetic_fragments",
+    "load_evaluation_annotations",
     "production_pipeline_spec",
     "solution_purity",
     "render_report_figure",

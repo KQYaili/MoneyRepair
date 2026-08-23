@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numba
@@ -42,6 +42,44 @@ class CandidatePose:
             "sigma_theta": float(self.sigma_theta) if self.sigma_theta is not None else None,
             "score_margin": float(self.score_margin),
             "basin_samples": int(self.basin_samples),
+        }
+
+
+@dataclass
+class PoseSearchAudit:
+    """Observable stage counters for one coarse-to-fine locator call."""
+
+    top_k_requested: int = 0
+    coarse_step: int = 0
+    coarse_positions_evaluated: int = 0
+    coarse_shortlist_limit: int = 10
+    coarse_shortlist: list[CandidatePose] = field(default_factory=list)
+    fine_search_radius: int = 0
+    refined_candidates: list[CandidatePose] = field(default_factory=list)
+    filtered_by_min_score: int = 0
+    filtered_by_score_margin: int = 0
+    duplicate_candidates: int = 0
+    eligible_unique_candidates: int = 0
+    output_limit_truncated: int = 0
+    returned_candidates: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "top_k_requested": int(self.top_k_requested),
+            "coarse_step": int(self.coarse_step),
+            "coarse_positions_evaluated": int(self.coarse_positions_evaluated),
+            "coarse_shortlist_limit": int(self.coarse_shortlist_limit),
+            "coarse_shortlist_count": len(self.coarse_shortlist),
+            "coarse_shortlist": [pose.to_dict() for pose in self.coarse_shortlist],
+            "fine_search_radius": int(self.fine_search_radius),
+            "refined_candidate_count": len(self.refined_candidates),
+            "refined_candidates": [pose.to_dict() for pose in self.refined_candidates],
+            "filtered_by_min_score": int(self.filtered_by_min_score),
+            "filtered_by_score_margin": int(self.filtered_by_score_margin),
+            "duplicate_candidates": int(self.duplicate_candidates),
+            "eligible_unique_candidates": int(self.eligible_unique_candidates),
+            "output_limit_truncated": int(self.output_limit_truncated),
+            "returned_candidates": int(self.returned_candidates),
         }
 
 
@@ -242,12 +280,18 @@ def locate_fragment_poses(
     coarse_step: int = 8,
     score_margin: float | None = None,
     min_score: float | None = None,
+    audit: PoseSearchAudit | None = None,
 ) -> list[CandidatePose]:
     """Find the best-fitting translations/rotations for a fragment on the template.
 
     Uses a coarse-to-fine hybrid search combining resolution pyramids, JIT compilation,
     and fine-res neighborhood refinement.
     """
+    if audit is not None:
+        audit.top_k_requested = top_k
+        audit.coarse_step = coarse_step
+        audit.coarse_shortlist_limit = 10
+        audit.fine_search_radius = max(2, coarse_step // 2)
     if fragment.image is None:
         return []
     
@@ -313,7 +357,11 @@ def locate_fragment_poses(
                 )
 
     # Sort candidates and keep top matches for refinement
+    if audit is not None:
+        audit.coarse_positions_evaluated = len(candidates)
     candidates = sorted(candidates, key=lambda p: p.score, reverse=True)[:10]
+    if audit is not None:
+        audit.coarse_shortlist = list(candidates)
 
     refined_candidates: list[CandidatePose] = []
     # 2. Fine search at Level 0 (1x) in a small neighborhood
@@ -362,10 +410,39 @@ def locate_fragment_poses(
             )
         )
 
+    if audit is not None:
+        audit.refined_candidates = list(refined_candidates)
+
     # 3. De-duplicate close poses
+    ordered_refined = sorted(refined_candidates, key=lambda x: x.score, reverse=True)
+    if audit is not None:
+        audit_unique: list[CandidatePose] = []
+        audit_best_score = -1.0
+        for candidate in ordered_refined:
+            if min_score is not None and candidate.score < min_score:
+                audit.filtered_by_min_score += 1
+                continue
+            if audit_best_score < 0.0:
+                audit_best_score = candidate.score
+            if score_margin is not None and candidate.score < audit_best_score - score_margin:
+                audit.filtered_by_score_margin += 1
+                continue
+            if any(
+                prior.side == candidate.side
+                and prior.angle == candidate.angle
+                and abs(prior.tx - candidate.tx) <= 2
+                and abs(prior.ty - candidate.ty) <= 2
+                for prior in audit_unique
+            ):
+                audit.duplicate_candidates += 1
+                continue
+            audit_unique.append(candidate)
+        audit.eligible_unique_candidates = len(audit_unique)
+        audit.output_limit_truncated = max(0, len(audit_unique) - top_k)
+
     unique_poses: list[CandidatePose] = []
     best_score = -1.0
-    for p in sorted(refined_candidates, key=lambda x: x.score, reverse=True):
+    for p in ordered_refined:
         if min_score is not None and p.score < min_score:
             continue
         if best_score < 0.0:
@@ -400,6 +477,8 @@ def locate_fragment_poses(
             if len(unique_poses) >= top_k:
                 break
 
+    if audit is not None:
+        audit.returned_candidates = len(unique_poses)
     return unique_poses
 
 

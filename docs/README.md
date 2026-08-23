@@ -12,7 +12,8 @@ docs/
 ├── pipeline.md                        # Production Pipeline Architecture & Schematics
 │
 ├── 🔬 Version 5 Reality Bridge (Latest)
-│   └── v5_reality_bridge.md           # Physical tolerance, raw-crop pose funnel & alpha proxy
+│   ├── v5_reality_bridge.md           # Truth-isolated pose funnel & alpha-2 proxy
+│   └── v5_real_capture_pilot.md        # Paired scanner/phone diagnostic protocol
 │
 ├── 🔬 Version 4.4.1 Core-Base Selection (Frozen)
 │   ├── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
@@ -54,7 +55,8 @@ docs/
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
 ### 2. v5 Reality Bridge (Latest)
-* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, physically derived tolerance gates, annotation-isolated pose audit, and the first synthetic capture proxy result.
+* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, physically derived tolerance gates, truth-isolated pose audit, and the synthetic alpha-2 proxy result.
+* **[v5_real_capture_pilot.md](v5_real_capture_pilot.md)**: Frozen 64-fragment, 72-scene paired scanner/phone pilot with calibration/evaluation split and preregistered gates.
 
 ### 3. v4.4.1 Core-Base Selection (Frozen)
 * **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.

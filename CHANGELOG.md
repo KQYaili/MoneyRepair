@@ -1,5 +1,23 @@
 # Changelog
 
+## 5.0.0a2 - Reality Bridge measurement hardening
+
+- physically separates evaluation annotations from production observations and
+  strips legacy truth fields before raw fragments reach the locator or router;
+- replaces the rounded 2-pixel Chebyshev mask band with continuous Euclidean
+  pixel-centre boundary distance and separate interior missing, extraneous,
+  connectivity, component, and hole metrics;
+- evaluates poses against complete 3x3 crop-to-canonical transforms rather than
+  only bbox translation/angle scalars;
+- reports coarse-search population, the fixed internal top-10 shortlist,
+  refined candidates, transform-family coverage, automatic pose precision, and
+  false-automatic count without changing locator ranking or route thresholds;
+- localizes the clean cardinal proxy misses to the coarse shortlist and the
+  free-angle misses to the transform family; the 8% interior-dropout proxy now
+  correctly fails segmentation (`0/8` mask-ready, mean missing area `0.068`);
+- preregisters a 64-fragment, 72-scene paired scanner/phone diagnostic pilot;
+  v4.4.1, the locator algorithm, and the v5 alpha route remain frozen.
+
 ## 5.0.0a1 - Reality Bridge measurement baseline
 
 - freezes the deterministic v4.4.1 simulation core at `af57a41` and removes a

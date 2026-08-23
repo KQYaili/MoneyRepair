@@ -70,6 +70,7 @@ been added, audit the upstream handoff before reconstruction:
 ```bash
 moneyrepair reality-bridge \
   --manifest runs/scan/manifest.json \
+  --annotations runs/scan/annotations.json \
   --reference-front references/front.png \
   --reference-back references/back.png \
   --output-dir runs/scan/reality_audit
@@ -77,8 +78,10 @@ moneyrepair reality-bridge \
 
 This command keeps raw crops in local coordinates, measures segmentation and
 pose recall, and writes note-coordinate datasets only for automatically routed
-top-1 poses. Ground-truth mask/pose annotations are evaluation-only and never
-enter the route. See [the v5 alpha report](v5_reality_bridge.md).
+top-1 poses. Ground-truth masks and complete crop-to-canonical transforms live
+in a separate evaluation file and are stripped from production fragment
+metadata. See [the v5 alpha report](v5_reality_bridge.md) and the
+[real-capture pilot contract](v5_real_capture_pilot.md).
 
 ## Image Quality Gate & Ingestion Flow
 

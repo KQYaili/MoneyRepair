@@ -142,11 +142,15 @@ def _cmd_reality_bridge(args: argparse.Namespace) -> None:
         max_translation_sigma=args.max_translation_sigma,
         max_angle_sigma_degrees=args.max_angle_sigma,
         uncertainty_interval_scale=args.uncertainty_interval_scale,
+        max_interior_missing_fraction=args.max_interior_missing_fraction,
+        max_interior_extraneous_fraction=args.max_interior_extraneous_fraction,
+        max_extraneous_component_fraction=args.max_extraneous_component_fraction,
         physical_tolerance=physical_tolerance,
     )
     report = run_reality_bridge_diagnostic(
         args.manifest,
         args.output_dir,
+        annotations_path=args.annotations,
         reference_front=args.reference_front,
         reference_back=args.reference_back,
         orientation_mode=args.orientation_mode,
@@ -1538,6 +1542,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="audit segmentation, top-k pose recall, and uncertainty before reconstruction",
     )
     reality.add_argument("--manifest", required=True)
+    reality.add_argument("--annotations")
     reality.add_argument("--output-dir", required=True)
     reality.add_argument("--reference-front")
     reality.add_argument("--reference-back")
@@ -1554,6 +1559,9 @@ def build_parser() -> argparse.ArgumentParser:
     reality.add_argument("--max-translation-sigma", type=float, default=2.5)
     reality.add_argument("--max-angle-sigma", type=float, default=5.0)
     reality.add_argument("--uncertainty-interval-scale", type=float, default=2.0)
+    reality.add_argument("--max-interior-missing-fraction", type=float, default=0.01)
+    reality.add_argument("--max-interior-extraneous-fraction", type=float, default=0.01)
+    reality.add_argument("--max-extraneous-component-fraction", type=float, default=0.01)
     reality.add_argument("--scan-dpi", type=float, default=300.0)
     reality.add_argument("--segmentation-tolerance-mm", type=float, default=0.085)
     reality.add_argument("--registration-tolerance-mm", type=float, default=0.085)

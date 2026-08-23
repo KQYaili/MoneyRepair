@@ -11,6 +11,20 @@ from PIL import Image
 from moneyrepair.types import Fragment
 
 
+_EVALUATION_ONLY_KEYS = {
+    "annotation_uncertainty",
+    "capture_angle_degrees",
+    "crop_to_canonical_transform",
+    "evaluation_annotation",
+    "evaluation_annotations",
+    "ground_truth_mask",
+    "ground_truth_pose",
+    "ground_truth_side",
+    "parent_id",
+    "physical_fragment_id",
+}
+
+
 def load_rgb(path: str | Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
 
@@ -119,9 +133,9 @@ def _canvas_shape(manifest: dict[str, Any], reference: np.ndarray | None) -> tup
 def raw_fragments_from_manifest(path: str | Path) -> list[Fragment]:
     """Load local fragment crops without placing them in note coordinates.
 
-    This is the input contract for auto-location. Ground-truth fields may be
-    carried in ``meta`` for offline evaluation, but callers must not use them
-    to choose a production pose or route.
+    This is the production input contract for auto-location. Evaluation-only
+    fields are stripped even when an older manifest embeds them; annotations
+    must be loaded separately by the diagnostic layer.
     """
 
     manifest_path = Path(path)
@@ -142,7 +156,11 @@ def raw_fragments_from_manifest(path: str | Path) -> list[Fragment]:
             else infer_foreground_mask(raw, threshold=float(item.get("threshold", 22.0)))
         )
         fragment_id = str(item.get("id", f"f{index:05d}"))
-        meta = dict(item.get("meta") or {})
+        meta = {
+            key: value
+            for key, value in dict(item.get("meta") or {}).items()
+            if key not in _EVALUATION_ONLY_KEYS and not key.startswith("ground_truth_")
+        }
         meta.update(
             {
                 "source_image": str(image_path),
@@ -151,9 +169,10 @@ def raw_fragments_from_manifest(path: str | Path) -> list[Fragment]:
             }
         )
         for key in (
-            "capture_angle_degrees",
-            "ground_truth_mask",
-            "ground_truth_pose",
+            "observation_id",
+            "acquisition_id",
+            "session_id",
+            "repeat_id",
             "scan_bbox",
         ):
             if key in item:
