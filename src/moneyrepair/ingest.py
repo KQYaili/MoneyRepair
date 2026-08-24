@@ -13,6 +13,7 @@ from moneyrepair.types import Fragment
 
 _EVALUATION_ONLY_KEYS = {
     "annotation_uncertainty",
+    "canonical_pixels_per_mm",
     "capture_angle_degrees",
     "crop_to_canonical_transform",
     "evaluation_annotation",
@@ -20,6 +21,8 @@ _EVALUATION_ONLY_KEYS = {
     "ground_truth_mask",
     "ground_truth_pose",
     "ground_truth_side",
+    "effective_radius_mm",
+    "observation_pixels_per_mm",
     "parent_id",
     "physical_fragment_id",
 }

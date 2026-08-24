@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.0.0a3 - Reality Bridge measurement closure
+
+- records the complete truth-blind coarse lattice geometry without changing the
+  locator, separating coarse-grid coverage misses from fixed top-10 ranking
+  misses in the evaluation layer;
+- routes observation-space mask distance through capture-specific pixels/mm,
+  canonical pose distance through reference pixels/mm, and angular tolerance
+  through each fragment's effective radius;
+- freezes symmetric Euclidean boundary p95 as the mask gate statistic while
+  retaining maximum distance as an outlier diagnostic;
+- removes the annotation-file pointer from newly generated production manifests
+  and keeps evaluation truth behind the explicit `--annotations` input;
+- preregisters fixed calibration/evaluation proxy IDs, 2-of-3 repeat
+  aggregation, zero-tolerance for any false automatic observation, and an
+  independent gold-transform workflow for the 64-fragment physical pilot;
+- replays all four alpha proxies with unchanged poses, routes, funnel values,
+  and semantic handoff fingerprints. The four clean cardinal misses are now
+  measured as fixed coarse-top-10 ranking misses; locator, router, and v4.4.1
+  behavior remain frozen.
+
 ## 5.0.0a2 - Reality Bridge measurement hardening
 
 - physically separates evaluation annotations from production observations and

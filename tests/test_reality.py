@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 
 from moneyrepair.ingest import raw_fragments_from_manifest
-from moneyrepair.locator import CandidatePose
+from moneyrepair.locator import CandidatePose, CoarseGridSpec, PoseSearchAudit
 from moneyrepair.reality import (
+    EvaluationAnnotation,
     PhysicalToleranceModel,
     RealityBridgeThresholds,
     _mask_tolerance_audit,
+    _pose_stage_audit,
     load_evaluation_annotations,
     route_pose_candidates,
     run_reality_bridge_diagnostic,
@@ -39,6 +41,49 @@ def test_physical_tolerance_model_derives_pixel_and_feature_gates():
         PhysicalToleranceModel(scan_dpi=0.0)
 
 
+def test_evaluation_tolerances_use_distinct_observation_and_canonical_scales():
+    annotation = EvaluationAnnotation(
+        fragment_id="f0",
+        side="front",
+        crop_to_canonical_transform=np.eye(3),
+        observation_pixels_per_mm=10.0,
+        canonical_pixels_per_mm=20.0,
+        effective_radius_mm=5.0,
+    )
+    thresholds = RealityBridgeThresholds(
+        physical_tolerance=PhysicalToleranceModel(
+            segmentation_tolerance_mm=0.1,
+            registration_tolerance_mm=0.1,
+        )
+    )
+
+    assert thresholds.resolved_segmentation_tolerance_pixels(annotation) == pytest.approx(1.0)
+    assert thresholds.resolved_translation_error_for(annotation) == pytest.approx(4.0)
+
+
+def test_evaluation_angular_tolerance_uses_each_fragment_effective_radius():
+    thresholds = RealityBridgeThresholds(
+        physical_tolerance=PhysicalToleranceModel(
+            segmentation_tolerance_mm=0.1,
+            registration_tolerance_mm=0.1,
+        )
+    )
+    small = EvaluationAnnotation(
+        fragment_id="small",
+        side="front",
+        crop_to_canonical_transform=np.eye(3),
+        effective_radius_mm=5.0,
+    )
+    large = EvaluationAnnotation(
+        fragment_id="large",
+        side="front",
+        crop_to_canonical_transform=np.eye(3),
+        effective_radius_mm=20.0,
+    )
+
+    assert thresholds.resolved_angle_error_degrees_for(small) > thresholds.resolved_angle_error_degrees_for(large)
+
+
 def test_raw_manifest_loader_preserves_local_crop_and_strips_annotations(tmp_path):
     manifest = write_synthetic_capture_manifest(
         tmp_path / "capture",
@@ -50,8 +95,12 @@ def test_raw_manifest_loader_preserves_local_crop_and_strips_annotations(tmp_pat
     )
 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert "evaluation_annotations" not in payload
     payload["fragments"][0]["ground_truth_pose"] = {"side": "back", "tx": 99, "ty": 99, "angle": 180}
     payload["fragments"][0].setdefault("meta", {})["ground_truth_mask"] = "should-not-propagate.png"
+    payload["fragments"][0]["meta"]["canonical_pixels_per_mm"] = 99.0
+    payload["fragments"][0]["meta"]["effective_radius_mm"] = 99.0
+    payload["fragments"][0]["meta"]["observation_pixels_per_mm"] = 99.0
     manifest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     fragments = raw_fragments_from_manifest(manifest)
@@ -61,8 +110,14 @@ def test_raw_manifest_loader_preserves_local_crop_and_strips_annotations(tmp_pat
     assert all(fragment.mask.shape != (36, 80) for fragment in fragments)
     assert all("ground_truth_pose" not in fragment.meta for fragment in fragments)
     assert all("ground_truth_mask" not in fragment.meta for fragment in fragments)
+    assert all("canonical_pixels_per_mm" not in fragment.meta for fragment in fragments)
+    assert all("effective_radius_mm" not in fragment.meta for fragment in fragments)
+    assert all("observation_pixels_per_mm" not in fragment.meta for fragment in fragments)
     assert set(annotations) == {fragment.id for fragment in fragments}
     assert all(annotation.crop_to_canonical_transform.shape == (3, 3) for annotation in annotations.values())
+    assert all(annotation.observation_pixels_per_mm is not None for annotation in annotations.values())
+    assert all(annotation.canonical_pixels_per_mm is not None for annotation in annotations.values())
+    assert all(annotation.effective_radius_mm is not None for annotation in annotations.values())
     assert all(fragment.image is not None for fragment in fragments)
 
 
@@ -121,6 +176,75 @@ def test_mask_audit_uses_continuous_pixel_distance_and_separate_interior_gate():
     json.dumps(empty, allow_nan=False)
 
 
+def test_mask_boundary_gate_uses_the_preregistered_p95_statistic():
+    truth = np.zeros((60, 60), dtype=bool)
+    truth[15:45, 15:45] = True
+    predicted = truth.copy()
+    predicted[29:31, 45:51] = True
+
+    audit = _mask_tolerance_audit(
+        predicted,
+        truth,
+        1.01,
+        max_interior_missing_fraction=1.0,
+        max_interior_extraneous_fraction=1.0,
+        max_extraneous_component_fraction=1.0,
+    )
+
+    assert audit["boundary_gate_statistic"] == "symmetric_surface_distance_p95"
+    assert audit["boundary_p95_distance_pixels"] <= 1.01
+    assert audit["boundary_max_distance_pixels"] > 1.01
+    assert audit["boundary_within_tolerance"] is True
+
+
+def _coarse_stage_fixture(truth_tx: float) -> tuple[Fragment, EvaluationAnnotation, PoseSearchAudit]:
+    fragment = Fragment(
+        id="f0",
+        side="unknown",
+        mask=np.ones((4, 4), dtype=bool),
+        image=np.zeros((4, 4, 3), dtype=np.uint8),
+    )
+    transform = np.eye(3)
+    transform[0, 2] = truth_tx
+    annotation = EvaluationAnnotation(
+        fragment_id=fragment.id,
+        side="front",
+        crop_to_canonical_transform=transform,
+    )
+    wrong_shortlist = [
+        CandidatePose(fragment.id, f"wrong-{index}", "back", 0, 0, 0, 1.0 - index * 0.01)
+        for index in range(10)
+    ]
+    audit = PoseSearchAudit(
+        coarse_grids=[CoarseGridSpec("front", 0, 0, 0, 8, 8, 2, 1)],
+        coarse_shortlist=wrong_shortlist,
+        fine_search_radius=1,
+    )
+    return fragment, annotation, audit
+
+
+def test_pose_stage_distinguishes_coarse_grid_coverage_miss():
+    fragment, annotation, search_audit = _coarse_stage_fixture(4.0)
+    thresholds = RealityBridgeThresholds(max_translation_error=0.25, max_angle_error_degrees=0.1)
+
+    stage = _pose_stage_audit(fragment, annotation, [], search_audit, thresholds)
+
+    assert stage["transform_family_covered"] is True
+    assert stage["coarse_grid_reachable"] is False
+    assert stage["miss_stage"] == "coarse_grid_coverage"
+
+
+def test_pose_stage_distinguishes_coarse_top10_ranking_miss():
+    fragment, annotation, search_audit = _coarse_stage_fixture(8.0)
+    thresholds = RealityBridgeThresholds(max_translation_error=0.25, max_angle_error_degrees=0.1)
+
+    stage = _pose_stage_audit(fragment, annotation, [], search_audit, thresholds)
+
+    assert stage["coarse_grid_reachable"] is True
+    assert stage["coarse_shortlist_neighborhood_hit"] is False
+    assert stage["miss_stage"] == "coarse_top10_ranking"
+
+
 def test_reality_bridge_cardinal_proxy_measures_pose_recall_and_writes_handoff(tmp_path):
     manifest = write_synthetic_capture_manifest(
         tmp_path / "capture",
@@ -134,6 +258,7 @@ def test_reality_bridge_cardinal_proxy_measures_pose_recall_and_writes_handoff(t
     report = run_reality_bridge_diagnostic(
         manifest,
         tmp_path / "run",
+        annotations_path=manifest.parent / "annotations.json",
         top_k=3,
         coarse_step=4,
         thresholds=_permissive_thresholds(),
@@ -152,6 +277,12 @@ def test_reality_bridge_cardinal_proxy_measures_pose_recall_and_writes_handoff(t
     assert report["outputs"]["handoff_datasets"]["front"] is not None
     records = json.loads((tmp_path / "run" / "pose_candidates.json").read_text(encoding="utf-8"))
     assert all(record["pose_search_audit"]["coarse_shortlist_count"] <= 10 for record in records)
+    assert all(0 < record["pose_search_audit"]["coarse_grid_count"] <= 8 for record in records)
+    assert all(
+        sum(grid["count_x"] * grid["count_y"] for grid in record["pose_search_audit"]["coarse_grids"])
+        == record["pose_search_audit"]["coarse_positions_evaluated"]
+        for record in records
+    )
     assert all(record["pose_search_audit"]["refined_candidate_count"] <= 10 for record in records)
     assert all(record["pose_recall_stage"]["returned_candidate_hit"] for record in records)
 
@@ -176,6 +307,7 @@ def test_reality_bridge_reports_false_automatic_precision(tmp_path):
     report = run_reality_bridge_diagnostic(
         manifest,
         tmp_path / "run",
+        annotations_path=annotations_path,
         top_k=3,
         coarse_step=4,
         thresholds=_permissive_thresholds(),
@@ -199,6 +331,7 @@ def test_reality_bridge_free_angle_proxy_exposes_pose_recall_before_core(tmp_pat
     report = run_reality_bridge_diagnostic(
         manifest,
         tmp_path / "run",
+        annotations_path=manifest.parent / "annotations.json",
         top_k=3,
         coarse_step=4,
         thresholds=_permissive_thresholds(),

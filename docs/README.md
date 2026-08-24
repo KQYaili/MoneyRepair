@@ -55,7 +55,7 @@ docs/
 * **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
 
 ### 2. v5 Reality Bridge (Latest)
-* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, physically derived tolerance gates, truth-isolated pose audit, and the synthetic alpha-2 proxy result.
+* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, coordinate-aware physical tolerance gates, truth-isolated pose audit, and the frozen synthetic alpha-3 proxy result.
 * **[v5_real_capture_pilot.md](v5_real_capture_pilot.md)**: Frozen 64-fragment, 72-scene paired scanner/phone pilot with calibration/evaluation split and preregistered gates.
 
 ### 3. v4.4.1 Core-Base Selection (Frozen)

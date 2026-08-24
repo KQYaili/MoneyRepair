@@ -15,6 +15,7 @@ from PIL import Image
 from moneyrepair.ingest import load_mask, load_rgb, raw_fragments_from_manifest
 from moneyrepair.locator import (
     CandidatePose,
+    CoarseGridSpec,
     PoseSearchAudit,
     _crop_foreground,
     _rotate_image_and_mask,
@@ -39,6 +40,9 @@ class EvaluationAnnotation:
     ground_truth_mask: Path | None = None
     parent_id: str | None = None
     physical_fragment_id: str | None = None
+    observation_pixels_per_mm: float | None = None
+    canonical_pixels_per_mm: float | None = None
+    effective_radius_mm: float | None = None
 
     def __post_init__(self) -> None:
         transform = np.asarray(self.crop_to_canonical_transform, dtype=np.float64)
@@ -46,6 +50,16 @@ class EvaluationAnnotation:
             raise ValueError("crop_to_canonical_transform must be a finite 3x3 matrix")
         if abs(float(np.linalg.det(transform))) < 1e-12:
             raise ValueError("crop_to_canonical_transform must be invertible")
+        calibration_values = (
+            self.observation_pixels_per_mm,
+            self.canonical_pixels_per_mm,
+            self.effective_radius_mm,
+        )
+        if any(
+            value is not None and (not math.isfinite(value) or value <= 0.0)
+            for value in calibration_values
+        ):
+            raise ValueError("annotation calibration values must be positive when provided")
         object.__setattr__(self, "crop_to_canonical_transform", transform)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +70,9 @@ class EvaluationAnnotation:
             "ground_truth_mask": str(self.ground_truth_mask) if self.ground_truth_mask else None,
             "parent_id": self.parent_id,
             "physical_fragment_id": self.physical_fragment_id,
+            "observation_pixels_per_mm": self.observation_pixels_per_mm,
+            "canonical_pixels_per_mm": self.canonical_pixels_per_mm,
+            "effective_radius_mm": self.effective_radius_mm,
         }
 
 
@@ -88,6 +105,10 @@ class PhysicalToleranceModel:
     def segmentation_tolerance_pixels(self) -> float:
         return self.segmentation_tolerance_mm * self.pixels_per_mm
 
+    def segmentation_tolerance_pixels_for(self, pixels_per_mm: float | None = None) -> float:
+        resolved_pixels_per_mm = self.pixels_per_mm if pixels_per_mm is None else pixels_per_mm
+        return self.segmentation_tolerance_mm * resolved_pixels_per_mm
+
     @property
     def combined_alignment_tolerance_mm(self) -> float:
         return self.segmentation_tolerance_mm + self.registration_tolerance_mm
@@ -96,10 +117,22 @@ class PhysicalToleranceModel:
     def combined_alignment_tolerance_pixels(self) -> float:
         return self.combined_alignment_tolerance_mm * self.pixels_per_mm
 
+    def combined_alignment_tolerance_pixels_for(self, pixels_per_mm: float | None = None) -> float:
+        resolved_pixels_per_mm = self.pixels_per_mm if pixels_per_mm is None else pixels_per_mm
+        return self.combined_alignment_tolerance_mm * resolved_pixels_per_mm
+
     @property
     def angular_tolerance_degrees(self) -> float:
         radius = max(self.minimum_fragment_span_mm / 2.0, 1e-9)
         return math.degrees(math.atan(self.combined_alignment_tolerance_mm / radius))
+
+    def angular_tolerance_degrees_for(self, effective_radius_mm: float | None = None) -> float:
+        radius = (
+            self.minimum_fragment_span_mm / 2.0
+            if effective_radius_mm is None
+            else effective_radius_mm
+        )
+        return math.degrees(math.atan(self.combined_alignment_tolerance_mm / max(radius, 1e-9)))
 
     @property
     def minimum_effective_feature_mm(self) -> float:
@@ -182,6 +215,25 @@ class RealityBridgeThresholds:
         if self.max_angle_error_degrees is not None:
             return self.max_angle_error_degrees
         return self.physical_tolerance.angular_tolerance_degrees
+
+    def resolved_segmentation_tolerance_pixels(
+        self,
+        annotation: EvaluationAnnotation | None,
+    ) -> float:
+        pixels_per_mm = annotation.observation_pixels_per_mm if annotation is not None else None
+        return self.physical_tolerance.segmentation_tolerance_pixels_for(pixels_per_mm)
+
+    def resolved_translation_error_for(self, annotation: EvaluationAnnotation | None) -> float:
+        if self.max_translation_error is not None:
+            return self.max_translation_error
+        pixels_per_mm = annotation.canonical_pixels_per_mm if annotation is not None else None
+        return self.physical_tolerance.combined_alignment_tolerance_pixels_for(pixels_per_mm)
+
+    def resolved_angle_error_degrees_for(self, annotation: EvaluationAnnotation | None) -> float:
+        if self.max_angle_error_degrees is not None:
+            return self.max_angle_error_degrees
+        effective_radius_mm = annotation.effective_radius_mm if annotation is not None else None
+        return self.physical_tolerance.angular_tolerance_degrees_for(effective_radius_mm)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -352,8 +404,9 @@ def _pose_matches(
     error = _pose_error(pose, annotation, fragment)
     return bool(
         error["side_match"]
-        and float(error["surface_p95_error"]) <= thresholds.resolved_translation_error
-        and float(error["angle_error_degrees"]) <= thresholds.resolved_angle_error_degrees
+        and float(error["surface_p95_error"]) <= thresholds.resolved_translation_error_for(annotation)
+        and float(error["angle_error_degrees"])
+        <= thresholds.resolved_angle_error_degrees_for(annotation)
     )
 
 
@@ -494,7 +547,10 @@ def _mask_tolerance_audit(
     truth_components = connected_components(truth, min_area=1, connectivity=8)
     largest_component = max((component.area for component in predicted_components), default=0)
     extraneous_component_fraction = (predicted_area - largest_component) / max(predicted_area, 1)
-    boundary_within_tolerance = boundary_max is not None and boundary_max <= tolerance_pixels
+    boundary_gate_distance = boundary_p95
+    boundary_within_tolerance = (
+        boundary_gate_distance is not None and boundary_gate_distance <= tolerance_pixels
+    )
     connectivity_matches = len(predicted_components) == len(truth_components)
     ready = bool(
         boundary_within_tolerance
@@ -506,6 +562,8 @@ def _mask_tolerance_audit(
     return {
         "ready": ready,
         "distance_metric": "euclidean_pixel_center",
+        "boundary_gate_statistic": "symmetric_surface_distance_p95",
+        "boundary_gate_distance_pixels": boundary_gate_distance,
         "tolerance_pixels": float(tolerance_pixels),
         "boundary_within_tolerance": bool(boundary_within_tolerance),
         "boundary_max_distance_pixels": boundary_max,
@@ -636,6 +694,21 @@ def load_evaluation_annotations(path: str | Path) -> dict[str, EvaluationAnnotat
             physical_fragment_id=(
                 str(item["physical_fragment_id"]) if item.get("physical_fragment_id") is not None else None
             ),
+            observation_pixels_per_mm=(
+                float(item["observation_pixels_per_mm"])
+                if item.get("observation_pixels_per_mm") is not None
+                else None
+            ),
+            canonical_pixels_per_mm=(
+                float(item["canonical_pixels_per_mm"])
+                if item.get("canonical_pixels_per_mm") is not None
+                else None
+            ),
+            effective_radius_mm=(
+                float(item["effective_radius_mm"])
+                if item.get("effective_radius_mm") is not None
+                else None
+            ),
         )
     return annotations
 
@@ -646,6 +719,23 @@ def _ground_truth_mask(annotation: EvaluationAnnotation | None) -> np.ndarray | 
     return load_mask(annotation.ground_truth_mask)
 
 
+def _nearest_coarse_grid_position(
+    grid: CoarseGridSpec,
+    target_tx: float,
+    target_ty: float,
+) -> tuple[int, int]:
+    if grid.count_x < 1 or grid.count_y < 1 or grid.step_tx < 1 or grid.step_ty < 1:
+        raise ValueError("coarse grid metadata must have positive counts and steps")
+    x_index = int(round((target_tx - grid.origin_tx) / grid.step_tx))
+    y_index = int(round((target_ty - grid.origin_ty) / grid.step_ty))
+    x_index = min(max(x_index, 0), grid.count_x - 1)
+    y_index = min(max(y_index, 0), grid.count_y - 1)
+    return (
+        grid.origin_tx + x_index * grid.step_tx,
+        grid.origin_ty + y_index * grid.step_ty,
+    )
+
+
 def _pose_stage_audit(
     fragment: Fragment,
     annotation: EvaluationAnnotation,
@@ -653,16 +743,22 @@ def _pose_stage_audit(
     search_audit: PoseSearchAudit,
     thresholds: RealityBridgeThresholds,
 ) -> dict[str, Any]:
-    coarse_translation_limit = thresholds.resolved_translation_error + search_audit.fine_search_radius
+    translation_limit = thresholds.resolved_translation_error_for(annotation)
+    angle_limit = thresholds.resolved_angle_error_degrees_for(annotation)
+    coarse_translation_limit = translation_limit + search_audit.fine_search_radius
 
     ys, xs = np.nonzero(fragment.mask)
     if len(xs) == 0:
         return {
             "transform_family_covered": False,
             "best_cardinal_family_fit": None,
+            "coarse_grid_reachable": False,
+            "coarse_grid_best_fit": None,
             "coarse_neighborhood_hit": False,
+            "coarse_shortlist_neighborhood_hit": False,
             "refined_candidate_hit": False,
             "returned_candidate_hit": False,
+            "terminal_stage": "empty_mask",
             "miss_stage": "empty_mask",
         }
     all_points = np.column_stack([xs, ys]).astype(np.float64)
@@ -699,8 +795,58 @@ def _pose_stage_audit(
         key=lambda item: (float(item["surface_p95_error"]), float(item["angle_error_degrees"])),
     )
     transform_family_covered = bool(
-        float(best_family["surface_p95_error"]) <= thresholds.resolved_translation_error
-        and float(best_family["angle_error_degrees"]) <= thresholds.resolved_angle_error_degrees
+        float(best_family["surface_p95_error"]) <= translation_limit
+        and float(best_family["angle_error_degrees"]) <= angle_limit
+    )
+    family_by_angle = {int(item["angle"]): item for item in family_trials}
+
+    coarse_grid_fits: list[dict[str, Any]] = []
+    for grid in search_audit.coarse_grids:
+        if grid.side != annotation.side:
+            continue
+        family_fit = family_by_angle.get(int(grid.angle))
+        if family_fit is None:
+            continue
+        tx, ty = _nearest_coarse_grid_position(
+            grid,
+            float(family_fit["tx"]),
+            float(family_fit["ty"]),
+        )
+        grid_pose = CandidatePose(
+            fragment_id=fragment.id,
+            pose_id="",
+            side=grid.side,
+            tx=tx,
+            ty=ty,
+            angle=grid.angle,
+            score=0.0,
+        )
+        grid_error = _pose_error(grid_pose, annotation, fragment)
+        coarse_grid_fits.append(
+            {
+                "side": grid.side,
+                "angle": int(grid.angle),
+                "tx": int(tx),
+                "ty": int(ty),
+                "surface_p95_error": float(grid_error["surface_p95_error"]),
+                "angle_error_degrees": float(grid_error["angle_error_degrees"]),
+            }
+        )
+    coarse_grid_best_fit = (
+        min(
+            coarse_grid_fits,
+            key=lambda item: (
+                float(item["surface_p95_error"]),
+                float(item["angle_error_degrees"]),
+            ),
+        )
+        if coarse_grid_fits
+        else None
+    )
+    coarse_grid_reachable = bool(
+        coarse_grid_best_fit is not None
+        and float(coarse_grid_best_fit["surface_p95_error"]) <= coarse_translation_limit
+        and float(coarse_grid_best_fit["angle_error_degrees"]) <= angle_limit
     )
 
     def coarse_matches(pose: CandidatePose) -> bool:
@@ -708,7 +854,7 @@ def _pose_stage_audit(
         return bool(
             error["side_match"]
             and float(error["surface_p95_error"]) <= coarse_translation_limit
-            and float(error["angle_error_degrees"]) <= thresholds.resolved_angle_error_degrees
+            and float(error["angle_error_degrees"]) <= angle_limit
         )
 
     coarse_hit = any(coarse_matches(pose) for pose in search_audit.coarse_shortlist)
@@ -720,16 +866,22 @@ def _pose_stage_audit(
         miss_stage = "output_filter_or_dedup"
     elif coarse_hit:
         miss_stage = "fine_refinement"
+    elif coarse_grid_reachable:
+        miss_stage = "coarse_top10_ranking"
     elif transform_family_covered:
-        miss_stage = "coarse_shortlist"
+        miss_stage = "coarse_grid_coverage"
     else:
         miss_stage = "transform_family"
     return {
         "transform_family_covered": transform_family_covered,
         "best_cardinal_family_fit": best_family,
+        "coarse_grid_reachable": coarse_grid_reachable,
+        "coarse_grid_best_fit": coarse_grid_best_fit,
         "coarse_neighborhood_hit": bool(coarse_hit),
+        "coarse_shortlist_neighborhood_hit": bool(coarse_hit),
         "refined_candidate_hit": bool(refined_hit),
         "returned_candidate_hit": bool(returned_hit),
+        "terminal_stage": miss_stage or "success",
         "miss_stage": miss_stage,
     }
 
@@ -751,12 +903,15 @@ def _fragment_record(
     )
     truth_mask = _ground_truth_mask(annotation)
     mask_iou = _mask_iou(fragment.mask, truth_mask) if truth_mask is not None else None
+    segmentation_tolerance_pixels = thresholds.resolved_segmentation_tolerance_pixels(annotation)
+    translation_tolerance_pixels = thresholds.resolved_translation_error_for(annotation)
+    angular_tolerance_degrees = thresholds.resolved_angle_error_degrees_for(annotation)
     mask_audit = None
     if truth_mask is not None:
         mask_audit = _mask_tolerance_audit(
             fragment.mask,
             truth_mask,
-            thresholds.physical_tolerance.segmentation_tolerance_pixels,
+            segmentation_tolerance_pixels,
             max_interior_missing_fraction=thresholds.max_interior_missing_fraction,
             max_interior_extraneous_fraction=thresholds.max_interior_extraneous_fraction,
             max_extraneous_component_fraction=thresholds.max_extraneous_component_fraction,
@@ -783,14 +938,14 @@ def _fragment_record(
             top1_error = _pose_error(poses[0], annotation, fragment)
             if (
                 bool(top1_error["side_match"])
-                and float(top1_error["angle_error_degrees"]) <= thresholds.resolved_angle_error_degrees
+                and float(top1_error["angle_error_degrees"]) <= angular_tolerance_degrees
             ):
                 x_radius = max(
-                    thresholds.resolved_translation_error,
+                    translation_tolerance_pixels,
                     thresholds.uncertainty_interval_scale * float(poses[0].sigma_x),
                 )
                 y_radius = max(
-                    thresholds.resolved_translation_error,
+                    translation_tolerance_pixels,
                     thresholds.uncertainty_interval_scale * float(poses[0].sigma_y),
                 )
                 translation_interval_hit = bool(
@@ -810,6 +965,26 @@ def _fragment_record(
         "evaluation_segmentation_ready": evaluation_segmentation_ready,
         "has_pose_annotation": annotation is not None,
         "evaluation_annotation": annotation.to_dict() if annotation is not None else None,
+        "evaluation_tolerances": {
+            "observation_pixels_per_mm": (
+                annotation.observation_pixels_per_mm
+                if annotation is not None and annotation.observation_pixels_per_mm is not None
+                else thresholds.physical_tolerance.pixels_per_mm
+            ),
+            "canonical_pixels_per_mm": (
+                annotation.canonical_pixels_per_mm
+                if annotation is not None and annotation.canonical_pixels_per_mm is not None
+                else thresholds.physical_tolerance.pixels_per_mm
+            ),
+            "effective_radius_mm": (
+                annotation.effective_radius_mm
+                if annotation is not None and annotation.effective_radius_mm is not None
+                else thresholds.physical_tolerance.minimum_fragment_span_mm / 2.0
+            ),
+            "segmentation_tolerance_pixels": segmentation_tolerance_pixels,
+            "translation_tolerance_pixels": translation_tolerance_pixels,
+            "angular_tolerance_degrees": angular_tolerance_degrees,
+        },
         "pose_candidates": [pose.to_dict() for pose in poses],
         "pose_search_audit": search_audit.to_dict(),
         "pose_recall_stage": pose_stage,
@@ -1198,13 +1373,15 @@ def write_synthetic_capture_manifest(
                 "ground_truth_mask": str((Path("truth_masks") / truth_name).as_posix()),
                 "capture_angle_degrees": capture_angle,
                 "crop_to_canonical_transform": crop_to_canonical.tolist(),
+                "observation_pixels_per_mm": 300.0 / 25.4,
+                "canonical_pixels_per_mm": 300.0 / 25.4,
+                "effective_radius_mm": 10.0,
             }
         )
 
     manifest = {
         "schema": "moneyrepair-reality-bridge-v1",
         "claim_boundary": "Annotated synthetic capture proxy; not real-data evidence.",
-        "evaluation_annotations": "annotations.json",
         "note": {"width": width, "height": height},
         "references": {
             "front": "reference_front.png",
@@ -1220,7 +1397,7 @@ def write_synthetic_capture_manifest(
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, allow_nan=False), encoding="utf-8")
     annotations_payload = {
-        "schema": "moneyrepair-evaluation-annotations-v1",
+        "schema": "moneyrepair-evaluation-annotations-v2",
         "claim_boundary": "Evaluation truth only; never load into production Fragment objects.",
         "fragments": annotation_items,
     }

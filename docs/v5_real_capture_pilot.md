@@ -22,7 +22,9 @@ acquisition / segmentation
 - Use 8 independently printed, double-sided paper proxies with one common
   template. Do not use currency in this pilot.
 - Tear each proxy into 8 physical fragments: 64 fragments total.
-- Reserve 2 proxies / 16 fragments for tolerance calibration only.
+- Assign immutable IDs before capture: `proxy-01` and `proxy-02` (16
+  fragments) are tolerance calibration only; `proxy-03` through `proxy-08`
+  (48 fragments) are frozen evaluation only.
 - Freeze every tolerance and decision threshold before evaluating the remaining
   6 proxies / 48 fragments.
 - Stratify each proxy into 2 small, 4 medium, and 2 large fragments. Mark any
@@ -51,9 +53,15 @@ After tearing:
 - record annotator, repeat, disagreement, physical area, span, and effective
   radius.
 
+The capture-specific transform must come from a gold-scan registration and
+independently reviewed manual-landmark workflow, with repeated annotations and
+adjudication retained. The locator or its template-matching score must never
+generate evaluation truth; doing so would make pose recall circular.
+
 Production observations and evaluation truth must be separate files. The
 production loader strips evaluation-only keys even if an old manifest embeds
-them.
+them. A production manifest must not point to its annotation file; evaluation
+loads truth only through the explicit `--annotations` argument.
 
 ## Paired acquisition tracks
 
@@ -107,6 +115,8 @@ The separate evaluation annotation file must contain:
 - ground-truth side and gold mask;
 - complete capture-specific crop-to-canonical affine or homography;
 - physical area, span, and effective radius;
+- observation-crop pixels/mm and canonical-reference pixels/mm as separate
+  calibration values;
 - annotator/repeat metadata and annotation uncertainty.
 
 ## Tolerance calibration
@@ -116,8 +126,9 @@ declared proxies. Replace them using only the 16 calibration fragments:
 
 - effective scanner scale from a physical ruler;
 - phone pixels/mm, lens distortion, and homography from fiducials;
-- segmentation tolerance from repeated masks, such as a preregistered 95th
-  percentile surface distance;
+- segmentation tolerance from repeated masks using symmetric Euclidean
+  pixel-centre boundary p95; maximum boundary distance remains a reported
+  outlier statistic and is not gated by a p95-calibrated threshold;
 - registration tolerance from independent capture/replacement residuals;
 - per-fragment angular tolerance from its effective radius;
 - annotation uncertainty, capture repeatability, segmentation uncertainty,
@@ -125,6 +136,17 @@ declared proxies. Replace them using only the 16 calibration fragments:
 
 `r_e=1` is an acceptance policy, not a parameter estimated from the pilot.
 `H=0` remains appropriate for the digital registration stage.
+
+Coordinate contracts are frozen before evaluation:
+
+- mask boundary error is measured in the observation crop and uses that
+  scene/fragment's observation pixels/mm;
+- pose surface error is projected into the canonical frame and uses canonical
+  reference pixels/mm;
+- angular tolerance is computed independently for each physical fragment from
+  its effective radius;
+- a global 300 DPI / 20 mm proxy value is fallback metadata only and cannot be
+  substituted for missing phone calibration in the evaluation split.
 
 ## Preregistered gates
 
@@ -148,9 +170,12 @@ locator.
 Compute only on mask-ready fragments:
 
 - K=3 is primary and K=10 is diagnostic;
+- an observation is a top-k hit only when the truth pose is in the returned
+  set; a physical fragment is a top-k hit when at least 2 of 3 repeats in the
+  same track hit;
 - fragment-level top-k recall must be at least 90%;
 - decompose misses into side, translation, angle, scale/affine, coarse
-  shortlist, fine refinement, and final filtering.
+  grid coverage, fixed top-10 ranking, fine refinement, and final filtering.
 
 K=3 failure with K=10 success is a final candidate budget/ranking issue. Failure
 at both K values requires the internal stage audit before changing the transform
@@ -159,10 +184,19 @@ family.
 ### Gate 3: ranking and route safety
 
 - top-1 accuracy must be at least 85%;
+- a physical fragment is a top-1 hit when at least 2 of 3 repeats in the same
+  track are top-1 correct;
 - automatic pose precision must be at least 98%;
 - preregister zero false-automatic placements for this small pilot;
 - automatic recall is an efficiency metric and must not be raised by weakening
   the review threshold.
+
+Report automatic precision at both levels. Observation-level precision uses
+every automatic observation. Fragment-level precision treats a fragment as
+automatic when at least 2 of 3 repeats in that track are automatic, and as a
+correct automatic fragment when at least 2 of 3 are both automatic and top-1
+correct. Independently, **any** false-automatic observation fails the zero-error
+gate; majority voting cannot erase it.
 
 ### Gate 4: uncertainty
 

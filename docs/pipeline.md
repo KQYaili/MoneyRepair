@@ -196,8 +196,11 @@ To align an input crop against the templates without given placement, the locato
 The v5 alpha proxy demonstrates that this locator is not yet a production
 registration solution: an eight-fragment clean cardinal proxy reaches only
 `4/8` top-k recall, and a free-angle proxy reaches `0/8`. Increasing returned K
-does not recover the missing poses. Reconstruction claims therefore stop at the
-pose handoff until real acquisition is measured and registration is repaired.
+does not recover the missing poses. Measurement-only coarse-lattice metadata
+shows that all four cardinal misses are grid-reachable but fall below the fixed
+internal top-10; the free-angle misses are outside the current transform family.
+Reconstruction claims therefore stop at the pose handoff until real acquisition
+is measured and registration is repaired.
 
 ### 2. Candidate Pose Solver Integration
 - **Virtual Placed Fragments**: Each candidate pose (specifying X, Y, rotation, side, and match score) is represented as a virtual placed fragment with a unique ID format `f{piece_index}_pose{pose_index}`.

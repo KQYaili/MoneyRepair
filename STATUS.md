@@ -127,26 +127,36 @@ constraints; appearance is at most a tie-breaker.
   `ruff`, and `compileall` pass. See
   [the v4.4.1 report](docs/v4_4_1_base_selection.md).
 
-- **v4.4.1 frozen; v5 Reality Bridge alpha 2 measurement-hardened:** commit `af57a41` is the
+- **v4.4.1 frozen; v5 Reality Bridge alpha 3 measurement-closed:** commit `af57a41` is the
   frozen deterministic simulation core on `main`. The preregistered refinement
   allowance is spent; v4 candidate construction will not be tuned again on the
   N=100 seed-7 discovery case. The first v5 diagnostic now loads raw local
   crops, keeps evaluation annotations physically separate, audits external
-  boundaries with continuous Euclidean pixel-centre distance, measures
+  boundaries with continuous Euclidean pixel-centre p95, measures
   interior/topology errors separately, evaluates full 3x3 crop-to-canonical
-  transforms, and reports automatic pose precision plus internal locator-stage
-  recall. On an **annotated synthetic capture proxy** with one note, eight
+  transforms, applies observation/canonical pixels-per-mm in their respective
+  coordinate frames, derives angular tolerance per fragment, and reports
+  automatic pose precision plus internal locator-stage recall. On an
+  **annotated synthetic capture proxy** with one note, eight
   fragments, and seed 7, clean cardinal acquisition reaches `4/8` top-k,
   `4/8` top-1, `4/8` automatic handoff, and `1.000` automatic pose precision.
-  All four misses are inside the cardinal rigid model family but absent from the
-  fixed coarse top-10 shortlist. Increasing returned `top_k` from 3 to 10 still
-  leaves recall at `4/8`, confirming that final output truncation is not the
-  limiter. RGB noise sigma 5 plus 8% isolated interior mask dropout now fails
+  All four misses are inside the cardinal rigid model family and reachable from
+  the existing truth-blind coarse lattice plus frozen fine radius, but absent
+  from the fixed coarse top-10. Increasing returned `top_k` from 3 to 10 still
+  leaves recall at `4/8`, confirming a coarse-top-10 ranking wall rather than a
+  grid-coverage or final-output limiter. RGB noise sigma 5 plus 8% isolated
+  interior mask dropout now fails
   the separate mask gate (`0/8` ready; mean missing area `0.068`, IoU `0.932`)
   rather than being hidden by boundary dilation. Free-angle capture remains
   `0/8`, with all eight misses localized outside the cardinal transform family
   and no angular uncertainty. These are synthetic measurement diagnostics, not
-  real-fragment validation; locator, router, and v4.4.1 behavior remain frozen.
+  real-fragment validation. A same-input replay preserved every returned pose,
+  route, funnel value, and semantic handoff fingerprint; locator, router, and
+  v4.4.1 behavior remain frozen. The 64-fragment/72-scene pilot pre-registers
+  fixed calibration/evaluation IDs, 2-of-3 repeat aggregation, independent
+  gold transforms, and zero tolerance for any false-automatic observation.
+  All 140 core tests, `ruff`, `compileall`, and targeted mypy pass. Full-package
+  mypy retains 21 pre-existing advisory errors in five unchanged modules.
   See
   [the v5 alpha report](docs/v5_reality_bridge.md).
 

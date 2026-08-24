@@ -1,4 +1,4 @@
-# v5 Reality Bridge Alpha 2
+# v5 Reality Bridge Alpha 3 Measurement Closure
 
 ## Decision boundary
 
@@ -11,9 +11,11 @@ case. v5 asks a different question:
 > extraction, top-k pose recall, uncertainty routing, or the frozen
 > reconstruction core?
 
-The alpha-1 implementation at `cffbb10` established the measurement funnel.
-Alpha 2 hardens only its measuring instruments: it does not change the locator
-ranking, routing thresholds, Etear, candidate generation, or exact cover.
+The alpha-1 implementation at `cffbb10` established the measurement funnel and
+alpha 2 separated truth from observations. Alpha 3 closes the remaining
+measurement ambiguities without changing locator ranking, coarse-grid step,
+the fixed top-10, routing thresholds, Etear, candidate generation, or exact
+cover.
 
 ## Pipeline
 
@@ -62,8 +64,15 @@ D_min = r_e * (2 * (T_seg + T_reg) + 0.25 * H) + T_seg + T_reg
 Mask IoU remains descriptive. External boundaries are compared using continuous
 Euclidean pixel-centre distances, so `1.004 px` is not rounded up to a 2-pixel
 Chebyshev dilation. Internal missing area, internal extraneous area, disconnected
-components, and holes are audited separately. The initial interior-area ceiling
-is 1%; real runs must replace every proxy tolerance using the calibration split.
+components, and holes are audited separately. The mask gate uses symmetric
+boundary p95, matching the calibration statistic; maximum distance is retained
+only as an outlier diagnostic. The initial interior-area ceiling is 1%; real
+runs must replace every proxy tolerance using the calibration split.
+
+Capture-specific evaluation annotations may override the proxy scale with
+separate observation and canonical pixels/mm plus each fragment's effective
+radius. Mask distance uses observation scale, pose surface distance uses
+canonical scale, and angular tolerance is derived per fragment.
 
 ## Commands
 
@@ -97,7 +106,8 @@ The report writes:
 - annotated top-k/top-1 recall and complete transform error without using truth
   for routing;
 - coarse-position count, the fixed internal coarse top-10, refined candidates,
-  final filters, and transform-family coverage for each recall miss;
+  truth-blind coarse-lattice geometry, final filters, and transform-family
+  coverage for each recall miss;
 - boundary/interior/topology mask metrics, automatic pose precision, and an
   explicit false-automatic count;
 - `handoff_front.npz` / `handoff_back.npz` for automatic placements only;
@@ -112,17 +122,18 @@ descriptive only.
 
 | acquisition proxy | mask ready | top-k recall | top-1 | automatic / pose precision / release precision | mean mask IoU | localized miss |
 |---|---:|---:|---:|---:|---:|---|
-| cardinal, clean, K=3 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-shortlist misses |
+| cardinal, clean, K=3 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-top-10 ranking misses |
 | cardinal, RGB noise 5 + 8% isolated mask dropout, K=3 | 0/8 | n/a | n/a | 4 / 1.000 / 0.000 | 0.932 | segmentation first |
-| cardinal, clean, K=10 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-shortlist misses |
+| cardinal, clean, K=10 | 8/8 | 4/8 | 4/8 | 4 / 1.000 / 1.000 | 1.000 | 4 coarse-top-10 ranking misses |
 | free angle, clean, K=3 | 8/8 | 0/8 | 0/8 | 0 / n/a / n/a | 1.000 | 8 transform-family misses |
 
 The controlled result is a more specific negative finding. Increasing returned
-K does not recover missing truth because all four clean cardinal misses occur
-before the fixed internal coarse top-10 shortlist. The truth transforms are
-inside the cardinal rigid model family, so continuous-angle search is not the
-answer to that row. Free-angle capture instead produces eight measured
-transform-family misses and no `sigma_theta`.
+K does not recover missing truth. The truth transforms are inside the cardinal
+rigid model family and reachable from the existing coarse lattice plus frozen
+fine radius, but their coarse scores do not enter the fixed internal top-10.
+Continuous-angle search is therefore not the answer to that row. Free-angle
+capture instead produces eight measured transform-family misses and no
+`sigma_theta`.
 
 The degraded row corrects an alpha-1 measurement flaw. Its external boundaries
 still pass, but mean interior missing area is `0.068`, above the 1% policy gate,
@@ -133,9 +144,11 @@ mask gate are reported separately.
 ## Current conclusion and stop rule
 
 For clean cardinal proxy input the first observed bottleneck remains **pose
-recall**, now localized to the coarse shortlist. For the deliberately damaged
+recall**, now localized to fixed coarse-top-10 ranking. For the deliberately damaged
 mask proxy it is segmentation, and for free angles it is the transform family.
-The locator and router are frozen at these measurements. The next empirical
+The pre/post closure replay preserves every returned pose, route, funnel value,
+and semantic handoff fingerprint. The locator and router are frozen at these
+measurements. The next empirical
 action is the preregistered [real-capture diagnostic pilot](v5_real_capture_pilot.md),
 not another synthetic parameter search.
 

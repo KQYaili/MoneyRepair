@@ -1,6 +1,6 @@
 # MoneyRepair
 
-**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents. v4.4.1 is the frozen deterministic simulation core; v5.0 alpha 2 adds a measurement-hardened acquisition-to-pose diagnostic bridge, not a real-data success claim.
+**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents. v4.4.1 is the frozen deterministic simulation core; v5.0 alpha 3 closes the acquisition-to-pose measuring instruments before physical capture, not a real-data success claim.
 
 It registers torn fragments to a canonical banknote frame, extracts physical tear-boundary coincidence, evaluates adaptive evidence ($E_{\text{tear}}$) and whole-assembly gap fit ($G$), and solves globally consistent non-overlapping, serial-deduplicated assemblies using exact-cover branch-and-bound search.
 
@@ -146,8 +146,9 @@ moneyrepair reality-bridge \
   --output-dir runs/v5_proxy/cardinal/run
 ```
 
-The report keeps truth outside production fragment objects, derives pixel and
-angle tolerances from an explicit physical acquisition contract, separates
+The report keeps truth outside production fragment objects, derives
+observation-space, canonical-space, and per-fragment angle tolerances from an
+explicit physical acquisition contract, separates
 external-boundary and interior-mask errors, and writes handoff datasets only
 for `automatic` poses. The next step is the frozen
 [64-fragment real-capture pilot](docs/v5_real_capture_pilot.md), not more proxy
@@ -209,7 +210,7 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 - **[v4.3.2 Scale-Fineness Protocol](docs/v4_3_2_scale_fineness.md)**: Anchor calibration, fixed/normalized compute tracks, oracle candidate recall, and bottleneck rules.
 - **[v4.3.3 Oracle False-Edge Falsification](docs/v4_3_3_oracle_false_edges.md)**: Single-variable counterfactual that narrows the seed-7 wall to gap proposal / candidate construction.
 - **[v4.4.1 Fixed-Budget Base Selection](docs/v4_4_1_base_selection.md)**: The passing final v4 intervention and its single-seed boundary.
-- **[v5 Reality Bridge Alpha 2](docs/v5_reality_bridge.md)**: Truth-isolated raw-crop contract, physical mask metrics, locator-stage funnel, and synthetic acquisition proxy result.
+- **[v5 Reality Bridge Alpha 3](docs/v5_reality_bridge.md)**: Truth-isolated raw-crop contract, coordinate-aware physical metrics, locator-stage funnel, and frozen synthetic acquisition proxy result.
 - **[v5 Real-Capture Pilot](docs/v5_real_capture_pilot.md)**: Preregistered paired scanner/phone collection, calibration split, gates, and stop rules.
 - **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.

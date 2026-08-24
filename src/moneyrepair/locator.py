@@ -11,6 +11,33 @@ from moneyrepair.types import Fragment
 if TYPE_CHECKING:
     from moneyrepair.compat import CompatibilityMatrix
 
+
+@dataclass(frozen=True)
+class CoarseGridSpec:
+    """Truth-blind geometry of one coarse locator lattice."""
+
+    side: str
+    angle: int
+    origin_tx: int
+    origin_ty: int
+    step_tx: int
+    step_ty: int
+    count_x: int
+    count_y: int
+
+    def to_dict(self) -> dict:
+        return {
+            "side": self.side,
+            "angle": int(self.angle),
+            "origin_tx": int(self.origin_tx),
+            "origin_ty": int(self.origin_ty),
+            "step_tx": int(self.step_tx),
+            "step_ty": int(self.step_ty),
+            "count_x": int(self.count_x),
+            "count_y": int(self.count_y),
+        }
+
+
 @dataclass(frozen=True)
 class CandidatePose:
     """A candidate placement pose for a fragment on a banknote template."""
@@ -53,6 +80,7 @@ class PoseSearchAudit:
     coarse_step: int = 0
     coarse_positions_evaluated: int = 0
     coarse_shortlist_limit: int = 10
+    coarse_grids: list[CoarseGridSpec] = field(default_factory=list)
     coarse_shortlist: list[CandidatePose] = field(default_factory=list)
     fine_search_radius: int = 0
     refined_candidates: list[CandidatePose] = field(default_factory=list)
@@ -69,6 +97,8 @@ class PoseSearchAudit:
             "coarse_step": int(self.coarse_step),
             "coarse_positions_evaluated": int(self.coarse_positions_evaluated),
             "coarse_shortlist_limit": int(self.coarse_shortlist_limit),
+            "coarse_grid_count": len(self.coarse_grids),
+            "coarse_grids": [grid.to_dict() for grid in self.coarse_grids],
             "coarse_shortlist_count": len(self.coarse_shortlist),
             "coarse_shortlist": [pose.to_dict() for pose in self.coarse_shortlist],
             "fine_search_radius": int(self.fine_search_radius),
@@ -291,6 +321,7 @@ def locate_fragment_poses(
         audit.top_k_requested = top_k
         audit.coarse_step = coarse_step
         audit.coarse_shortlist_limit = 10
+        audit.coarse_grids = []
         audit.fine_search_radius = max(2, coarse_step // 2)
     if fragment.image is None:
         return []
@@ -329,6 +360,20 @@ def locate_fragment_poses(
             mask_indices = np.argwhere(crop_mask_down).astype(np.int32)
             if mask_indices.size == 0:
                 continue
+
+            if audit is not None:
+                audit.coarse_grids.append(
+                    CoarseGridSpec(
+                        side=side_name,
+                        angle=angle,
+                        origin_tx=0,
+                        origin_ty=0,
+                        step_tx=step_down * 2,
+                        step_ty=step_down * 2,
+                        count_x=(ref_w_down - cw_down) // step_down + 1,
+                        count_y=(ref_h_down - ch_down) // step_down + 1,
+                    )
+                )
 
             crop_img_down_64: np.ndarray = crop_img_down.astype(np.float64)
 
