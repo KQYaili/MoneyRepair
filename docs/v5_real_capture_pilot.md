@@ -17,6 +17,36 @@ acquisition / segmentation
   -> frozen v4.4.1 core, only if Gates 1-3 pass
 ```
 
+## Operational ledger and preflight
+
+Create the audit ledger before printing or capture. Supplying the common
+front/back template copies records their hashes; omitting them leaves an
+explicit `reference_master` blocker rather than substituting synthetic data.
+
+```bash
+moneyrepair pilot-init \
+  --output-dir runs/v5_physical_pilot \
+  --generate-reference-master
+
+moneyrepair pilot-validate \
+  --pilot-dir runs/v5_physical_pilot \
+  --output preflight_report.json
+```
+
+`pilot-init` writes immutable ledgers for 64 physical fragment IDs and 72
+paired scene IDs, plus a calibration file that starts in `pending` state. The
+generated 600-DPI duplex master is explicitly labelled `NOT CURRENCY`; it is
+print material, not synthetic capture evidence. Use `--reference-front` and
+`--reference-back` instead when a different common template was preregistered.
+If an empty ledger was initialized before choosing the artwork, register it
+exactly once with `pilot-register-references`; the command refuses replacement
+after either reference hash has been recorded.
+`pilot-validate` checks ledger integrity, reference hashes, production/truth
+separation, required per-observation calibration fields, and K=3/K=10 report
+provenance. It only inventories evidence: it never fills missing captures,
+estimates a gate, or changes the frozen locator/core. Use `--require-ready` in
+automation when an incomplete acquisition should produce a non-zero exit.
+
 ## Material split
 
 - Use 8 independently printed, double-sided paper proxies with one common

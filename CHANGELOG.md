@@ -1,5 +1,11 @@
 # Changelog
 
+## v5 physical-pilot operations
+
+- Add a frozen 64-fragment/72-scene acquisition ledger generator.
+- Add a truth-separation and evidence-provenance preflight validator.
+- Keep missing physical captures explicit; no synthetic fallback is permitted.
+
 ## 5.0.0a3 - Reality Bridge measurement closure
 
 - records the complete truth-blind coarse lattice geometry without changing the

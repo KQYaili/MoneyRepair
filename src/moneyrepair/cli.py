@@ -31,6 +31,11 @@ from moneyrepair.baselines.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.baselines.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
+from moneyrepair.pilot import (
+    initialize_physical_pilot,
+    register_physical_pilot_references,
+    validate_physical_pilot,
+)
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_sweep
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
@@ -162,6 +167,36 @@ def _cmd_reality_bridge(args: argparse.Namespace) -> None:
     )
     print(json.dumps(report["funnel"], indent=2))
     print(f"wrote reality-bridge report to {report['outputs']['report']}")
+
+
+def _cmd_pilot_init(args: argparse.Namespace) -> None:
+    plan_path = initialize_physical_pilot(
+        args.output_dir,
+        protocol_path=args.protocol,
+        reference_front=args.reference_front,
+        reference_back=args.reference_back,
+        generate_reference_master=args.generate_reference_master,
+    )
+    print(f"wrote frozen physical-pilot ledger to {plan_path}")
+
+
+def _cmd_pilot_validate(args: argparse.Namespace) -> None:
+    report = validate_physical_pilot(args.pilot_dir, output_path=args.output)
+    print(json.dumps({"observed": report["observed"], "readiness": report["readiness"]}, indent=2))
+    if report.get("output"):
+        print(f"wrote physical-pilot preflight report to {report['output']}")
+    if args.require_ready and not report["readiness"]["ready_for_gate_runs"]:
+        raise ValueError(f"physical pilot is not ready: {report['readiness']['first_blocker']}")
+
+
+def _cmd_pilot_register_references(args: argparse.Namespace) -> None:
+    plan_path = register_physical_pilot_references(
+        args.pilot_dir,
+        reference_front=args.reference_front,
+        reference_back=args.reference_back,
+        generate_reference_master=args.generate_reference_master,
+    )
+    print(f"registered immutable physical-pilot references in {plan_path}")
 
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
@@ -1569,6 +1604,44 @@ def build_parser() -> argparse.ArgumentParser:
     reality.add_argument("--effectiveness-ratio", type=float, default=1.0)
     reality.add_argument("--overlay-height-mm", type=float, default=0.0)
     reality.set_defaults(func=_cmd_reality_bridge)
+
+    pilot_init = sub.add_parser(
+        "pilot-init",
+        help="create the frozen 64-fragment/72-scene physical acquisition ledger",
+    )
+    pilot_init.add_argument("--output-dir", required=True)
+    pilot_init.add_argument("--protocol", default="docs/v5_real_capture_pilot.md")
+    pilot_init.add_argument("--reference-front")
+    pilot_init.add_argument("--reference-back")
+    pilot_init.add_argument(
+        "--generate-reference-master",
+        action="store_true",
+        help="write a deterministic 600-DPI duplex paper-proxy master labelled NOT CURRENCY",
+    )
+    pilot_init.set_defaults(func=_cmd_pilot_init)
+
+    pilot_validate = sub.add_parser(
+        "pilot-validate",
+        help="inventory physical-pilot artifacts without estimating Gate 1-4 outcomes",
+    )
+    pilot_validate.add_argument("--pilot-dir", required=True)
+    pilot_validate.add_argument("--output", default="preflight_report.json")
+    pilot_validate.add_argument("--require-ready", action="store_true")
+    pilot_validate.set_defaults(func=_cmd_pilot_validate)
+
+    pilot_references = sub.add_parser(
+        "pilot-register-references",
+        help="register the common duplex master once without overwriting an existing choice",
+    )
+    pilot_references.add_argument("--pilot-dir", required=True)
+    pilot_references.add_argument("--reference-front")
+    pilot_references.add_argument("--reference-back")
+    pilot_references.add_argument(
+        "--generate-reference-master",
+        action="store_true",
+        help="write and register the deterministic 600-DPI master labelled NOT CURRENCY",
+    )
+    pilot_references.set_defaults(func=_cmd_pilot_register_references)
 
     multi = sub.add_parser("simulate-multi-note", help="generate fragments from N identical-denomination notes (chimera testbed)")
     multi.add_argument("--output", required=True)

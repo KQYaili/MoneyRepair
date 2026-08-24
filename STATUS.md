@@ -160,6 +160,14 @@ constraints; appearance is at most a tie-breaker.
   See
   [the v5 alpha report](docs/v5_reality_bridge.md).
 
+- **Physical-pilot operations are scaffolded, but collection has not happened:**
+  `pilot-init` freezes the 64-fragment/72-scene ledger and `pilot-validate`
+  inventories reference hashes, truth separation, per-observation calibration,
+  and K=3/K=10 report provenance. The repository and common local capture
+  locations currently contain no qualifying physical pilot dataset. Therefore
+  Gate 1-4 remain unmeasured and the first operational blocker is physical
+  acquisition, not an algorithm result.
+
 ## Where the wall is (measured, simulation)
 
 The historical v4.2 pressure runs below show that the two properties defining

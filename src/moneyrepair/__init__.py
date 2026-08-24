@@ -14,6 +14,12 @@ from moneyrepair.diagrams import DiagramSpec, production_pipeline_spec, write_di
 from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_report_figure, validate_report
 from moneyrepair.ingest import fragments_from_manifest, raw_fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
+from moneyrepair.pilot import (
+    initialize_physical_pilot,
+    register_physical_pilot_references,
+    validate_physical_pilot,
+    write_printable_proxy_master,
+)
 from moneyrepair.pipeline import run_production_pipeline
 from moneyrepair.pressure import run_pressure_case, run_pressure_sweep
 from moneyrepair.quality import FrameQuality, QualityThresholds, assess_fragments, summarize_quality
@@ -113,7 +119,9 @@ __all__ = [
     "diagnose_groups",
     "diagnose_solutions",
     "fragments_from_manifest",
+    "initialize_physical_pilot",
     "raw_fragments_from_manifest",
+    "register_physical_pilot_references",
     "estimate_matrix_footprint",
     "make_multi_note_fragments",
     "make_fractal_tear_fragments",
@@ -145,8 +153,10 @@ __all__ = [
     "tearfit_comparison_cases",
     "update_manifest_labels",
     "validate_report",
+    "validate_physical_pilot",
     "write_diagram",
     "write_synthetic_capture_manifest",
     "write_incompatible_pairs",
+    "write_printable_proxy_master",
     "write_strategy_report",
 ]

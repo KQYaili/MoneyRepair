@@ -157,6 +157,22 @@ The committed alpha proxy finds pose recall failing before reconstruction; see
 **[docs/v5_reality_bridge.md](docs/v5_reality_bridge.md)**. Real masks/poses
 remain unmeasured.
 
+Initialize and audit the frozen physical collection without generating proxy
+substitutes:
+
+```bash
+moneyrepair pilot-init \
+  --output-dir runs/v5_physical_pilot \
+  --generate-reference-master
+
+moneyrepair pilot-validate \
+  --pilot-dir runs/v5_physical_pilot \
+  --output preflight_report.json
+```
+
+The preflight remains `physical_acquisition` until real manifests exist. It
+does not convert an empty ledger into a Gate 1-4 result.
+
 ### 7. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
