@@ -155,17 +155,21 @@ constraints; appearance is at most a tie-breaker.
   v4.4.1 behavior remain frozen. The 64-fragment/72-scene pilot pre-registers
   fixed calibration/evaluation IDs, 2-of-3 repeat aggregation, independent
   gold transforms, and zero tolerance for any false-automatic observation.
-  All 140 core tests, `ruff`, `compileall`, and targeted mypy pass. Full-package
+  All 151 core tests, `ruff`, `compileall`, and targeted mypy pass. Full-package
   mypy retains 21 pre-existing advisory errors in five unchanged modules.
   See
   [the v5 alpha report](docs/v5_reality_bridge.md).
 
 - **Physical-pilot operations are scaffolded, but collection has not happened:**
-  `pilot-init` freezes the 64-fragment/72-scene ledger and `pilot-validate`
-  inventories reference hashes, truth separation, per-observation calibration,
-  and K=3/K=10 report provenance. The repository and common local capture
-  locations currently contain no qualifying physical pilot dataset. Therefore
-  Gate 1-4 remain unmeasured and the first operational blocker is physical
+  `pilot-init` freezes the 64-fragment/72-scene ledger;
+  `pilot-freeze-coordinate-contract` preregisters deterministic scanner/phone
+  locator rasters separately from the 600-DPI print master; and
+  `pilot-validate` inventories their parent/output hashes, normalization scale,
+  truth separation, per-observation calibration, and K=3/K=10 report
+  provenance. The locator, router, and reconstruction core remain unchanged.
+  The repository and common local capture locations currently contain no
+  qualifying physical pilot dataset. Therefore Gate 1-4 remain unmeasured and
+  the first operational blocker after coordinate freeze is physical
   acquisition, not an algorithm result.
 
 ## Where the wall is (measured, simulation)

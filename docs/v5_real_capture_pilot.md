@@ -21,12 +21,17 @@ acquisition / segmentation
 
 Create the audit ledger before printing or capture. Supplying the common
 front/back template copies records their hashes; omitting them leaves an
-explicit `reference_master` blocker rather than substituting synthetic data.
+explicit `print_master` blocker rather than substituting synthetic data.
 
 ```bash
 moneyrepair pilot-init \
   --output-dir runs/v5_physical_pilot \
   --generate-reference-master
+
+moneyrepair pilot-freeze-coordinate-contract \
+  --pilot-dir runs/v5_physical_pilot \
+  --scanner-dpi 300 \
+  --phone-pixels-per-mm 11.811023622047244
 
 moneyrepair pilot-validate \
   --pilot-dir runs/v5_physical_pilot \
@@ -42,10 +47,36 @@ If an empty ledger was initialized before choosing the artwork, register it
 exactly once with `pilot-register-references`; the command refuses replacement
 after either reference hash has been recorded.
 `pilot-validate` checks ledger integrity, reference hashes, production/truth
-separation, required per-observation calibration fields, and K=3/K=10 report
-provenance. It only inventories evidence: it never fills missing captures,
-estimates a gate, or changes the frozen locator/core. Use `--require-ready` in
-automation when an incomplete acquisition should produce a non-zero exit.
+separation, coordinate normalization, required per-observation calibration
+fields, and K=3/K=10 report provenance. It only inventories evidence: it never
+fills missing captures, estimates a gate, or changes the frozen locator/core.
+Use `--require-ready` in automation when an incomplete acquisition should
+produce a non-zero exit.
+
+### Coordinate normalization contract
+
+The print raster, physical proxy, and locator raster are different artifacts:
+
+```text
+600-DPI print master -> 156 x 77 mm paper proxy -> track-specific locator raster
+```
+
+`pilot-freeze-coordinate-contract` deterministically resizes the registered
+print master before capture. The scanner track defaults to a 300-DPI canonical
+raster. Both phone tracks must be rectified with the frozen fiducial homography
+to the preregistered target pixels/mm before fragments reach the unchanged
+locator. The contract records physical size, target scale, interpolation,
+source/output dimensions, parent SHA256, and output SHA256 for both sides.
+
+The command is one-time and refuses to run after any production manifest
+exists. Scale may therefore not be selected after viewing Gate results. A scene
+manifest must point `references.front/back` to the derived raster for its track
+and include `acquisition.coordinate_normalization` with the frozen reference ID,
+post-normalization observation/canonical pixels/mm, and rectification method.
+The validator rejects missing or mismatched declarations, hashes, scales, and
+phone rectification. These fields are observable preprocessing provenance, not
+evaluation truth; the same keys remain forbidden inside production fragment
+objects.
 
 ## Material split
 
@@ -134,6 +165,8 @@ The production manifest must contain only observable fields:
 - source image, source mask, and scene bounding box;
 - modality, device, resolution, and declared orientation mode;
 - scanner DPI or phone fiducial calibration;
+- frozen locator-reference ID, reference files, post-normalization pixels/mm,
+  and rectification method;
 - lens/calibration version;
 - lighting, exposure, focus, and capture height where applicable;
 - canonical front/back reference hashes;

@@ -165,13 +165,21 @@ moneyrepair pilot-init \
   --output-dir runs/v5_physical_pilot \
   --generate-reference-master
 
+moneyrepair pilot-freeze-coordinate-contract \
+  --pilot-dir runs/v5_physical_pilot \
+  --scanner-dpi 300 \
+  --phone-pixels-per-mm 11.811023622047244
+
 moneyrepair pilot-validate \
   --pilot-dir runs/v5_physical_pilot \
   --output preflight_report.json
 ```
 
-The preflight remains `physical_acquisition` until real manifests exist. It
-does not convert an empty ledger into a Gate 1-4 result.
+Before the coordinate freeze, preflight stops at `coordinate_contract`. The
+one-time command derives track-specific locator rasters from the print master,
+records parent/output SHA256 values, and refuses to run after capture starts.
+After that freeze, preflight remains `physical_acquisition` until real manifests
+exist. It does not convert an empty ledger into a Gate 1-4 result.
 
 ### 7. Production Batch Pipeline
 

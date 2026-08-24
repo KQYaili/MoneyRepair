@@ -32,6 +32,11 @@ from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.baselines.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
 from moneyrepair.pilot import (
+    DEFAULT_PHONE_PIXELS_PER_MM,
+    DEFAULT_PROXY_HEIGHT_MM,
+    DEFAULT_PROXY_WIDTH_MM,
+    DEFAULT_SCANNER_DPI,
+    freeze_physical_pilot_coordinate_contract,
     initialize_physical_pilot,
     register_physical_pilot_references,
     validate_physical_pilot,
@@ -176,6 +181,8 @@ def _cmd_pilot_init(args: argparse.Namespace) -> None:
         reference_front=args.reference_front,
         reference_back=args.reference_back,
         generate_reference_master=args.generate_reference_master,
+        physical_width_mm=args.physical_width_mm,
+        physical_height_mm=args.physical_height_mm,
     )
     print(f"wrote frozen physical-pilot ledger to {plan_path}")
 
@@ -195,8 +202,19 @@ def _cmd_pilot_register_references(args: argparse.Namespace) -> None:
         reference_front=args.reference_front,
         reference_back=args.reference_back,
         generate_reference_master=args.generate_reference_master,
+        physical_width_mm=args.physical_width_mm,
+        physical_height_mm=args.physical_height_mm,
     )
     print(f"registered immutable physical-pilot references in {plan_path}")
+
+
+def _cmd_pilot_freeze_coordinate_contract(args: argparse.Namespace) -> None:
+    contract_path = freeze_physical_pilot_coordinate_contract(
+        args.pilot_dir,
+        scanner_dpi=args.scanner_dpi,
+        phone_pixels_per_mm=args.phone_pixels_per_mm,
+    )
+    print(f"froze acquisition coordinate contract at {contract_path}")
 
 
 def _cmd_build_matrix(args: argparse.Namespace) -> None:
@@ -1613,6 +1631,8 @@ def build_parser() -> argparse.ArgumentParser:
     pilot_init.add_argument("--protocol", default="docs/v5_real_capture_pilot.md")
     pilot_init.add_argument("--reference-front")
     pilot_init.add_argument("--reference-back")
+    pilot_init.add_argument("--physical-width-mm", type=float, default=DEFAULT_PROXY_WIDTH_MM)
+    pilot_init.add_argument("--physical-height-mm", type=float, default=DEFAULT_PROXY_HEIGHT_MM)
     pilot_init.add_argument(
         "--generate-reference-master",
         action="store_true",
@@ -1636,12 +1656,27 @@ def build_parser() -> argparse.ArgumentParser:
     pilot_references.add_argument("--pilot-dir", required=True)
     pilot_references.add_argument("--reference-front")
     pilot_references.add_argument("--reference-back")
+    pilot_references.add_argument("--physical-width-mm", type=float, default=DEFAULT_PROXY_WIDTH_MM)
+    pilot_references.add_argument("--physical-height-mm", type=float, default=DEFAULT_PROXY_HEIGHT_MM)
     pilot_references.add_argument(
         "--generate-reference-master",
         action="store_true",
         help="write and register the deterministic 600-DPI master labelled NOT CURRENCY",
     )
     pilot_references.set_defaults(func=_cmd_pilot_register_references)
+
+    pilot_coordinates = sub.add_parser(
+        "pilot-freeze-coordinate-contract",
+        help="derive and freeze track-specific locator rasters before physical capture",
+    )
+    pilot_coordinates.add_argument("--pilot-dir", required=True)
+    pilot_coordinates.add_argument("--scanner-dpi", type=float, default=DEFAULT_SCANNER_DPI)
+    pilot_coordinates.add_argument(
+        "--phone-pixels-per-mm",
+        type=float,
+        default=DEFAULT_PHONE_PIXELS_PER_MM,
+    )
+    pilot_coordinates.set_defaults(func=_cmd_pilot_freeze_coordinate_contract)
 
     multi = sub.add_parser("simulate-multi-note", help="generate fragments from N identical-denomination notes (chimera testbed)")
     multi.add_argument("--output", required=True)

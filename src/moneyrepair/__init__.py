@@ -15,6 +15,7 @@ from moneyrepair.figures import FigurePanel, assemble_standard_panels, render_re
 from moneyrepair.ingest import fragments_from_manifest, raw_fragments_from_manifest
 from moneyrepair.labels import update_manifest_labels
 from moneyrepair.pilot import (
+    freeze_physical_pilot_coordinate_contract,
     initialize_physical_pilot,
     register_physical_pilot_references,
     validate_physical_pilot,
@@ -119,6 +120,7 @@ __all__ = [
     "diagnose_groups",
     "diagnose_solutions",
     "fragments_from_manifest",
+    "freeze_physical_pilot_coordinate_contract",
     "initialize_physical_pilot",
     "raw_fragments_from_manifest",
     "register_physical_pilot_references",

@@ -4,6 +4,8 @@
 
 - Add a frozen 64-fragment/72-scene acquisition ledger generator.
 - Add a truth-separation and evidence-provenance preflight validator.
+- Separate the printable master from deterministic, hash-pinned locator rasters
+  and reject undeclared scanner/phone scale or rectification mismatches.
 - Keep missing physical captures explicit; no synthetic fallback is permitted.
 
 ## 5.0.0a3 - Reality Bridge measurement closure
