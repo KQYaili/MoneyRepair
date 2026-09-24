@@ -31,6 +31,7 @@ from moneyrepair.baselines.fingerprint import discriminative_compatibility
 from moneyrepair.ingest import fragments_from_manifest, load_rgb
 from moneyrepair.baselines.interlock import compute_interlock_compatibility_with_stats
 from moneyrepair.labels import parse_roi, update_manifest_labels
+from moneyrepair.paper_audit import run_paper_transfer_audit
 from moneyrepair.pilot import (
     DEFAULT_PHONE_PIXELS_PER_MM,
     DEFAULT_PROXY_HEIGHT_MM,
@@ -1337,6 +1338,45 @@ def _cmd_tearfit_v44_core_connectivity(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_paper_transfer_audit(args: argparse.Namespace) -> None:
+    payload = run_paper_transfer_audit(
+        notes=args.notes,
+        pieces_per_note=args.pieces_per_note,
+        seed=args.seed,
+        width=args.width,
+        height=args.height,
+        roughness=args.roughness,
+        fray_layers=args.fray_layers,
+        fray_probability=args.fray_probability,
+        tolerance=args.tolerance,
+        min_effectiveness=args.min_effectiveness,
+        automatic_effectiveness=args.automatic_effectiveness,
+        min_contiguous_pixels=args.min_contiguous_pixels,
+        automatic_contiguous_pixels=args.automatic_contiguous_pixels,
+        core_raw_coverage_threshold=args.core_raw_coverage,
+    )
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote literature-transfer audit to {output}")
+    retrieval = payload["pair_retrieval"]
+    all_scored = retrieval["all_scored"]
+    automatic = retrieval["automatic_only"]
+    component = payload["component_oracle"]
+    print(
+        "all_recall={:.3f} all_mrr={:.3f} automatic_recall={:.3f} "
+        "automatic_rbb_precision={:.3f} recordable_notes={}/{}".format(
+            all_scored["candidate_graph_recall"],
+            all_scored["mrr"],
+            automatic["candidate_graph_recall"],
+            automatic["reciprocal_best_buddy_precision"],
+            component["recordable_notes"],
+            args.notes,
+        )
+    )
+
+
 def _cmd_policy_compare(args: argparse.Namespace) -> None:
     print("================================================================================")
     print("WARNING: UNVERIFIED research scaffold. Untrained / not benchmarked.")
@@ -2398,6 +2438,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", help="write the v4.4 core-connectivity diagnostic JSON"
     )
     tearfit_v44_connectivity.set_defaults(func=_cmd_tearfit_v44_core_connectivity)
+
+    paper_audit = sub.add_parser(
+        "paper-transfer-audit",
+        help="measure paper-derived pair ranking, mask geometry, and component coverage",
+    )
+    paper_audit.add_argument("--notes", type=int, default=20)
+    paper_audit.add_argument("--pieces-per-note", type=int, default=24)
+    paper_audit.add_argument("--seed", type=int, default=7)
+    paper_audit.add_argument("--width", type=int, default=180)
+    paper_audit.add_argument("--height", type=int, default=90)
+    paper_audit.add_argument("--roughness", type=float, default=4.0)
+    paper_audit.add_argument("--fray-layers", type=int, default=2)
+    paper_audit.add_argument("--fray-probability", type=float, default=0.18)
+    paper_audit.add_argument("--tolerance", type=int, default=2)
+    paper_audit.add_argument("--min-effectiveness", type=float, default=1.0)
+    paper_audit.add_argument(
+        "--automatic-effectiveness", type=float, default=2.0
+    )
+    paper_audit.add_argument("--min-contiguous-pixels", type=int, default=3)
+    paper_audit.add_argument(
+        "--automatic-contiguous-pixels", type=int, default=5
+    )
+    paper_audit.add_argument("--core-raw-coverage", type=float, default=0.78)
+    paper_audit.add_argument("--output", help="write the measurement-only audit JSON")
+    paper_audit.set_defaults(func=_cmd_paper_transfer_audit)
 
     experimental = sub.add_parser("experimental", help="UNVERIFIED experimental research tools (requires torch)")
     exp_sub = experimental.add_subparsers(title="experimental commands", dest="exp_cmd", required=True)

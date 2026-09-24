@@ -181,6 +181,22 @@ records parent/output SHA256 values, and refuses to run after capture starts.
 After that freeze, preflight remains `physical_acquisition` until real manifests
 exist. It does not convert an empty ledger into a Gate 1-4 result.
 
+Audit the measurement ideas transferred from ERL-MPP, The Missing GAP, and the
+Generic Hybrid Framework without changing candidate generation or exact cover:
+
+```bash
+moneyrepair paper-transfer-audit \
+  --notes 20 \
+  --pieces-per-note 24 \
+  --seed 7 \
+  --output runs/paper_transfer/audit_n20_p24_seed7.json
+```
+
+This reports ranked same-source retrieval, reciprocal best buddies,
+fragment-mask geometry distributions, and true-component coverage. It is a
+post-hoc simulator diagnostic, not permission to unfreeze the core; see the
+**[literature-transfer audit](docs/v5_literature_transfer_audit.md)**.
+
 ### 7. Production Batch Pipeline
 
 Run an auditable pipeline batch with quality gating and run manifest generation:
@@ -236,6 +252,7 @@ Explore the complete documentation in **[docs/README.md](docs/README.md)**:
 - **[v4.4.1 Fixed-Budget Base Selection](docs/v4_4_1_base_selection.md)**: The passing final v4 intervention and its single-seed boundary.
 - **[v5 Reality Bridge Alpha 3](docs/v5_reality_bridge.md)**: Truth-isolated raw-crop contract, coordinate-aware physical metrics, locator-stage funnel, and frozen synthetic acquisition proxy result.
 - **[v5 Real-Capture Pilot](docs/v5_real_capture_pilot.md)**: Preregistered paired scanner/phone collection, calibration split, gates, and stop rules.
+- **[v5 Literature-Transfer Audit](docs/v5_literature_transfer_audit.md)**: Three-paper measurement transfer, conditional component/learning gates, and the stop rule that returns work to physical acquisition.
 - **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
 - **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
 - **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.

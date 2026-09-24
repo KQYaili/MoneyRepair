@@ -1,5 +1,20 @@
 # Changelog
 
+## v5 literature-transfer measurement closure
+
+- Add `paper-transfer-audit`, a post-hoc diagnostic that leaves Etear,
+  candidate construction, routing, and exact cover unchanged.
+- Report same-source pair retrieval separately for all scored,
+  review-or-better, and automatic-only graphs using MRR, recall@K, and
+  reciprocal-best-buddy metrics.
+- Export dimensionless and pixel-scale fragment-mask geometry distributions for
+  a future real/synthetic comparison.
+- Confirm on the frozen N=100, p=24, seed-7 case that near-perfect local pair
+  ranking coexists with the existing `90/100` component-recordability result;
+  local retrieval does not remove the multi-component core wall.
+- Preregister component-action and learned-descriptor experiments as conditional
+  on reliable physical handoff and recurrence of the failure on real data.
+
 ## v5 physical-pilot operations
 
 - Add a frozen 64-fragment/72-scene acquisition ledger generator.
