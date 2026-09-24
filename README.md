@@ -1,164 +1,120 @@
 # MoneyRepair
 
-**MoneyRepair** is a simulation-backed, geometry-first research prototype for reconstructing hand-torn near-identical banknotes and paper documents. v4.4.1 is the frozen deterministic simulation core; v5.0 alpha 3 closes the acquisition-to-pose measuring instruments before physical capture, not a real-data success claim.
+MoneyRepair is a geometry-first research system for reconstructing hand-torn,
+near-identical paper fragments. It combines a physically defined acquisition
+contract, canonical pose hypotheses, tear-boundary evidence, bounded candidate
+construction, and exact-cover selection.
 
-It registers torn fragments to a canonical banknote frame, extracts physical tear-boundary coincidence, evaluates adaptive evidence ($E_{\text{tear}}$) and whole-assembly gap fit ($G$), and solves globally consistent non-overlapping, serial-deduplicated assemblies using exact-cover branch-and-bound search.
-
----
+The deterministic simulation core is frozen at v4.4.1. The v5 code adds the
+measurement infrastructure needed to test masks and poses on physical captures;
+it does **not** establish real-banknote reconstruction performance. The next
+valid experiment is the preregistered physical capture pilot.
 
 > [!IMPORTANT]
-> **Authoritative System Status & Boundaries:**
-> All measured metrics, capability bounds ($N=20 \sim 200$, $p=8 \sim 24$), documented dead ends, and future resume-paths are governed by **[STATUS.md](STATUS.md)** in the repository root. No claim elsewhere in this repository may exceed what `STATUS.md` supports.
+> [STATUS.md](STATUS.md) is the single source of truth for measured results,
+> limitations, dead ends, and the next allowed experiment. No claim elsewhere
+> in the repository may exceed it.
 
----
+![MoneyRepair evidence summary](docs/figures/research_evidence_summary.png)
 
-## 🏛️ System Architecture
+The figure is generated only from committed simulation benchmark JSON. The
+rightmost panel is deliberate: independent physical masks, pose handoff, and
+real seam evidence are still pending.
 
-MoneyRepair is structured around an end-to-end batch processing pipeline:
+## Current Position
 
-```
-[ Scan / Raw Photo ] ──► [ 1. Quality QA Gate ] ──► [ 2. Auto-Locator ]
-                                                           │
-[ Operator Confirmation ] ◄── [ 4. Exact-Cover Solver ] ◄── [ 3. Compatibility Matrix ]
-```
+| Layer | State | Evidence boundary |
+|---|---|---|
+| Deterministic assembly core | frozen | measured in per-note fractal-tear simulation |
+| Acquisition coordinate contract | implemented | scanner/phone ledger, calibration, hash and truth-separation checks |
+| Raw-crop mask and pose audit | implemented | measured only on annotated synthetic capture proxies |
+| Physical pilot | ready to collect | no qualifying physical dataset is committed or claimed |
+| Learned v6-v10 tools | experimental | untrained/unverified; never routed into production |
 
-![MoneyRepair Production Pipeline Flow](docs/pipeline_diagram.svg)
+The operating stance is high-precision automatic confirmation for cases with
+sufficient evidence, plus an explicit human review queue. MoneyRepair does not
+claim full automation for a 2,000-note fine-fragment pool.
 
-- **1. Quality QA Gate**: Evaluates focus (Laplacian variance), glare (luminance clipping), and mask solidity.
-- **2. Auto-Locator**: Estimates candidate poses (X, Y, 0°/90°/180°/270°, front/back) using Numba JIT coarse-to-fine template matching. v5 measures its top-k recall and uncertainty before allowing a pose into the frozen core.
-- **3. Compatibility Matrix**: Evaluates spatial overlap, placed tear evidence, and serial constraints. Appearance remains an optional tie-breaker, not a note-identity key.
-- **4. Exact-Cover Solver**: Runs zero-allocation branch-and-bound search over packed bit-matrices to find optimal note assemblies.
-- **5. Interactive Review Loop**: Presents candidate reports to operators for confirmation or rejection.
+## Architecture
 
----
+![MoneyRepair production pipeline](docs/pipeline_diagram.svg)
 
-## 🚀 Quickstart & Setup
+The pipeline keeps acquisition truth separate from production observations:
 
-### Environment Setup
+1. Freeze the physical coordinate and tolerance contract.
+2. Ingest fragment images and masks in local crop coordinates.
+3. Propose canonical poses and observable uncertainty.
+4. Score placed tear evidence and build core/gap assembly candidates.
+5. Select globally consistent candidates with exact cover.
+6. Automatically release only candidates that pass the evidence policy;
+   route the rest to review.
 
-With WSL Anaconda or Miniconda:
+The editable source is [pipeline_diagram.drawio](docs/pipeline_diagram.drawio).
+Every checked-in diagram also has a deterministic JSON graph and an SVG
+preview. See the [diagram catalog](docs/README.md#editable-diagrams).
 
-```bash
-conda create -n moneyrepair python=3.11 -y
-conda activate moneyrepair
-pip install -e ".[dev]"
-```
+## Measured Results
 
-Or from the checked-in environment file:
+### Fine-fragment mechanism ablation
+
+The canonical v4.3 experiment uses `N=20`, seeds `7/8/9`, fixed state/node
+budgets, and no serial labels.
+
+| pieces per note | fixed overlap yield / precision | routed v4.3 yield / precision |
+|---:|---:|---:|
+| 8 | 1.000 / 1.000 | 1.000 / 1.000 |
+| 16 | 1.000 / 1.000 | 1.000 / 1.000 |
+| 24 | 0.533 / 0.846 | **0.917 / 0.981** |
+
+At `p=24`, adaptive tear evidence mainly removes false edges; whole-assembly
+gap recovery restores recall. The result is simulation-only and does not
+validate real tear geometry.
+
+### Fixed-budget base selection
+
+In the single preregistered `N=100`, `p=24`, seed-7 diagnostic, replacing
+global top-K base ranking with fragment-disjoint rounds changes only the base
+selector:
+
+| selector | oracle candidate recall | exact yield | exact precision |
+|---|---:|---:|---:|
+| global | 0.840 | 0.840 | 0.966 |
+| disjoint rounds | **0.900** | **0.900** | **1.000** |
+
+The remaining ten misses have no pure automatic component reaching the frozen
+core threshold. This is one seed, not a cross-seed or physical-data headline.
+
+## Install
+
+Use the isolated WSL Anaconda/Miniconda environment:
 
 ```bash
 conda env create -f environment.yml
 conda activate moneyrepair
+pip install -e ".[dev,reports]"
 ```
 
-### 1. Synthetic Pipeline Smoke Test
+Python 3.10-3.13 are covered by CI. OCR and experimental ML dependencies are
+optional:
 
-Run an end-to-end synthetic reconstruction:
+```bash
+pip install -e ".[ocr]"   # optional Tesseract wrapper
+pip install -e ".[ml]"    # experimental research modules only
+```
+
+## Quick Smoke Test
 
 ```bash
 moneyrepair smoke --output-dir runs/smoke --pieces 18 --coverage 0.98
 ```
 
-### 2. v4.3 Mechanism Ablation ($p=8, 16, 24$)
+This writes a synthetic dataset, packed compatibility matrix, candidate
+solutions, visualizations, and an auditable `run_manifest.json`.
 
-Run same-seed A/B ablation comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed`:
+## Physical Pilot
 
-```bash
-moneyrepair tearfit-v43-ablation \
-  --notes 5 \
-  --pieces-list 8,16,24 \
-  --seeds 7,13 \
-  --output runs/v4_3_ablation.json
-```
-
-### 3. v4.3.2 Scale-Fineness Audit
-
-Calibrate an unsaturated N=20 compute anchor, then compare a fixed production
-budget with workload-normalized p=24 scaling. Each completed seed/track case is
-written to JSONL so a long run can resume without repeating completed work:
-
-```bash
-moneyrepair tearfit-v432-scale \
-  --notes-list 20,50,100,200 \
-  --pieces-per-note 24 \
-  --seeds 7,8,9 \
-  --anchor-budget-factors 1,2,4,8 \
-  --checkpoint runs/v4_3_2/checkpoint.jsonl \
-  --output runs/v4_3_2/report.json
-```
-
-Resume with the same arguments plus `--resume`. The normalized track is skipped
-when adjacent anchor budgets do not stabilize the selected assemblies and
-candidate-provenance fingerprint; an already truncated N=20 run is never used
-as a scaling baseline.
-
-### 4. v4.3.3 Oracle False-Edge Falsification
-
-Run the final simulation-only causal fork at N=100, p=24, seed 7. This command
-uses simulator `note_id` truth and is not a production reconstruction mode:
-
-```bash
-moneyrepair tearfit-v433-oracle-edges \
-  --notes 100 \
-  --pieces-per-note 24 \
-  --seed 7 \
-  --output runs/v4_3_3/oracle_false_edge_n100_seed7.json
-```
-
-The measured intervention removes every accepted cross-note edge but improves
-oracle candidate recall only from `0.840` to `0.860`, below the preregistered
-`+0.050` rescue gate. It cuts candidate count and runtime and raises precision
-from `0.966` to `0.989`, so false-edge reduction remains a secondary
-precision/performance lever but is falsified as the next yield-quality route.
-
-### 5. v4.4.1 Fixed-Budget Base-Selection A/B
-
-Compare the historical global top-K base ranking with fragment-disjoint rounds
-while keeping the `512/128` complete/partial base limits and all normalized
-search budgets fixed:
-
-```bash
-moneyrepair tearfit-v44-base-selection \
-  --notes 100 \
-  --pieces-per-note 24 \
-  --seed 7 \
-  --output runs/v4_4/base_selection_n100_seed7.json
-```
-
-This is a simulation-only causal diagnostic. On the measured seed it raises
-oracle recall and exact yield from `0.840` to `0.900` with precision `1.000`,
-but N=100 seeds 8/9 and all real-data conditions remain unmeasured.
-
-### 6. v5 Reality Bridge Alpha
-
-Generate an annotated synthetic capture proxy, then audit segmentation, top-k
-pose recall, and uncertainty routing:
-
-```bash
-moneyrepair simulate-capture \
-  --output-dir runs/v5_proxy/cardinal \
-  --pieces 8 \
-  --orientation-mode cardinal
-
-moneyrepair reality-bridge \
-  --manifest runs/v5_proxy/cardinal/manifest.json \
-  --annotations runs/v5_proxy/cardinal/annotations.json \
-  --output-dir runs/v5_proxy/cardinal/run
-```
-
-The report keeps truth outside production fragment objects, derives
-observation-space, canonical-space, and per-fragment angle tolerances from an
-explicit physical acquisition contract, separates
-external-boundary and interior-mask errors, and writes handoff datasets only
-for `automatic` poses. The next step is the frozen
-[64-fragment real-capture pilot](docs/v5_real_capture_pilot.md), not more proxy
-threshold tuning.
-The committed alpha proxy finds pose recall failing before reconstruction; see
-**[docs/v5_reality_bridge.md](docs/v5_reality_bridge.md)**. Real masks/poses
-remain unmeasured.
-
-Initialize and audit the frozen physical collection without generating proxy
-substitutes:
+Create and validate the frozen 64-fragment/72-scene ledger before collecting
+data:
 
 ```bash
 moneyrepair pilot-init \
@@ -175,106 +131,89 @@ moneyrepair pilot-validate \
   --output preflight_report.json
 ```
 
-Before the coordinate freeze, preflight stops at `coordinate_contract`. The
-one-time command derives track-specific locator rasters from the print master,
-records parent/output SHA256 values, and refuses to run after capture starts.
-After that freeze, preflight remains `physical_acquisition` until real manifests
-exist. It does not convert an empty ledger into a Gate 1-4 result.
-
-Audit the measurement ideas transferred from ERL-MPP, The Missing GAP, and the
-Generic Hybrid Framework without changing candidate generation or exact cover:
+The generated duplex master is explicitly labelled `NOT CURRENCY`. For a real
+capture, keep gold masks/transforms in a separate annotation file and audit the
+truth-blind handoff:
 
 ```bash
-moneyrepair paper-transfer-audit \
+moneyrepair reality-bridge \
+  --manifest runs/capture/manifest.json \
+  --annotations runs/capture/annotations.json \
+  --reference-front references/front.png \
+  --reference-back references/back.png \
+  --output-dir runs/capture/reality_audit
+```
+
+Read [the physical-pilot protocol](docs/v5_real_capture_pilot.md) before using
+these commands. The pipeline must repair only the first failed stage: mask,
+pose recall, uncertainty routing, or downstream assembly.
+
+## Reproduce The Main Simulation Evidence
+
+```bash
+moneyrepair tearfit-v43-ablation \
   --notes 20 \
+  --pieces-list 8,16,24 \
+  --seeds 7,8,9 \
+  --no-time-limits \
+  --output runs/v4_3_geometry_ablation.json
+
+moneyrepair tearfit-v44-base-selection \
+  --notes 100 \
   --pieces-per-note 24 \
   --seed 7 \
-  --output runs/paper_transfer/audit_n20_p24_seed7.json
+  --output runs/v4_4_1_base_selection_n100_seed7.json
 ```
 
-This reports first-positive same-source retrieval, truth-blind reciprocal best
-buddies, explicitly defined fragment-mask geometry distributions, and
-true-component coverage. It is a post-hoc simulator diagnostic, not a
-physical-seam recall result or permission to unfreeze the core; see the
-**[literature-transfer audit](docs/v5_literature_transfer_audit.md)**.
+The committed source measurements live in [docs/benchmarks](docs/benchmarks).
+Long runs should preserve raw JSON, seeds, budgets, and manifests.
 
-### 7. Production Batch Pipeline
+## Diagrams And Figures
 
-Run an auditable pipeline batch with quality gating and run manifest generation:
+Generate an editable Draw.io source, JSON graph, and SVG preview:
 
 ```bash
-moneyrepair run-pipeline \
-  --dataset runs/smoke/demo_fragments.npz \
-  --output-dir runs/production_run \
-  --auto-locate \
-  --coverage 0.97
+moneyrepair export-diagram \
+  --name production-pipeline \
+  --output-prefix docs/pipeline_diagram
 ```
 
----
+Available names are `production-pipeline`, `acquisition-flow`, `search-logic`,
+`operator-loop`, and `research-gates`. VSDX is an optional compatibility export
+via `--vsdx`; Draw.io is the checked-in editable format.
 
-## 📊 v4.3 Mechanism Ablation Performance
-
-Measured performance across $p=8, 16, 24$ regimes under deterministic search budgets (N=20, seeds 7/8/9):
-
-| 路线 / 算法 | $p=8$ Yield (Prec) | $p=16$ Yield (Prec) | $p=24$ Yield (Prec) | 伪边率 (False Edge) | 核心作用与能力界定 |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **`baseline`** (固定重叠) | 1.00 (1.00) | 1.00 (1.00) | 0.53 (0.85) | 0.069 ~ 0.094 | 粗碎片高速；细碎片候选图拥堵。 |
-| **`effectiveness`** (Etear 边得分) | 0.92 (0.98) | 0.93 (0.95) | 0.77 (0.82) | **0.002 ~ 0.036** | 清理错误边并降低候选拥堵；单独使用不保证最终精度。 |
-| **`effectiveness_gap`** (Etear + Gap 填补) | 0.95 (1.00) | **0.98 (1.00)** | **0.92 (0.98)** | **0.002 ~ 0.036** | 少量全局缺口候选同时改善召回与最终选择。 |
-| **`v43_routed`** (自适应路由) | **1.00 (1.00)** | **1.00 (1.00)** | **0.92 (0.98)** | 0.036 ~ 0.086 | p=8/16 复用 baseline，p=24 启用 Etear + Gap。 |
-
-See **[docs/v4_3_1_mechanism_validation.md](docs/v4_3_1_mechanism_validation.md)** for the canonical N=20 mechanism audit and **[docs/v4_3_tear_effectiveness.md](docs/v4_3_tear_effectiveness.md)** for the score definition.
-
-The v4.3.2 workload-normalized checkpoint retains routed p=24
-yield/precision `0.880/0.985` at N=50 (three seeds). The first N=100 seed
-diagnostic is `0.840/0.966`, with oracle candidate recall also `0.840`; this
-places the measured failure before exact cover, in edge discrimination and/or
-gap proposal. N=100 replication, N=200, and real-data validation remain open.
-See **[docs/v4_3_2_scale_fineness.md](docs/v4_3_2_scale_fineness.md)**.
-
-The v4.3.3 oracle intervention removes all 466 false core edges and all 2,064
-accepted cross-note edges in the same N=100 seed-7 case. Candidate count falls
-from 30,828 to 24,243, but oracle recall and yield rise only from `0.840` to
-`0.860`. The current measured sub-bottleneck is therefore gap proposal /
-candidate construction, not false accepted-edge contamination. See
-**[docs/v4_3_3_oracle_false_edges.md](docs/v4_3_3_oracle_false_edges.md)**.
-
----
-
-## 📚 Documentation Directory
-
-Explore the complete documentation in **[docs/README.md](docs/README.md)**:
-
-- **[Pipeline Notes](docs/pipeline.md)**: Production pipeline, quality gates, DFS logic, and operator loop.
-- **[v4.3 Adaptive Geometry](docs/v4_3_tear_effectiveness.md)**: Math formulas for $E_{\text{tear}}$ and whole-assembly gap fit $G$.
-- **[v4.3.1 Mechanism Validation](docs/v4_3_1_mechanism_validation.md)**: Canonical N=20 edge, gap, routing, and search-budget decomposition.
-- **[v4.3.2 Scale-Fineness Protocol](docs/v4_3_2_scale_fineness.md)**: Anchor calibration, fixed/normalized compute tracks, oracle candidate recall, and bottleneck rules.
-- **[v4.3.3 Oracle False-Edge Falsification](docs/v4_3_3_oracle_false_edges.md)**: Single-variable counterfactual that narrows the seed-7 wall to gap proposal / candidate construction.
-- **[v4.4.1 Fixed-Budget Base Selection](docs/v4_4_1_base_selection.md)**: The passing final v4 intervention and its single-seed boundary.
-- **[v5 Reality Bridge Alpha 3](docs/v5_reality_bridge.md)**: Truth-isolated raw-crop contract, coordinate-aware physical metrics, locator-stage funnel, and frozen synthetic acquisition proxy result.
-- **[v5 Real-Capture Pilot](docs/v5_real_capture_pilot.md)**: Preregistered paired scanner/phone collection, calibration split, gates, and stop rules.
-- **[v5 Literature-Transfer Audit](docs/v5_literature_transfer_audit.md)**: Three-paper measurement transfer, conditional component/learning gates, and the stop rule that returns work to physical acquisition.
-- **[v4.3 N=10 Supplemental Audit](docs/v4_3_ab_benchmark.md)**: Smaller-pool consistency check, not the headline benchmark.
-- **[Auto-Locator Deduction](docs/v4_0_algorithm_deduction.md)**: Mathematical analysis and proofs for JIT template matching.
-- **[Chimera Discrimination](docs/v3_0_chimera_discrimination.md)**: DBSCAN tone gain clustering and multi-note pool hardening.
-
----
-
-## 🧪 Testing
-
-Run unit and integration tests across Linux/WSL and Windows:
+Regenerate the consolidated scientific figure from committed benchmark JSON:
 
 ```bash
-# Run core test suite (torch-free)
-python -m pytest -m "not experimental"
-
-# Run full test suite
-python -m pytest
+python docs/figures/make_research_summary.py
 ```
 
----
+## Repository Map
 
-## 📜 License & Governance
+```text
+src/moneyrepair/              supported deterministic package
+src/moneyrepair/baselines/    falsified or superseded comparison paths
+src/moneyrepair/experimental/ unverified v6-v10 research scaffolds
+tests/                        deterministic unit and integration tests
+docs/benchmarks/              committed source measurements
+docs/figures/                 plotting scripts and rendered figures
+docs/                         current guides and historical reports
+```
 
-MoneyRepair is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-Governance and contribution principles are detailed in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with [the documentation index](docs/README.md), [pipeline guide](docs/pipeline.md),
+and [research history](docs/research_history.md).
+
+## Development Checks
+
+```bash
+python -m pytest -q
+python -m compileall -q src
+ruff check src tests docs/figures
+mypy src/moneyrepair --ignore-missing-imports
+```
+
+`mypy` remains advisory for legacy modules; pytest, compileall, and Ruff are
+blocking checks. Do not commit real banknote scans, private fragment images,
+OCR caches, or generated `runs/` outputs.
+
+MoneyRepair is released under the [MIT License](LICENSE).

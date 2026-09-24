@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1256 322" width="1256" height="322">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#10222e"/></marker>
+<marker id="arrow-fb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#E45756"/></marker>
+</defs>
+<rect x="0" y="0" width="1256" height="322" fill="#ffffff"/>
+<text x="628.0" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#10222e">MoneyRepair evidence-gated research path</text>
+<line x1="196.0" y1="101.0" x2="236.0" y2="101.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="402.0" y1="101.0" x2="442.0" y2="101.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="608.0" y1="101.0" x2="648.0" y2="101.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="814.0" y1="101.0" x2="854.0" y2="101.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="1020.0" y1="101.0" x2="1060.0" y2="101.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>
+<line x1="319.0" y1="132.0" x2="731.0" y2="190.0" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/>
+<line x1="525.0" y1="132.0" x2="731.0" y2="190.0" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/><text x="628.0" y="156.0" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#E45756">gate fails</text>
+<line x1="731.0" y1="132.0" x2="731.0" y2="190.0" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/><text x="739.0" y="161.0" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#41525c">no qualifying wall</text>
+<polygon points="46.0,70.0 196.0,70.0 180.0,132.0 30.0,132.0" fill="#F2B441" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="113.0" y="94.5">Physical</tspan><tspan x="113.0" y="107.5">capture set</tspan></text>
+<polygon points="319.0,70.0 402.0,101.0 319.0,132.0 236.0,101.0" fill="#B279A2" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="319.0" y="94.5">Gate 0: mask</tspan><tspan x="319.0" y="107.5">contract</tspan></text>
+<polygon points="525.0,70.0 608.0,101.0 525.0,132.0 442.0,101.0" fill="#B279A2" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="525.0" y="94.5">Gate 1: pose</tspan><tspan x="525.0" y="107.5">handoff</tspan></text>
+<polygon points="731.0,70.0 814.0,101.0 731.0,132.0 648.0,101.0" fill="#B279A2" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="731.0" y="94.5">Gate 2: failure</tspan><tspan x="731.0" y="107.5">localization</tspan></text>
+<rect x="854.0" y="70.0" width="166.0" height="62.0" rx="8" ry="8" fill="#72B7B2" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="937.0" y="94.5">Deterministic</tspan><tspan x="937.0" y="107.5">component A/B</tspan></text>
+<rect x="1060.0" y="70.0" width="166.0" height="62.0" rx="8" ry="8" fill="#72B7B2" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="1143.0" y="94.5">Conditional</tspan><tspan x="1143.0" y="107.5">seam descriptor</tspan></text>
+<rect x="648.0" y="190.0" width="166.0" height="62.0" rx="31.0" ry="31.0" fill="#4C78A8" stroke="#10222e" stroke-width="1.4"/><text text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="600" fill="#10222e"><tspan x="731.0" y="214.5">Keep core</tspan><tspan x="731.0" y="227.5">frozen</tspan></text>
+</svg>

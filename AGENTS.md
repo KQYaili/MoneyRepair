@@ -21,6 +21,17 @@ not something to work around.
 - Tests live under `tests/`. Diagrams, reports, and measured results live under
   `docs/` and `runs/`.
 
+## Repository line
+
+- `main` is the sole canonical long-lived branch. Temporary work branches must
+  be merged and deleted after validation; preserve release tags.
+- Draw.io (`.drawio`) is the canonical editable diagram artifact. JSON is the
+  deterministic graph source and SVG is the publishing preview. VSDX is an
+  explicit compatibility export only.
+- Scientific figures must be generated from committed source measurements and
+  must keep simulation, synthetic-capture, and physical evidence visually
+  distinct.
+
 ## Canonical owners
 
 | Concern | Owner |

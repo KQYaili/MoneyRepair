@@ -1,0 +1,120 @@
+{
+  "title": "MoneyRepair evidence-gated research path",
+  "width": 1256.0,
+  "height": 322.0,
+  "nodes": [
+    {
+      "id": "capture",
+      "label": "Physical capture set",
+      "x": 30.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "data"
+    },
+    {
+      "id": "mask",
+      "label": "Gate 0: mask contract",
+      "x": 236.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "decision"
+    },
+    {
+      "id": "pose",
+      "label": "Gate 1: pose handoff",
+      "x": 442.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "decision"
+    },
+    {
+      "id": "failure",
+      "label": "Gate 2: failure localization",
+      "x": 648.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "decision"
+    },
+    {
+      "id": "component",
+      "label": "Deterministic component A/B",
+      "x": 854.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "process"
+    },
+    {
+      "id": "learned",
+      "label": "Conditional seam descriptor",
+      "x": 1060.0,
+      "y": 70.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "process"
+    },
+    {
+      "id": "freeze",
+      "label": "Keep core frozen",
+      "x": 648.0,
+      "y": 190.0,
+      "width": 166.0,
+      "height": 62.0,
+      "style": "terminator"
+    }
+  ],
+  "edges": [
+    {
+      "source": "capture",
+      "target": "mask",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "mask",
+      "target": "pose",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "pose",
+      "target": "failure",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "failure",
+      "target": "component",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "component",
+      "target": "learned",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "mask",
+      "target": "freeze",
+      "label": "",
+      "kind": "reject"
+    },
+    {
+      "source": "pose",
+      "target": "freeze",
+      "label": "gate fails",
+      "kind": "reject"
+    },
+    {
+      "source": "failure",
+      "target": "freeze",
+      "label": "no qualifying wall",
+      "kind": "flow"
+    }
+  ]
+}

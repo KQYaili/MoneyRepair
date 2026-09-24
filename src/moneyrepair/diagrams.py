@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-# Visio-style editable diagrams. Following the editable-spec approach used by the
-# referenced Visio skills, the spec is an explicit node/edge graph with geometry
-# and style so it can be imported into Visio/drawio, and the SVG keeps real
-# <text> elements so labels stay editable in any vector editor.
+# The JSON graph is the deterministic source, Draw.io is the canonical editable
+# artifact, and SVG is the review-friendly rendered form. VSDX remains an
+# explicit compatibility export rather than a default dependency.
 
 _STYLE_FILL = {
     "terminator": "#4C78A8",
@@ -47,7 +46,7 @@ class DiagramEdge:
     source: str
     target: str
     label: str = ""
-    kind: str = "flow"  # flow | feedback
+    kind: str = "flow"  # flow | feedback | reject
 
     def to_dict(self) -> dict:
         return {"source": self.source, "target": self.target, "label": self.label, "kind": self.kind}
@@ -72,92 +71,84 @@ class DiagramSpec:
 
 
 def production_pipeline_spec() -> DiagramSpec:
-    """Editable schematic of the v2.0 production reconstruction loop."""
+    """Current reconstruction path, including the physical handoff boundary."""
 
-    step_w, step_h, gap, top = 150.0, 56.0, 40.0, 70.0
-    steps = [
-        ("acq", "Acquisition QA", "terminator"),
-        ("manifest", "Manifest model", "data"),
-        ("prune", "Compatibility pruning", "process"),
-        ("search", "DFS search", "process"),
-        ("report", "Candidate report", "data"),
-        ("review", "Operator review", "decision"),
-        ("confirm", "Confirmed note", "terminator"),
+    step_w, step_h, top, bottom = 158.0, 60.0, 72.0, 188.0
+    nodes = [
+        DiagramNode("contract", "Frozen capture contract", 30.0, top, step_w, step_h, "data"),
+        DiagramNode("ingest", "Mask + image ingest", 232.0, top, step_w, step_h, "process"),
+        DiagramNode("pose", "Pose + uncertainty", 434.0, top, step_w, step_h, "process"),
+        DiagramNode("tear", "Placed tear evidence", 636.0, top, step_w, step_h, "process"),
+        DiagramNode("candidates", "Core + gap candidates", 636.0, bottom, step_w, step_h, "process"),
+        DiagramNode("cover", "Exact-cover selection", 434.0, bottom, step_w, step_h, "process"),
+        DiagramNode("route", "Automatic or review?", 232.0, bottom, step_w, step_h, "decision"),
+        DiagramNode("confirm", "Confirmed assembly", 30.0, bottom, step_w, step_h, "terminator"),
     ]
-    nodes: list[DiagramNode] = []
-    x = 30.0
-    for node_id, label, style in steps:
-        nodes.append(DiagramNode(id=node_id, label=label, x=x, y=top, width=step_w, height=step_h, style=style))
-        x += step_w + gap
 
     edges = [
-        DiagramEdge("acq", "manifest", "accepted frames"),
-        DiagramEdge("manifest", "prune"),
-        DiagramEdge("prune", "search", "compatible pairs"),
-        DiagramEdge("search", "report", "candidates"),
-        DiagramEdge("report", "review"),
-        DiagramEdge("review", "confirm", "accept"),
-        DiagramEdge("review", "search", "reject / retry", kind="feedback"),
+        DiagramEdge("contract", "ingest"),
+        DiagramEdge("ingest", "pose"),
+        DiagramEdge("pose", "tear"),
+        DiagramEdge("tear", "candidates"),
+        DiagramEdge("candidates", "cover"),
+        DiagramEdge("cover", "route"),
+        DiagramEdge("route", "confirm"),
+        DiagramEdge("route", "pose", "review / correct", kind="feedback"),
     ]
-    width = x - gap + 30.0
-    height = top + step_h + 70.0
+    width = 824.0
+    height = 350.0
     return DiagramSpec(title="MoneyRepair production pipeline", nodes=nodes, edges=edges, width=width, height=height)
 
 
 def acquisition_flow_spec() -> DiagramSpec:
-    """Editable schematic of the acquisition and manifest flow."""
-    step_w, step_h, gap, top = 150.0, 56.0, 40.0, 70.0
-    steps = [
-        ("start", "Start", "terminator"),
-        ("focus", "Focus QA", "process"),
-        ("glare", "Glare QA", "process"),
-        ("drift", "Color drift QA", "process"),
-        ("seg", "Segmentation QA", "process"),
-        ("manifest", "Manifest model", "data"),
-        ("end", "End", "terminator"),
+    """Physical acquisition contract and truth-isolated pose handoff."""
+    step_w, step_h, top, bottom = 158.0, 60.0, 72.0, 230.0
+    nodes = [
+        DiagramNode("contract", "Coordinate contract", 30.0, top, step_w, step_h, "data"),
+        DiagramNode("capture", "Scanner / phone capture", 232.0, top, step_w, step_h, "process"),
+        DiagramNode("segment", "Foreground mask", 434.0, top, step_w, step_h, "process"),
+        DiagramNode("mask_gate", "Mask tolerance passes?", 636.0, top, step_w, step_h, "decision"),
+        DiagramNode("locate", "Top-k pose + uncertainty", 636.0, bottom, step_w, step_h, "process"),
+        DiagramNode("pose_gate", "Pose gate passes?", 434.0, bottom, step_w, step_h, "decision"),
+        DiagramNode("handoff", "Placed-fragment handoff", 232.0, bottom, step_w, step_h, "terminator"),
     ]
-    nodes: list[DiagramNode] = []
-    x = 30.0
-    for node_id, label, style in steps:
-        nodes.append(DiagramNode(id=node_id, label=label, x=x, y=top, width=step_w, height=step_h, style=style))
-        x += step_w + gap
 
     edges = [
-        DiagramEdge("start", "focus"),
-        DiagramEdge("focus", "glare"),
-        DiagramEdge("glare", "drift"),
-        DiagramEdge("drift", "seg"),
-        DiagramEdge("seg", "manifest"),
-        DiagramEdge("manifest", "end"),
+        DiagramEdge("contract", "capture"),
+        DiagramEdge("capture", "segment"),
+        DiagramEdge("segment", "mask_gate"),
+        DiagramEdge("mask_gate", "locate"),
+        DiagramEdge("locate", "pose_gate"),
+        DiagramEdge("pose_gate", "handoff"),
+        DiagramEdge("mask_gate", "capture", "recapture", kind="feedback"),
+        DiagramEdge("pose_gate", "locate", "review", kind="feedback"),
     ]
-    width = x - gap + 30.0
-    height = top + step_h + 70.0
+    width = 824.0
+    height = 390.0
     return DiagramSpec(title="MoneyRepair acquisition flow", nodes=nodes, edges=edges, width=width, height=height)
 
 
 def search_logic_spec() -> DiagramSpec:
-    """Editable schematic of the DFS search logic."""
+    """Frozen deterministic candidate and exact-cover path."""
     step_w, step_h, top = 150.0, 56.0, 70.0
     nodes = [
-        DiagramNode("start", "Start (Anchor Selection)", 30.0, top, step_w, step_h, "terminator"),
-        DiagramNode("bb", "DFS Branching", 220.0, top, step_w, step_h, "process"),
-        DiagramNode("coverage", "Coverage >= 99%?", 410.0, top, step_w, step_h, "decision"),
-        DiagramNode("solution", "Solution Found", 600.0, top, step_w, step_h, "data"),
-        DiagramNode("end", "End", 790.0, top, step_w, step_h, "terminator"),
-        DiagramNode("bound", "Bounding check", 410.0, top + step_h + 50.0, step_w, step_h, "process"),
-        DiagramNode("prune", "Prune Branch", 600.0, top + step_h + 50.0, step_w, step_h, "terminator"),
+        DiagramNode("start", "High-confidence core seeds", 30.0, top, step_w, step_h, "terminator"),
+        DiagramNode("expand", "Bounded core expansion", 220.0, top, step_w, step_h, "process"),
+        DiagramNode("gap", "Residual-gap proposals", 410.0, top, step_w, step_h, "process"),
+        DiagramNode("cover", "Exact-cover selection", 600.0, top, step_w, step_h, "process"),
+        DiagramNode("gate", "Evidence gate passes?", 790.0, top, step_w, step_h, "decision"),
+        DiagramNode("auto", "Automatic confirmation", 980.0, top, step_w, step_h, "terminator"),
+        DiagramNode("review", "Human review queue", 790.0, top + step_h + 50.0, step_w, step_h, "data"),
     ]
     edges = [
-        DiagramEdge("start", "bb"),
-        DiagramEdge("bb", "coverage"),
-        DiagramEdge("coverage", "solution", "yes"),
-        DiagramEdge("coverage", "bound", "no"),
-        DiagramEdge("solution", "end"),
-        DiagramEdge("bound", "prune", "fail"),
-        DiagramEdge("bound", "bb", "pass", kind="feedback"),
-        DiagramEdge("prune", "end"),
+        DiagramEdge("start", "expand"),
+        DiagramEdge("expand", "gap"),
+        DiagramEdge("gap", "cover"),
+        DiagramEdge("cover", "gate"),
+        DiagramEdge("gate", "auto", "yes"),
+        DiagramEdge("gate", "review", "no / ambiguous"),
     ]
-    width = 790.0 + step_w + 30.0
+    width = 980.0 + step_w + 30.0
     height = top + 2 * step_h + 50.0 + 70.0
     return DiagramSpec(title="MoneyRepair search logic", nodes=nodes, edges=edges, width=width, height=height)
 
@@ -188,11 +179,42 @@ def operator_loop_spec() -> DiagramSpec:
     return DiagramSpec(title="MoneyRepair operator loop", nodes=nodes, edges=edges, width=width, height=height)
 
 
+def research_gates_spec() -> DiagramSpec:
+    """Evidence gates that prevent simulation tuning from becoming production claims."""
+
+    step_w, step_h, top = 166.0, 62.0, 70.0
+    nodes = [
+        DiagramNode("capture", "Physical capture set", 30.0, top, step_w, step_h, "data"),
+        DiagramNode("mask", "Gate 0: mask contract", 236.0, top, step_w, step_h, "decision"),
+        DiagramNode("pose", "Gate 1: pose handoff", 442.0, top, step_w, step_h, "decision"),
+        DiagramNode("failure", "Gate 2: failure localization", 648.0, top, step_w, step_h, "decision"),
+        DiagramNode("component", "Deterministic component A/B", 854.0, top, step_w, step_h, "process"),
+        DiagramNode("learned", "Conditional seam descriptor", 1060.0, top, step_w, step_h, "process"),
+        DiagramNode("freeze", "Keep core frozen", 648.0, top + step_h + 58.0, step_w, step_h, "terminator"),
+    ]
+    edges = [
+        DiagramEdge("capture", "mask"),
+        DiagramEdge("mask", "pose"),
+        DiagramEdge("pose", "failure"),
+        DiagramEdge("failure", "component"),
+        DiagramEdge("component", "learned"),
+        DiagramEdge("mask", "freeze", kind="reject"),
+        DiagramEdge("pose", "freeze", "gate fails", kind="reject"),
+        DiagramEdge("failure", "freeze", "no qualifying wall"),
+    ]
+    width = 1060.0 + step_w + 30.0
+    height = top + 2 * step_h + 58.0 + 70.0
+    return DiagramSpec(
+        title="MoneyRepair evidence-gated research path", nodes=nodes, edges=edges, width=width, height=height
+    )
+
+
 DIAGRAMS = {
     "production-pipeline": production_pipeline_spec,
     "acquisition-flow": acquisition_flow_spec,
     "search-logic": search_logic_spec,
     "operator-loop": operator_loop_spec,
+    "research-gates": research_gates_spec,
 }
 
 
@@ -241,8 +263,18 @@ def _node_shape_svg(node: DiagramNode) -> str:
 def _edge_svg(spec_nodes: dict[str, DiagramNode], edge: DiagramEdge) -> str:
     source = spec_nodes[edge.source]
     target = spec_nodes[edge.target]
+    if edge.kind == "reject":
+        x0 = source.x + source.width / 2
+        y0 = source.y + source.height
+        x1 = target.x + target.width / 2
+        y1 = target.y
+        line = f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" stroke="#E45756" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-fb)"/>'
+        label = ""
+        if edge.label:
+            label = f'<text x="{(x0 + x1) / 2:.1f}" y="{(y0 + y1) / 2 - 5:.1f}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#E45756">{escape(edge.label)}</text>'
+        return line + label
     if edge.kind == "feedback":
-        if source.y > target.y:
+        if source.y >= target.y:
             # Source is below target, route it downwards/below
             x0 = source.x + source.width / 2
             y0 = source.y + source.height
@@ -281,9 +313,13 @@ def _edge_svg(spec_nodes: dict[str, DiagramNode], edge: DiagramEdge) -> str:
             label = f'<text x="{x0 + 8:.1f}" y="{(y0 + y1) / 2:.1f}" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="#41525c">{escape(edge.label)}</text>'
         return line + label
 
-    x0 = source.x + source.width
+    if target.x >= source.x:
+        x0 = source.x + source.width
+        x1 = target.x
+    else:
+        x0 = source.x
+        x1 = target.x + target.width
     y0 = source.y + source.height / 2
-    x1 = target.x
     y1 = target.y + target.height / 2
     line = f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" stroke="#10222e" stroke-width="1.6" marker-end="url(#arrow)"/>'
     label = ""
@@ -311,25 +347,157 @@ def render_diagram_svg(spec: DiagramSpec) -> str:
     return "\n".join(parts)
 
 
-def write_diagram(spec: DiagramSpec, output_prefix: str | Path) -> dict[str, str]:
-    """Write the editable JSON spec and an editable-text SVG, and export VSDX if Visio is available."""
+def _drawio_node_style(node: DiagramNode) -> str:
+    base = (
+        "whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;"
+        f"fillColor={_STYLE_FILL.get(node.style, '#72B7B2')};"
+        f"fontColor={_TEXT_COLOR};fontStyle=1;fontSize=11;"
+    )
+    if node.style == "terminator":
+        return base + "rounded=1;arcSize=50;"
+    if node.style == "data":
+        return base + "shape=parallelogram;perimeter=parallelogramPerimeter;"
+    if node.style == "decision":
+        return base + "rhombus;"
+    return base + "rounded=1;arcSize=8;"
+
+
+def render_diagram_drawio(spec: DiagramSpec) -> str:
+    """Render an uncompressed diagrams.net document with editable cells."""
+
+    mxfile = ET.Element(
+        "mxfile",
+        {
+            "host": "app.diagrams.net",
+            "agent": "MoneyRepair",
+            "version": "24.7.17",
+            "compressed": "false",
+        },
+    )
+    diagram = ET.SubElement(mxfile, "diagram", {"id": "moneyrepair", "name": "Page-1"})
+    model = ET.SubElement(
+        diagram,
+        "mxGraphModel",
+        {
+            "dx": str(int(spec.width)),
+            "dy": str(int(spec.height)),
+            "grid": "1",
+            "gridSize": "10",
+            "guides": "1",
+            "tooltips": "1",
+            "connect": "1",
+            "arrows": "1",
+            "fold": "1",
+            "page": "1",
+            "pageScale": "1",
+            "pageWidth": str(int(spec.width)),
+            "pageHeight": str(int(spec.height)),
+            "math": "0",
+            "shadow": "0",
+        },
+    )
+    root = ET.SubElement(model, "root")
+    ET.SubElement(root, "mxCell", {"id": "0"})
+    ET.SubElement(root, "mxCell", {"id": "1", "parent": "0"})
+    title = ET.SubElement(
+        root,
+        "mxCell",
+        {
+            "id": "title",
+            "value": spec.title,
+            "style": (
+                "text;html=1;align=center;verticalAlign=middle;resizable=0;"
+                "points=[];autosize=1;strokeColor=none;fillColor=none;"
+                f"fontColor={_TEXT_COLOR};fontSize=16;fontStyle=1;"
+            ),
+            "vertex": "1",
+            "parent": "1",
+        },
+    )
+    ET.SubElement(
+        title,
+        "mxGeometry",
+        {"x": "20", "y": "12", "width": str(spec.width - 40), "height": "30", "as": "geometry"},
+    )
+    for node in spec.nodes:
+        cell = ET.SubElement(
+            root,
+            "mxCell",
+            {
+                "id": f"node-{node.id}",
+                "value": node.label,
+                "style": _drawio_node_style(node),
+                "vertex": "1",
+                "parent": "1",
+            },
+        )
+        ET.SubElement(
+            cell,
+            "mxGeometry",
+            {
+                "x": f"{node.x:.1f}",
+                "y": f"{node.y:.1f}",
+                "width": f"{node.width:.1f}",
+                "height": f"{node.height:.1f}",
+                "as": "geometry",
+            },
+        )
+    for index, edge in enumerate(spec.edges):
+        color = "#E45756" if edge.kind in {"feedback", "reject"} else "#10222e"
+        dashed = "1" if edge.kind in {"feedback", "reject"} else "0"
+        cell = ET.SubElement(
+            root,
+            "mxCell",
+            {
+                "id": f"edge-{index}",
+                "value": edge.label,
+                "style": (
+                    "edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;"
+                    "jettySize=auto;html=1;endArrow=block;endFill=1;"
+                    f"strokeColor={color};strokeWidth=1.6;dashed={dashed};"
+                    "fontSize=9;labelBackgroundColor=#ffffff;"
+                ),
+                "edge": "1",
+                "parent": "1",
+                "source": f"node-{edge.source}",
+                "target": f"node-{edge.target}",
+            },
+        )
+        ET.SubElement(cell, "mxGeometry", {"relative": "1", "as": "geometry"})
+    ET.indent(mxfile, space="  ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(mxfile, encoding="unicode")
+
+
+def write_diagram(
+    spec: DiagramSpec,
+    output_prefix: str | Path,
+    *,
+    export_vsdx_file: bool = False,
+) -> dict[str, str]:
+    """Write JSON, editable Draw.io, and SVG artifacts.
+
+    VSDX is an opt-in compatibility export because it requires local Visio COM.
+    """
 
     output_prefix = Path(output_prefix)
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     spec_path = output_prefix.with_suffix(".json")
+    drawio_path = output_prefix.with_suffix(".drawio")
     svg_path = output_prefix.with_suffix(".svg")
     spec_path.write_text(json.dumps(spec.to_dict(), indent=2), encoding="utf-8")
+    drawio_path.write_text(render_diagram_drawio(spec), encoding="utf-8")
     svg_path.write_text(render_diagram_svg(spec), encoding="utf-8")
 
-    outputs = {"spec": str(spec_path), "svg": str(svg_path)}
+    outputs = {
+        "spec": str(spec_path),
+        "drawio": str(drawio_path),
+        "svg": str(svg_path),
+    }
 
-    vsdx_path = output_prefix.with_suffix(".vsdx")
-    if "PYTEST_CURRENT_TEST" not in os.environ:
-        try:
-            export_to_vsdx(spec, vsdx_path)
-            outputs["vsdx"] = str(vsdx_path)
-        except Exception as e:
-            print(f"Warning: Visio VSDX export failed/unavailable: {e}")
+    if export_vsdx_file:
+        vsdx_path = output_prefix.with_suffix(".vsdx")
+        export_to_vsdx(spec, vsdx_path)
+        outputs["vsdx"] = str(vsdx_path)
 
     return outputs
 
@@ -357,7 +525,7 @@ def export_to_vsdx(spec: DiagramSpec, output_path: Path | str) -> None:
         raise RuntimeError(f"Failed to start Microsoft Visio: {e}")
 
     visio.Visible = False
-    
+
     try:
         # Create a new document without a template (blank page)
         doc = visio.Documents.Add("")
@@ -375,8 +543,8 @@ def export_to_vsdx(spec: DiagramSpec, output_path: Path | str) -> None:
         title_y = page_h - 0.5
         title_shape = page.DrawRectangle(0.5, title_y - 0.4, page_w - 0.5, title_y + 0.1)
         title_shape.Text = spec.title
-        title_shape.Cells("LinePattern").FormulaU = "0"      # No line
-        title_shape.Cells("FillPattern").FormulaU = "0"      # No fill
+        title_shape.Cells("LinePattern").FormulaU = "0"  # No line
+        title_shape.Cells("FillPattern").FormulaU = "0"  # No fill
         try:
             title_shape.Cells("Char.Size").FormulaU = "16 pt"
             title_shape.Cells("Char.Style").FormulaU = "1"  # Bold
@@ -472,7 +640,7 @@ def export_to_vsdx(spec: DiagramSpec, output_path: Path | str) -> None:
                     pass
             else:
                 conn.Cells("LineColor").FormulaU = "RGB(16, 34, 46)"
-                
+
             conn.Cells("LineWeight").FormulaU = "1.5 pt"
 
         # Save document

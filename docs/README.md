@@ -1,89 +1,108 @@
-# MoneyRepair Documentation Index
+# MoneyRepair Documentation
 
-Welcome to the **MoneyRepair** documentation portal. This directory contains complete architectural notes, mathematical proofs, experimental logs, and benchmark reports for the MoneyRepair banknote reconstruction system.
+Start with [the authoritative status](../STATUS.md). This directory separates
+current operating guides from measured research reports and historical design
+records. Historical files are retained for reproducibility; they do not define
+the current capability claim.
 
----
+## Current Guides
 
-## 🗺️ Documentation Sitemap
+| Document | Purpose |
+|---|---|
+| [Pipeline](pipeline.md) | current data contracts, acquisition-to-review flow, supported and diagnostic paths |
+| [v5 Reality Bridge](v5_reality_bridge.md) | truth-isolated raw-crop mask/pose measurement funnel |
+| [Physical Pilot](v5_real_capture_pilot.md) | frozen 64-fragment/72-scene scanner/phone protocol |
+| [Literature Transfer Audit](v5_literature_transfer_audit.md) | three-paper measurement transfer and stage stop rule |
+| [Release Checklist](release.md) | code, document, artifact, and data-safety checks |
+| [GitHub](github.md) | canonical `main` publication and repository maintenance |
+| [Research History](research_history.md) | concise chronology from v1 through the current freeze |
 
-```
-docs/
-├── README.md                          # 👈 You are here: Master Documentation Index
-├── pipeline.md                        # Production Pipeline Architecture & Schematics
-│
-├── 🔬 Version 5 Reality Bridge (Latest)
-│   ├── v5_reality_bridge.md           # Truth-isolated pose funnel & alpha-2 proxy
-│   ├── v5_real_capture_pilot.md        # Paired scanner/phone diagnostic protocol
-│   └── v5_literature_transfer_audit.md # Three-paper measurement transfer and stop rule
-│
-├── 🔬 Version 4.4.1 Core-Base Selection (Frozen)
-│   ├── v4_4_residual_gap_proposal.md  # Residual-Gap-First Proposal, E_proposal & Per-Gap Routing
-│   ├── v4_4_empirical_validation.md   # Preregistered A/B NULL result & relocated bottleneck
-│   └── v4_4_1_base_selection.md       # Fixed-budget base-ranking causal intervention
-│
-├── 🔬 Version 4.3.3 Candidate-Evidence Localization
-│   ├── v4_3_tear_effectiveness.md     # Adaptive Etear Score, Triage Routing & Gap Recovery
-│   ├── v4_3_1_mechanism_validation.md # Canonical N=20 mechanism decomposition
-│   ├── v4_3_2_scale_fineness.md        # Compute calibration and bottleneck protocol
-│   ├── v4_3_3_oracle_false_edges.md    # Oracle false-edge causal falsification
-│   └── v4_3_ab_benchmark.md           # Supplemental N=10 consistency audit
-│
-├── 📐 Auto-Locator & Candidate Pose Search
-│   ├── v4_0_production_reconstruction.md # Hybrid Coarse-to-Fine Locator & Zero-Allocation Solver
-│   ├── v4_0_algorithm_deduction.md       # Hardcore Mathematical Analysis & Proofs
-│   └── stage4_convergence_report.md      # Performance Scaling & Convergence Curves
-│
-├── 🧪 Multi-Note Pool & Pressure Research
-│   ├── tearfit_research.md            # Placed-Coordinate Fractal Tear-Fit Sandbox
-│   ├── v3_0_chimera_discrimination.md  # Appearance Fingerprinting & DBSCAN Chimera Pruning
-│   └── v4_1_pressure_realism.md       # Spatial Wear & Pressure Benchmark Sweeps
-│
-├── 📜 Historical Milestones & Specifications
-│   ├── v1_5_experiments.md            # Realism Augmentation & Baseline DFS Orderings
-│   ├── v2_0_industrial_algorithm.md   # Acquisition QA Contract & Packed Bit-Matrix
-│   └── v2_5_scientific_reporting.md   # Publication Figures & Editable Visio Exports
-│
-└── 🚀 Operations & Deployment
-    ├── github.md                      # GitHub CI Workflow & Package Publishing
-    └── release.md                     # Release Verification Checklist
+## Editable Diagrams
+
+Draw.io is the canonical editable format. JSON is the deterministic graph
+source and SVG is the review/publishing form. VSDX can be generated explicitly
+with `moneyrepair export-diagram --vsdx`, but it is not checked in.
+
+| Diagram | Draw.io | JSON | SVG |
+|---|---|---|---|
+| production pipeline | [edit](pipeline_diagram.drawio) | [spec](pipeline_diagram.json) | [view](pipeline_diagram.svg) |
+| acquisition and pose handoff | [edit](acquisition_flow.drawio) | [spec](acquisition_flow.json) | [view](acquisition_flow.svg) |
+| candidate and exact-cover logic | [edit](search_logic.drawio) | [spec](search_logic.json) | [view](search_logic.svg) |
+| operator confirmation loop | [edit](operator_loop.drawio) | [spec](operator_loop.json) | [view](operator_loop.svg) |
+| evidence-gated research path | [edit](research_gates.drawio) | [spec](research_gates.json) | [view](research_gates.svg) |
+
+Regenerate any set from code:
+
+```bash
+moneyrepair export-diagram \
+  --name research-gates \
+  --output-prefix docs/research_gates
 ```
 
----
+The files are ordinary uncompressed diagrams.net XML and remain editable after
+opening in the desktop or web Draw.io application.
 
-## 📑 Core Documentation Guide
+## Consolidated Scientific Figure
 
-### 1. System Architecture & Workflows
-* **[pipeline.md](pipeline.md)**: Overall pipeline architecture, acquisition QA gate, branch-and-bound DFS solver logic, and operator interactive review loop. Includes editable Visio/SVG flowcharts.
+![MoneyRepair evidence summary](figures/research_evidence_summary.png)
 
-### 2. v5 Reality Bridge (Latest)
-* **[v5_reality_bridge.md](v5_reality_bridge.md)**: Raw-crop manifest and handoff contract, coordinate-aware physical tolerance gates, truth-isolated pose audit, and the frozen synthetic alpha-3 proxy result.
-* **[v5_real_capture_pilot.md](v5_real_capture_pilot.md)**: Frozen 64-fragment, 72-scene paired scanner/phone pilot with calibration/evaluation split and preregistered gates.
-* **[v5_literature_transfer_audit.md](v5_literature_transfer_audit.md)**: Measurement-only transfer of ranked pair retrieval, reciprocal best buddies, mask-shape distributions, and component coverage from three recent reconstruction papers, with a physical-data stop rule.
+The source script reads only committed benchmark JSON:
 
-### 3. v4.4.1 Core-Base Selection (Frozen)
-* **[v4_4_residual_gap_proposal.md](v4_4_residual_gap_proposal.md)**: Residual-gap-first candidate proposal paradigm, whole-assembly $E_{\text{proposal}}$ formulation, per-gap complexity routing, sliver tolerance pruning, and candidate funnel diagnostics.
-* **[v4_4_empirical_validation.md](v4_4_empirical_validation.md)**: Preregistered N=100 seed-7 normalized-compute A/B returning a NULL (`0.840 -> 0.840`, `+0.05` gate not cleared); gap-first inert and candidate funnel relocating the measured wall upstream to pure core-base construction & selection.
-* **[v4_4_1_base_selection.md](v4_4_1_base_selection.md)**: Fixed `512/128` base-budget A/B where fragment-disjoint rounds raise oracle recall/yield `0.840 -> 0.900` without a precision loss, resolving the six base-ranking misses and leaving multi-component core construction as the measured seed-7 wall.
+```bash
+python docs/figures/make_research_summary.py
+```
 
-### 4. v4.3.3 Adaptive Physical Evidence
-* **[v4_3_tear_effectiveness.md](v4_3_tear_effectiveness.md)**: Mathematical formulation of $E_{\text{tear}}$, contiguous seam length, normal opposition, curvature entropy, locator uncertainty, and whole-assembly gap recovery ($G$).
-* **[v4_3_1_mechanism_validation.md](v4_3_1_mechanism_validation.md)**: Canonical N=20 mechanism decomposition comparing `baseline`, `effectiveness`, `effectiveness_gap`, and `v43_routed` under fixed search budgets.
-* **[v4_3_2_scale_fineness.md](v4_3_2_scale_fineness.md)**: Preregistered anchor staircase, fixed and normalized compute tracks, checkpointing, and causal wall diagnostics.
-* **[v4_3_3_oracle_false_edges.md](v4_3_3_oracle_false_edges.md)**: Paired oracle false-edge deletion diagnostic that falsifies false-pair reduction as the next quality route and narrows the measured seed-7 wall to gap proposal / candidate construction.
-* **[v4_3_ab_benchmark.md](v4_3_ab_benchmark.md)**: Supplemental N=10 same-seed audit retained for reproducibility; it is not used for headline claims.
+Outputs are an editable-text SVG and a high-resolution PNG. The figure makes
+the evidence boundary visible instead of mixing simulation and physical-data
+claims.
 
-### 5. Pose Locator & Solver Optimization
-* **[v4_0_production_reconstruction.md](v4_0_production_reconstruction.md)**: Overview of the pyramid downsampling locator, candidate pose model, and dense vectorized solver.
-* **[v4_0_algorithm_deduction.md](v4_0_algorithm_deduction.md)**: Mathematical deductions for JIT template matching, score-basin uncertainty, and time-complexity bounds.
-* **[stage4_convergence_report.md](stage4_convergence_report.md)**: Empirical timing curves, memory footprints, and scalability benchmarks.
+## Measured Research Reports
 
-### 6. Multi-Note Pool & Chimera Hardening
-* **[v3_0_chimera_discrimination.md](v3_0_chimera_discrimination.md)**: Tone gain fitting, DBSCAN appearance clustering, and elimination of cross-note chimeras.
-* **[v4_1_pressure_realism.md](v4_1_pressure_realism.md)**: Stress tests under non-uniform spatial wear, local staining, and large banknote pools ($N \ge 50$).
+### Frozen deterministic path
 
----
+| Report | Main result |
+|---|---|
+| [v4.3 tear effectiveness](v4_3_tear_effectiveness.md) | adaptive physical evidence and assembly-level gap recovery |
+| [v4.3.1 mechanism validation](v4_3_1_mechanism_validation.md) | fixed-overlap, Etear, gap, and routing ablation at `N=20` |
+| [v4.3.2 scale-fineness](v4_3_2_scale_fineness.md) | normalized compute audit through `N=50`, plus one `N=100` diagnostic |
+| [v4.3.3 oracle false-edge test](v4_3_3_oracle_false_edges.md) | false-edge deletion fails the preregistered yield rescue gate |
+| [v4.4 residual-gap proposal](v4_4_residual_gap_proposal.md) | residual-gap-first implementation and measurement design |
+| [v4.4 empirical validation](v4_4_empirical_validation.md) | NULL result; wall relocates upstream of gap proposal |
+| [v4.4.1 base selection](v4_4_1_base_selection.md) | fixed-budget disjoint selection clears the seed-7 rescue gate |
 
-## 🔍 Single Source of Truth
+The machine-readable sources are in [benchmarks](benchmarks/). Supplemental
+N=10 results in [v4.3 A/B benchmark](v4_3_ab_benchmark.md) are retained for
+reproducibility and are not headline evidence.
 
-> [!IMPORTANT]
-> All quantitative metrics, measured performance boundaries, and status claims are governed by **[STATUS.md](../STATUS.md)** in the repository root.
+### v5 physical bridge
+
+| Report | Main result |
+|---|---|
+| [Reality Bridge](v5_reality_bridge.md) | mask/pose failure localization on annotated synthetic captures |
+| [Physical Pilot](v5_real_capture_pilot.md) | physical acquisition contract is frozen; collection remains pending |
+| [Literature Transfer Audit](v5_literature_transfer_audit.md) | local rank quality does not remove the component-coverage wall |
+
+## Historical Archive
+
+These files explain how the current design was reached. Their recommendations
+may be superseded by `STATUS.md`.
+
+| Era | Documents |
+|---|---|
+| v1-v2.5 | [realism experiments](v1_5_experiments.md), [industrial algorithm](v2_0_industrial_algorithm.md), [scientific reporting](v2_5_scientific_reporting.md) |
+| v3-v4.1 | [chimera discrimination](v3_0_chimera_discrimination.md), [production reconstruction](v4_0_production_reconstruction.md), [algorithm deduction](v4_0_algorithm_deduction.md), [pressure realism](v4_1_pressure_realism.md) |
+| solver/tearfit studies | [stage-4 convergence](stage4_convergence_report.md), [tearfit research](tearfit_research.md) |
+
+Historical appearance, colour-continuity, contact-count, and naive
+whole-contour discriminators are baselines, not current production advice.
+
+## Evidence Rules
+
+- Simulation metrics must say `simulation` and include seeds and budgets.
+- A single deterministic seed may localize a mechanism but is not a replicated
+  headline result.
+- Evaluation truth must never select a production mask, pose, edge, or
+  candidate.
+- Real scans, private labels, and generated `runs/` artifacts stay out of Git.
+- A new algorithm path is allowed only after the physical pilot identifies the
+  first failed stage and the experiment is preregistered.

@@ -1535,7 +1535,7 @@ def _cmd_export_diagram(args: argparse.Namespace) -> None:
     if args.name not in DIAGRAMS:
         raise ValueError(f"unknown diagram '{args.name}'; choices: {', '.join(DIAGRAMS)}")
     spec = DIAGRAMS[args.name]()
-    outputs = write_diagram(spec, args.output_prefix)
+    outputs = write_diagram(spec, args.output_prefix, export_vsdx_file=args.vsdx)
     print(json.dumps(outputs, indent=2))
 
 
@@ -2521,9 +2521,17 @@ def build_parser() -> argparse.ArgumentParser:
     report_figures.add_argument("--dpi", type=int, default=600)
     report_figures.set_defaults(func=_cmd_report_figures)
 
-    export_diagram = sub.add_parser("export-diagram", help="write an editable Visio-style diagram spec and SVG")
+    export_diagram = sub.add_parser(
+        "export-diagram",
+        help="write editable JSON/Draw.io sources and an SVG preview",
+    )
     export_diagram.add_argument("--name", choices=tuple(DIAGRAMS), default="production-pipeline")
     export_diagram.add_argument("--output-prefix", required=True)
+    export_diagram.add_argument(
+        "--vsdx",
+        action="store_true",
+        help="also export VSDX through local Microsoft Visio COM",
+    )
     export_diagram.set_defaults(func=_cmd_export_diagram)
 
     smoke = sub.add_parser("smoke", help="run the full synthetic pipeline")

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="MoneyRepair" version="24.7.17" compressed="false">
+  <diagram id="moneyrepair" name="Page-1">
+    <mxGraphModel dx="824" dy="350" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="824" pageHeight="350" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="MoneyRepair production pipeline" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontColor=#10222e;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="12" width="784.0" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="node-contract" value="Frozen capture contract" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#F2B441;fontColor=#10222e;fontStyle=1;fontSize=11;shape=parallelogram;perimeter=parallelogramPerimeter;" vertex="1" parent="1">
+          <mxGeometry x="30.0" y="72.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-ingest" value="Mask + image ingest" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="232.0" y="72.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-pose" value="Pose + uncertainty" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="434.0" y="72.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-tear" value="Placed tear evidence" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="636.0" y="72.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-candidates" value="Core + gap candidates" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="636.0" y="188.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-cover" value="Exact-cover selection" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="434.0" y="188.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-route" value="Automatic or review?" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#B279A2;fontColor=#10222e;fontStyle=1;fontSize=11;rhombus;" vertex="1" parent="1">
+          <mxGeometry x="232.0" y="188.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-confirm" value="Confirmed assembly" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#4C78A8;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=50;" vertex="1" parent="1">
+          <mxGeometry x="30.0" y="188.0" width="158.0" height="60.0" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-contract" target="node-ingest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-ingest" target="node-pose">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-pose" target="node-tear">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-tear" target="node-candidates">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-candidates" target="node-cover">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-cover" target="node-route">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-route" target="node-confirm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-7" value="review / correct" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#E45756;strokeWidth=1.6;dashed=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-route" target="node-pose">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

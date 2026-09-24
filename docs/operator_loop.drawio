@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="MoneyRepair" version="24.7.17" compressed="false">
+  <diagram id="moneyrepair" name="Page-1">
+    <mxGraphModel dx="1160" dy="302" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1160" pageHeight="302" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="MoneyRepair operator loop" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontColor=#10222e;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="12" width="1120.0" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="node-start" value="Start" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#4C78A8;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=50;" vertex="1" parent="1">
+          <mxGeometry x="30.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-gallery" value="Render gallery" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#F2B441;fontColor=#10222e;fontStyle=1;fontSize=11;shape=parallelogram;perimeter=parallelogramPerimeter;" vertex="1" parent="1">
+          <mxGeometry x="220.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-review" value="Operator review" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#B279A2;fontColor=#10222e;fontStyle=1;fontSize=11;rhombus;" vertex="1" parent="1">
+          <mxGeometry x="410.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-confirm" value="Confirm reconstruction" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="600.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-remove" value="Remove from pool" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="790.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-next" value="Next batch" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#4C78A8;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=50;" vertex="1" parent="1">
+          <mxGeometry x="980.0" y="70.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-reject" value="Reject candidate" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="410.0" y="176.0" width="150.0" height="56.0" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-start" target="node-gallery">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-gallery" target="node-review">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="accept" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-review" target="node-confirm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="reject" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-review" target="node-reject">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-confirm" target="node-remove">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-remove" target="node-next">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="retry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#E45756;strokeWidth=1.6;dashed=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-reject" target="node-gallery">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

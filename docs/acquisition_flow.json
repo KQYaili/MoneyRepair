@@ -1,108 +1,120 @@
 {
   "title": "MoneyRepair acquisition flow",
-  "width": 1350.0,
-  "height": 196.0,
+  "width": 824.0,
+  "height": 390.0,
   "nodes": [
     {
-      "id": "start",
-      "label": "Start",
+      "id": "contract",
+      "label": "Coordinate contract",
       "x": 30.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "terminator"
-    },
-    {
-      "id": "focus",
-      "label": "Focus QA",
-      "x": 220.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "process"
-    },
-    {
-      "id": "glare",
-      "label": "Glare QA",
-      "x": 410.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "process"
-    },
-    {
-      "id": "drift",
-      "label": "Color drift QA",
-      "x": 600.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "process"
-    },
-    {
-      "id": "seg",
-      "label": "Segmentation QA",
-      "x": 790.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "process"
-    },
-    {
-      "id": "manifest",
-      "label": "Manifest model",
-      "x": 980.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "data"
     },
     {
-      "id": "end",
-      "label": "End",
-      "x": 1170.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "id": "capture",
+      "label": "Scanner / phone capture",
+      "x": 232.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
+    },
+    {
+      "id": "segment",
+      "label": "Foreground mask",
+      "x": 434.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
+    },
+    {
+      "id": "mask_gate",
+      "label": "Mask tolerance passes?",
+      "x": 636.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "decision"
+    },
+    {
+      "id": "locate",
+      "label": "Top-k pose + uncertainty",
+      "x": 636.0,
+      "y": 230.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
+    },
+    {
+      "id": "pose_gate",
+      "label": "Pose gate passes?",
+      "x": 434.0,
+      "y": 230.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "decision"
+    },
+    {
+      "id": "handoff",
+      "label": "Placed-fragment handoff",
+      "x": 232.0,
+      "y": 230.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "terminator"
     }
   ],
   "edges": [
     {
-      "source": "start",
-      "target": "focus",
+      "source": "contract",
+      "target": "capture",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "focus",
-      "target": "glare",
+      "source": "capture",
+      "target": "segment",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "glare",
-      "target": "drift",
+      "source": "segment",
+      "target": "mask_gate",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "drift",
-      "target": "seg",
+      "source": "mask_gate",
+      "target": "locate",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "seg",
-      "target": "manifest",
+      "source": "locate",
+      "target": "pose_gate",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "manifest",
-      "target": "end",
+      "source": "pose_gate",
+      "target": "handoff",
       "label": "",
       "kind": "flow"
+    },
+    {
+      "source": "mask_gate",
+      "target": "capture",
+      "label": "recapture",
+      "kind": "feedback"
+    },
+    {
+      "source": "pose_gate",
+      "target": "locate",
+      "label": "review",
+      "kind": "feedback"
     }
   ]
 }

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="MoneyRepair" version="24.7.17" compressed="false">
+  <diagram id="moneyrepair" name="Page-1">
+    <mxGraphModel dx="1256" dy="322" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1256" pageHeight="322" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="MoneyRepair evidence-gated research path" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontColor=#10222e;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="12" width="1216.0" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="node-capture" value="Physical capture set" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#F2B441;fontColor=#10222e;fontStyle=1;fontSize=11;shape=parallelogram;perimeter=parallelogramPerimeter;" vertex="1" parent="1">
+          <mxGeometry x="30.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-mask" value="Gate 0: mask contract" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#B279A2;fontColor=#10222e;fontStyle=1;fontSize=11;rhombus;" vertex="1" parent="1">
+          <mxGeometry x="236.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-pose" value="Gate 1: pose handoff" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#B279A2;fontColor=#10222e;fontStyle=1;fontSize=11;rhombus;" vertex="1" parent="1">
+          <mxGeometry x="442.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-failure" value="Gate 2: failure localization" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#B279A2;fontColor=#10222e;fontStyle=1;fontSize=11;rhombus;" vertex="1" parent="1">
+          <mxGeometry x="648.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-component" value="Deterministic component A/B" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="854.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-learned" value="Conditional seam descriptor" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#72B7B2;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1060.0" y="70.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="node-freeze" value="Keep core frozen" style="whiteSpace=wrap;html=1;strokeColor=#10222e;strokeWidth=1.4;fillColor=#4C78A8;fontColor=#10222e;fontStyle=1;fontSize=11;rounded=1;arcSize=50;" vertex="1" parent="1">
+          <mxGeometry x="648.0" y="190.0" width="166.0" height="62.0" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-capture" target="node-mask">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-mask" target="node-pose">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-pose" target="node-failure">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-failure" target="node-component">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-component" target="node-learned">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#E45756;strokeWidth=1.6;dashed=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-mask" target="node-freeze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-6" value="gate fails" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#E45756;strokeWidth=1.6;dashed=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-pose" target="node-freeze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-7" value="no qualifying wall" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#10222e;strokeWidth=1.6;dashed=0;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node-failure" target="node-freeze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

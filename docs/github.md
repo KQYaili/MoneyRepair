@@ -1,53 +1,55 @@
-# GitHub Publishing
+# GitHub Repository
 
-The local repository is ready to publish after the release checks pass.
+Canonical remote: [KQYaili/MoneyRepair](https://github.com/KQYaili/MoneyRepair)
 
-## Create the remote
+## Branch Model
 
-Create an empty GitHub repository named `MoneyRepair` in the GitHub web UI. Do
-not initialize it with a README, license, or `.gitignore`; this repository
-already contains those files.
+`main` is the sole long-lived product and research line. Release checkpoints
+are tags, not permanent version branches. A temporary pull-request branch may
+exist while work is active, but it should be merged and removed after its
+checks pass.
 
-Then connect the local repository with either SSH:
-
-```bash
-git remote add origin git@github.com:<owner>/MoneyRepair.git
-git push -u origin main
-```
-
-Or HTTPS:
+Before deleting a branch, prove that its tip is already represented in `main`:
 
 ```bash
-git remote add origin https://github.com/<owner>/MoneyRepair.git
-git push -u origin main
+git merge-base --is-ancestor <branch> main
 ```
 
-## If publishing from another machine
+Exit code zero means the branch can be deleted without losing a commit. Never
+force-delete an unmerged branch merely to make the branch list tidy.
 
-Create a portable bundle:
+## Publish
 
 ```bash
-git bundle create runs/MoneyRepair-main.bundle main
+git remote -v
+git push origin main
+git push origin --tags
 ```
 
-On another machine:
+Do not force-push `main`. After publishing, verify:
+
+- GitHub shows `main` as the default branch;
+- the pushed SHA matches local `main`;
+- Actions passes Python 3.10, 3.11, 3.12, and 3.13;
+- README images render and `.drawio` links download valid XML;
+- no physical/private data or generated run directory is present.
+
+## Portable Backup
+
+To transfer the complete main/tag history without relying on the remote:
+
+```bash
+git bundle create runs/MoneyRepair-main.bundle main --tags
+```
+
+Restore on another machine:
 
 ```bash
 git clone MoneyRepair-main.bundle MoneyRepair
 cd MoneyRepair
-git remote add origin git@github.com:<owner>/MoneyRepair.git
+git remote add origin https://github.com/KQYaili/MoneyRepair.git
 git push -u origin main
+git push origin --tags
 ```
 
-## After publishing
-
-Update `pyproject.toml` URLs from placeholders to the final repository:
-
-```toml
-[project.urls]
-Homepage = "https://github.com/<owner>/MoneyRepair"
-Documentation = "https://github.com/<owner>/MoneyRepair/blob/main/docs/pipeline.md"
-Issues = "https://github.com/<owner>/MoneyRepair/issues"
-```
-
-Then commit that URL update.
+The bundle belongs in local `runs/` storage and should not be committed.

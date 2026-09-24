@@ -1,11 +1,11 @@
 {
   "title": "MoneyRepair search logic",
-  "width": 970.0,
+  "width": 1160.0,
   "height": 302.0,
   "nodes": [
     {
       "id": "start",
-      "label": "Start (Anchor Selection)",
+      "label": "High-confidence core seeds",
       "x": 30.0,
       "y": 70.0,
       "width": 150.0,
@@ -13,8 +13,8 @@
       "style": "terminator"
     },
     {
-      "id": "bb",
-      "label": "DFS Branching",
+      "id": "expand",
+      "label": "Bounded core expansion",
       "x": 220.0,
       "y": 70.0,
       "width": 150.0,
@@ -22,98 +22,86 @@
       "style": "process"
     },
     {
-      "id": "coverage",
-      "label": "Coverage >= 99%?",
+      "id": "gap",
+      "label": "Residual-gap proposals",
       "x": 410.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "cover",
+      "label": "Exact-cover selection",
+      "x": 600.0,
+      "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "process"
+    },
+    {
+      "id": "gate",
+      "label": "Evidence gate passes?",
+      "x": 790.0,
       "y": 70.0,
       "width": 150.0,
       "height": 56.0,
       "style": "decision"
     },
     {
-      "id": "solution",
-      "label": "Solution Found",
-      "x": 600.0,
+      "id": "auto",
+      "label": "Automatic confirmation",
+      "x": 980.0,
       "y": 70.0,
+      "width": 150.0,
+      "height": 56.0,
+      "style": "terminator"
+    },
+    {
+      "id": "review",
+      "label": "Human review queue",
+      "x": 790.0,
+      "y": 176.0,
       "width": 150.0,
       "height": 56.0,
       "style": "data"
-    },
-    {
-      "id": "end",
-      "label": "End",
-      "x": 790.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "terminator"
-    },
-    {
-      "id": "bound",
-      "label": "Bounding check",
-      "x": 410.0,
-      "y": 176.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "process"
-    },
-    {
-      "id": "prune",
-      "label": "Prune Branch",
-      "x": 600.0,
-      "y": 176.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "terminator"
     }
   ],
   "edges": [
     {
       "source": "start",
-      "target": "bb",
+      "target": "expand",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "bb",
-      "target": "coverage",
+      "source": "expand",
+      "target": "gap",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "coverage",
-      "target": "solution",
+      "source": "gap",
+      "target": "cover",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "cover",
+      "target": "gate",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "gate",
+      "target": "auto",
       "label": "yes",
       "kind": "flow"
     },
     {
-      "source": "coverage",
-      "target": "bound",
-      "label": "no",
-      "kind": "flow"
-    },
-    {
-      "source": "solution",
-      "target": "end",
-      "label": "",
-      "kind": "flow"
-    },
-    {
-      "source": "bound",
-      "target": "prune",
-      "label": "fail",
-      "kind": "flow"
-    },
-    {
-      "source": "bound",
-      "target": "bb",
-      "label": "pass",
-      "kind": "feedback"
-    },
-    {
-      "source": "prune",
-      "target": "end",
-      "label": "",
+      "source": "gate",
+      "target": "review",
+      "label": "no / ambiguous",
       "kind": "flow"
     }
   ]

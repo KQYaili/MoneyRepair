@@ -5,6 +5,8 @@ from moneyrepair.diagrams import (
     acquisition_flow_spec,
     search_logic_spec,
     operator_loop_spec,
+    research_gates_spec,
+    render_diagram_drawio,
     render_diagram_svg,
     write_diagram,
 )
@@ -12,32 +14,37 @@ from moneyrepair.diagrams import (
 
 def test_production_pipeline_spec_has_loop():
     spec = production_pipeline_spec()
-    assert len(spec.nodes) == 7
+    assert len(spec.nodes) == 8
     node_ids = {node.id for node in spec.nodes}
-    assert {"acq", "manifest", "prune", "search", "report", "review", "confirm"} == node_ids
+    assert {
+        "contract",
+        "ingest",
+        "pose",
+        "tear",
+        "candidates",
+        "cover",
+        "route",
+        "confirm",
+    } == node_ids
 
     feedback = [edge for edge in spec.edges if edge.kind == "feedback"]
     assert len(feedback) == 1
-    assert feedback[0].source == "review"
-    assert feedback[0].target == "search"
+    assert feedback[0].source == "route"
+    assert feedback[0].target == "pose"
 
 
 def test_acquisition_flow_spec():
     spec = acquisition_flow_spec()
     assert len(spec.nodes) == 7
     node_ids = {node.id for node in spec.nodes}
-    assert {"start", "focus", "glare", "drift", "seg", "manifest", "end"} == node_ids
+    assert {"contract", "capture", "segment", "mask_gate", "locate", "pose_gate", "handoff"} == node_ids
 
 
 def test_search_logic_spec():
     spec = search_logic_spec()
     assert len(spec.nodes) == 7
     node_ids = {node.id for node in spec.nodes}
-    assert {"start", "bb", "coverage", "solution", "end", "bound", "prune"} == node_ids
-    feedback = [edge for edge in spec.edges if edge.kind == "feedback"]
-    assert len(feedback) == 1
-    assert feedback[0].source == "bound"
-    assert feedback[0].target == "bb"
+    assert {"start", "expand", "gap", "cover", "gate", "auto", "review"} == node_ids
 
 
 def test_operator_loop_spec():
@@ -51,25 +58,46 @@ def test_operator_loop_spec():
     assert feedback[0].target == "gallery"
 
 
+def test_research_gates_spec_keeps_algorithm_work_conditional():
+    spec = research_gates_spec()
+    node_ids = {node.id for node in spec.nodes}
+    assert {"capture", "mask", "pose", "failure", "component", "learned", "freeze"} == node_ids
+    assert any(edge.source == "failure" and edge.target == "component" for edge in spec.edges)
+    assert sum(edge.kind == "reject" for edge in spec.edges) == 2
+
+
 def test_render_diagram_svg_keeps_editable_text():
     spec = production_pipeline_spec()
     svg = render_diagram_svg(spec)
     assert svg.startswith("<svg")
     assert "<text" in svg
-    assert "Operator review" in svg
+    assert "Confirmed" in svg
     assert "marker-end" in svg
 
 
-def test_write_diagram_writes_spec_and_svg(tmp_path):
+def test_render_diagram_drawio_keeps_editable_cells():
+    spec = production_pipeline_spec()
+    drawio = render_diagram_drawio(spec)
+    assert drawio.startswith('<?xml version="1.0"')
+    assert "<mxGraphModel" in drawio
+    assert 'id="node-contract"' in drawio
+    assert "Frozen capture contract" in drawio
+
+
+def test_write_diagram_writes_spec_drawio_and_svg(tmp_path):
     spec = production_pipeline_spec()
     outputs = write_diagram(spec, tmp_path / "pipeline")
 
     spec_path = tmp_path / "pipeline.json"
+    drawio_path = tmp_path / "pipeline.drawio"
     svg_path = tmp_path / "pipeline.svg"
     assert spec_path.exists()
+    assert drawio_path.exists()
     assert svg_path.exists()
     assert outputs["spec"] == str(spec_path)
+    assert outputs["drawio"] == str(drawio_path)
+    assert "vsdx" not in outputs
 
     reloaded = json.loads(spec_path.read_text(encoding="utf-8"))
-    assert len(reloaded["nodes"]) == 7
+    assert len(reloaded["nodes"]) == 8
     assert reloaded["title"] == spec.title

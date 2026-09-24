@@ -1,5 +1,21 @@
 # Changelog
 
+## v5 repository and evidence consolidation
+
+- Fast-forward every completed development line into the canonical `main`
+  history and retire parallel long-lived branches while preserving tags.
+- Rewrite the root status, pipeline, documentation index, contribution guide,
+  and research chronology around the current physical-acquisition decision.
+- Make uncompressed Draw.io files the canonical editable diagrams, with
+  deterministic JSON graph sources and SVG previews; keep VSDX as an explicit
+  optional export.
+- Add a publication-style evidence summary generated from the committed v4.3
+  and v4.4.1 benchmark JSON, with the unmeasured physical boundary shown
+  directly in the figure.
+- Add an evidence-gated research diagram that keeps component actions and a
+  learned seam descriptor conditional on successful physical handoff and a
+  reproduced failure mechanism.
+
 ## v5 literature-transfer measurement closure
 
 - Add `paper-transfer-audit`, a post-hoc diagnostic that leaves Etear,

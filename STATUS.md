@@ -1,325 +1,236 @@
-# MoneyRepair — STATUS (authoritative)
+# MoneyRepair Status
 
-> Single source of truth. Every number below is measured **in the simulation
-> harness** (per-note fractal tears + fraying), not on real torn notes. No claim
-> elsewhere in this repo may exceed what this table supports.
+This file is authoritative. It defines what MoneyRepair can claim, where the
+measured wall is, which routes are closed, and what experiment is allowed next.
 
-## What this is
+## Current Decision
 
-A geometry-first reconstruction system for hand-torn near-identical banknotes.
-It registers each fragment to the canonical note, then links fragments that are
-**two sides of one physical tear** (tear-boundary coincidence in absolute
-coordinates), then assembles notes by generating full-note candidates and
-selecting a globally consistent (non-overlapping, serial-deduplicated) set via
-exact-cover. Serial numbers (冠字号), when legible, act as hard anchors + dedup
-constraints; appearance is at most a tie-breaker.
+**Freeze the deterministic simulation core and collect the preregistered
+physical pilot.** The project has exhausted the current simulation and
+literature-derived interventions. More seed-7 tuning, a learned descriptor,
+RL, flow matching, or solver replacement is not justified before independent
+physical masks and poses pass the acquisition gates.
 
-## What works (measured, simulation)
+The current release is a simulation-backed end-to-end research prototype with
+physical-data measurement infrastructure. It is not a demonstrated industrial
+banknote restoration system.
 
-- **Discriminator.** Tear-boundary coincidence in absolute coordinates cleanly
-  separates true tear-mates from mere abutment: ~**99% of false joins rejected**
-  on fractal tears. (Contact-count and colour-continuity do not — see dead ends.)
-- **Assembly.** Generate-then-select **exact-cover is robust to the residual
-  false-edge rate** (bad candidates fail the tile/coverage test and are dropped),
-  unlike greedy single-linkage which chains all notes into one blob.
-- **Clean regime, geometry only (no serial), per-note fractal tears + fray:**
+## Claim Boundary
 
-  | N notes | exact yield | precision |
-  |---|---|---|
-  | 20  | 1.00 | 1.00 |
-  | 50  | 1.00 | 1.00 |
-
-  This is real and well past every earlier discriminator.
-- **v4.3 fine-fragment shift, fixed search budgets, N=20, no serial:** the
-  complexity-routed policy keeps fixed overlap for p=8/16 and activates adaptive
-  tear evidence plus group-gap recovery at p=24.
-
-  | pieces | fixed overlap yield / precision | v4.3 routed yield / precision |
-  |---:|---:|---:|
-  | 8  | 1.000 / 1.000 | 1.000 / 1.000 |
-  | 16 | 1.000 / 1.000 | 1.000 / 1.000 |
-  | 24 | 0.533 / 0.846 | **0.917 / 0.981** |
-
-  These are means over seeds 7/8/9 with deterministic state/node budgets. The
-  p=24 false-edge rate falls from 0.094 to 0.036 and the mean human queue from
-  9.3 to 1.7 notes, at about 2.3x runtime. See
-  [the v4.3 report](docs/v4_3_tear_effectiveness.md).
-
-- **v4.3.1 mechanism audit:** at p=24, Etear reduces accepted edges from 881.0
-  to 628.0 and false accepted edges from 82.7 to 22.7, cutting candidate count
-  from 9581.3 to 5519.3 under the fixed search budget. Group-gap then adds only
-  57.7 candidates, of which 2.7 are selected, raising yield/precision from
-  0.767/0.817 to 0.917/0.981. Only 0.3 selected candidates per run are unique
-  to low-coverage partial cores. Routing reuses baseline at p=8/16 and the gap
-  path at p=24; it avoids unnecessary heavy search rather than changing an
-  already-resolved trial. See the
-  [v4.3.1 mechanism report](docs/v4_3_1_mechanism_validation.md).
-
-- **v4.3.2 scale-fineness checkpoint:** the N=20 budget staircase stabilizes at
-  2x. Under workload-normalized compute, routed p=24 remains at
-  `0.880/0.985` yield/precision at N=50 (seeds 7/8/9), versus `0.300/0.764`
-  under the original fixed budget. N=50 passes every preregistered quality and
-  mechanism gate. The first N=100 seed diagnostic reaches
-  `0.840/0.966`, with oracle candidate recall also `0.840`; core/gap searches
-  are unsaturated and exact cover selects every available exact candidate.
-  False-edge rate rises from `0.036` (N=20) to `0.071` (N=50) and `0.135`
-  (N=100 seed 7), while true-edge recall stays near `0.37`. This locates the
-  measured wall before exact cover, in candidate evidence (edge
-  discrimination and/or gap proposal). N=100 seeds 8/9 and N=200 remain
-  unmeasured, so N=100 is a diagnostic, not a replicated headline result. See
-  [the v4.3.2 report](docs/v4_3_2_scale_fineness.md).
-
-- **v4.3.3 causal falsification:** the paired N=100, p=24, seed-7 control
-  exactly reproduces `oracle candidate recall = exact yield = 0.840`. An oracle
-  intervention then removes all 466 false core edges and all 2,064 accepted
-  cross-note edges while preserving every accepted true edge, with every
-  threshold and search budget unchanged. Oracle recall reaches only `0.860`
-  (`+0.020`), below the preregistered `+0.050` rescue gate. False edges are a
-  workload burden (30,828 -> 24,243 candidates; 510.4 -> 396.8 s), but not the
-  current yield limiter. Their removal also raises precision from `0.966` to
-  `0.989`, so false-edge reduction remains a secondary precision/performance
-  lever rather than the v4.4 yield-quality priority. The measured seed-7 wall
-  is therefore narrowed from generic candidate evidence to **gap proposal /
-  candidate construction**. See [the v4.3.3 report](docs/v4_3_3_oracle_false_edges.md).
-
-- **v4.4 residual-gap candidate proposal (implementation complete):** implements
-  a paradigm shift from edge-first expansion to residual-gap-first candidate
-  construction (`ResidualGapRegion`). Evaluates proposals using whole-assembly
-  before->after improvement ($E_{\text{proposal}}$), applies per-gap complexity
-  routing (`simple`, `moderate`, `complex`), prunes non-informative slivers below
-  the tolerance scale ($S_{\text{min}}$), and includes funnel diagnostics
-  (`v44_candidate_funnel_diagnostic`). All 125 unit/integration tests pass cleanly.
-  See [the v4.4 report](docs/v4_4_residual_gap_proposal.md).
-
-- **v4.4 empirical validation (NULL result; bottleneck relocated):** under the
-  preregistered N=100, p=24, seed-7 normalized-compute protocol (identical
-  same-seed arms; exactly reproduces the v4.3.3 control), residual-gap-first
-  construction **did not raise oracle candidate recall** — `0.840 -> 0.840`
-  (delta `0.000`), so the `+0.05` rescue gate (`>= 0.890`) was **not** cleared.
-  Precision held at `0.9655`; the only measurable effect was `+33.28 s` (`+3.4%`)
-  runtime. v4.4 does **not** solve the candidate wall. Two independent findings
-  explain the NULL: (1) gap-first was inert here — it found 2,716 residual gap
-  regions, all routed `complex`, yet made `0` proposals with neither state nor
-  time limit reached; (2) the candidate funnel localizes the binding constraint
-  **upstream** of the gap stage — the 16 missing notes are 10 `no_pure_core_base`
-  + 6 `pure_core_base_not_selected`, with **zero** misses attributed to the
-  weak-pair / gap-proposal gate. So even a fully-firing gap-first stage could not
-  rescue those notes. The measured seed-7 wall therefore moves from *gap
-  proposal / candidate construction* to **pure core-base construction & base
-  selection**. This is one deterministic seed, not a cross-seed claim. See
-  [the v4.4 empirical-validation report](docs/v4_4_empirical_validation.md).
-
-- **v4.4.1 fixed-budget base selection (causal gate passed):** a one-variable
-  N=100, p=24, seed-7 A/B keeps the complete/partial base limits fixed at
-  `512/128` and changes only the selector from global top-K to deterministic
-  fragment-disjoint rounds. Oracle candidate recall and exact yield both rise
-  `0.840 -> 0.900` (`+0.060`, above the preregistered `+0.050` gate), while
-  precision rises `0.9655 -> 1.0000`. The selector produces exactly six extra
-  true gap candidates, matching the six prior `pure_core_base_not_selected`
-  notes; no additional false gap candidate is selected. Runtime rises
-  `564.63 -> 600.08 s` (+6.3%) with the same K. This causally confirms and
-  removes the measured **global base-ranking** limiter on seed 7. The remaining
-  ten misses are the `no_pure_core_base` notes: their automatic true-edge graphs
-  contain 2-4 components and no component reaches the 0.78 record threshold.
-  The remaining measured simulation wall is therefore **multi-component pure
-  core-base construction**, not ranking, gap proposal, false-edge removal, or
-  exact cover. This is still one seed and not a real-data claim. All 128 tests,
-  `ruff`, and `compileall` pass. See
-  [the v4.4.1 report](docs/v4_4_1_base_selection.md).
-
-- **v4.4.1 frozen; v5 Reality Bridge alpha 3 measurement-closed:** commit `af57a41` is the
-  frozen deterministic simulation core on `main`. The preregistered refinement
-  allowance is spent; v4 candidate construction will not be tuned again on the
-  N=100 seed-7 discovery case. The first v5 diagnostic now loads raw local
-  crops, keeps evaluation annotations physically separate, audits external
-  boundaries with continuous Euclidean pixel-centre p95, measures
-  interior/topology errors separately, evaluates full 3x3 crop-to-canonical
-  transforms, applies observation/canonical pixels-per-mm in their respective
-  coordinate frames, derives angular tolerance per fragment, and reports
-  automatic pose precision plus internal locator-stage recall. On an
-  **annotated synthetic capture proxy** with one note, eight
-  fragments, and seed 7, clean cardinal acquisition reaches `4/8` top-k,
-  `4/8` top-1, `4/8` automatic handoff, and `1.000` automatic pose precision.
-  All four misses are inside the cardinal rigid model family and reachable from
-  the existing truth-blind coarse lattice plus frozen fine radius, but absent
-  from the fixed coarse top-10. Increasing returned `top_k` from 3 to 10 still
-  leaves recall at `4/8`, confirming a coarse-top-10 ranking wall rather than a
-  grid-coverage or final-output limiter. RGB noise sigma 5 plus 8% isolated
-  interior mask dropout now fails
-  the separate mask gate (`0/8` ready; mean missing area `0.068`, IoU `0.932`)
-  rather than being hidden by boundary dilation. Free-angle capture remains
-  `0/8`, with all eight misses localized outside the cardinal transform family
-  and no angular uncertainty. These are synthetic measurement diagnostics, not
-  real-fragment validation. A same-input replay preserved every returned pose,
-  route, funnel value, and semantic handoff fingerprint; locator, router, and
-  v4.4.1 behavior remain frozen. The 64-fragment/72-scene pilot pre-registers
-  fixed calibration/evaluation IDs, 2-of-3 repeat aggregation, independent
-  gold transforms, and zero tolerance for any false-automatic observation.
-  All 151 core tests, `ruff`, `compileall`, and targeted mypy pass. Full-package
-  mypy retains 21 pre-existing advisory errors in five unchanged modules.
-  See
-  [the v5 alpha report](docs/v5_reality_bridge.md).
-
-- **Physical-pilot operations are scaffolded, but collection has not happened:**
-  `pilot-init` freezes the 64-fragment/72-scene ledger;
-  `pilot-freeze-coordinate-contract` preregisters deterministic scanner/phone
-  locator rasters separately from the 600-DPI print master; and
-  `pilot-validate` inventories their parent/output hashes, normalization scale,
-  truth separation, per-observation calibration, and K=3/K=10 report
-  provenance. The locator, router, and reconstruction core remain unchanged.
-  The repository and common local capture locations currently contain no
-  qualifying physical pilot dataset. Therefore Gate 1-4 remain unmeasured and
-  the first operational blocker after coordinate freeze is physical
-  acquisition, not an algorithm result.
-
-- **Three-paper transfer is measurement-closed, not an algorithm unfreeze:** the
-  measurement-only `paper-transfer-audit` command transfers ranked-pair metrics
-  (Top-K, MRR, reciprocal best buddies), GAP-style mask-geometry distributions,
-  and component-level oracle coverage without changing Etear, candidate
-  construction, routing, or exact cover. On the existing N=100, p=24, seed-7
-  simulator case, the all-scored same-note query hit rate is `1.000`,
-  first-positive MRR is `0.9931`, and Hit@1 is `0.9867`. Even the automatic-only
-  graph retains query hit `0.9946`, Hit@1 `0.9846`, and reciprocal-best-buddy precision
-  `1.000`; nevertheless only `90/100` notes form a true automatic component
-  reaching the frozen `0.78` core threshold. Reciprocal best buddies cover only
-  `741/2983` automatic true scored pairs; this is a within-gate conditional
-  denominator, not an end-to-end recall. RBB predictions are now generated over
-  the complete score graph without truth eligibility filtering. This falsifies
-  using excellent first-positive local retrieval as a substitute for
-  assembly-level component coverage. Geometry
-  distributions are now exportable, but no real-mask distribution exists yet,
-  so simulator realism remains unvalidated. The literature-derived component
-  action and learned descriptor remain conditional on reliable physical handoff
-  and recurrence of the same real failure. All 154 tests pass (3 optional tests
-  skipped); `ruff`, `compileall`, and targeted mypy are clean. See
-  [the literature-transfer audit](docs/v5_literature_transfer_audit.md).
-
-## Where the wall is (measured, simulation)
-
-The historical v4.2 pressure runs below show that the two properties defining
-the real case — many notes and finely torn notes — break the old fixed-overlap
-path, and even ideal serial anchors do not restore yield. The fine-fragment rows
-were measured at a larger/harder pool than the v4.3 N=20 ablation and remain an
-unresolved scale-plus-fineness target:
-
-| stressor | geometry only | + ideal serial anchors |
-|---|---|---|
-| N=100 (coarse) | yield 0.54, prec 0.96 | — |
-| N=200 (coarse) | yield 0.055, prec 0.55 | yield 0.26, prec 0.98 |
-| pieces=16 (finely torn) | yield ~0.10, prec ~0.45 | yield 0.12, prec 1.00 |
-| pieces=24 (finer)        | yield ~0.02, prec ~0.20 | yield 0.00, prec 0.00 |
-
-Heavy fraying *alone* on coarse pieces is tolerated (yield 1.00). **Combined
-fineness and scale remain the killers, not fray.** Serials rescue precision (the
-no-duplicate-serial constraint blocks chimeras) but not yield. v4.3.2 confirms
-the adaptive/gap gain at N=50 under normalized compute and locates the first
-N=100 seed failure before exact cover. v4.3.3 additionally falsifies accepted
-false-edge removal as the dominant quality rescue (`+0.020 < +0.050`) and
-narrows that seed-7 failure to gap proposal / candidate construction. v4.4 then
-tests residual-gap-first construction against that narrowed wall and returns a
-NULL (`0.840 -> 0.840`, `+0.05` gate not cleared): gap-first is inert (2,716
-regions, all `complex`, `0` proposals), and the candidate funnel relocates the
-binding constraint upstream to 10 `no_pure_core_base` + 6
-`pure_core_base_not_selected`. v4.4.1 removes the ranking half at fixed K:
-disjoint rounds recover all six missing selected bases and raise oracle/yield to
-`0.900`, with precision `1.000`. The measured seed-7 wall is now the remaining
-**multi-component pure core-base construction** for ten notes. N=100
-replication, N=200, and real paper remain unmeasured.
-
-## Figures (measured)
-
-These plot the tables above. Regenerate with
-`python docs/figures/make_figures.py` (matplotlib).
-
-![Where the wall is](docs/figures/status_wall.png)
-
-*Left (exact yield):* yield falls off as the pool grows (N) or the pieces get
-finer, and ideal serial anchors barely lift it — the orange bars stay low.
-*Right (precision):* the same ideal serials push precision back to ~1.0 (the
-no-duplicate-serial constraint blocks chimeras). So **serials rescue precision,
-not yield**: knowing each note's identity stops bad merges, but the many short,
-frayed tears in a finely-torn note still cannot be chained, so most notes are
-never assembled at all. `n/a` marks N=100, which was not run with the serial
-column.
-
-![Two collapse axes are not the same wall](docs/figures/status_scale_vs_fineness.png)
-
-*Left:* in the clean regime (coarse pieces, geometry only) the system recovers
-every note exactly — yield and precision both 1.0 at N=20/50/100. *Right:* the
-two failure axes differ in kind. **Scale (large N)** was a fixable engineering
-problem: the exact-cover search crashed (`RecursionError`) on large candidate
-pools, so N=200 read as ~0.09; with the crash fixed (v4.2.1) and an adequate
-budget it recovers to 1.0. **Fineness under a large mixed-note pool** is the
-genuine residual signal wall. v4.3 adaptive evidence plus whole-assembly context
-moves the p=24 bar through N=50 under normalized compute. The N=100 seed-7
-diagnostic shows the next wall is missing exact candidates before final
-selection, not an exact-cover failure; the human queue remains part of the
-system boundary.
-
-## Honest operating stance
-
-**High-precision automatic confirmation of the easy minority + a human review queue
-for the finely-torn bulk.** Not full-auto for finely-torn 2000-note cases. The system's
-value is making human assemblers faster on the pieces that *are* cleanly recoverable —
-not replacing them. (This is why the real-world case used a 13-person team.)
-
-## Dead ends — do NOT re-attempt thinking they are new
-
-| approach | why it fails |
+| Question | Current answer |
 |---|---|
-| appearance / wear gain clustering | under spatially non-uniform wear, same-note pieces no longer share one gain → 0 exact recovery even at N=3 |
-| boundary-colour continuity | no threshold separates true seams from false (wear/stains cross seams); tight cuts true joins, loose readmits chimeras |
-| interlock contact-count | measures how much pieces touch, not whether tear profiles mate → no-op when loose, severs true seams when tight |
-| whole-contour similarity matching | rotation-invariant best-subsegment over the full boundary → straight non-tear edges give spurious matches; it *inverts* on jagged input; also never wired into the solver |
+| Does the deterministic geometry-first core work in its synthetic testbed? | Yes, within the measured regimes below. |
+| Has the fine-fragment wall been removed? | No. v4.3 shifts it; v4.4.1 localizes the remaining seed-7 wall. |
+| Can raw crops be audited without leaking evaluation truth? | Yes, the v5 reality bridge enforces this separation. |
+| Has a qualifying physical pilot been collected? | No. |
+| Are real mask, pose, seam, yield, and precision gates measured? | No. |
+| Do v6-v10 learned modules beat the deterministic core? | No evidence; they are untrained/unverified scaffolds. |
+| Is full automation at a 2,000-note fine-fragment scale supported? | No. |
 
-All four reduce a high-dimensional signal (the tear-edge profile) to a scalar
-threshold whose true/false distributions overlap. That is the recurring trap.
+The supported operating stance is **high-precision automatic confirmation of
+the evidence-rich minority plus a human review queue**.
 
-## The resume-path (if anyone continues)
+## Supported System
 
-Five pieces of work, in this order:
+MoneyRepair keeps all fragments in a canonical note coordinate frame and uses
+this evidence chain:
 
-1. **Real-data validation through the v5 funnel** — tear a small set of notes,
-   capture raw crops, annotate masks and poses for evaluation only, then measure
-   segmentation tolerance, locator top-k recall, uncertainty routing, automatic
-   precision, and the human queue. Do not let annotations select a production
-   pose.
-2. **Repair only the first failed reality stage** — if the true pose is absent
-   from top-k, work only on registration (continuous angle/scale/affine search
-   and calibrated pose uncertainty). If masks fail the declared physical
-   tolerance, work only on acquisition/segmentation. Do not retune Etear,
-   candidate construction, or exact cover while an upstream stage is failing.
-3. **Reconsider multi-component core construction only after reliable real
-   handoff** — v4.4.1 is frozen. A component bridge becomes a new, reality-driven
-   study only if real masks and true poses reliably enter the handoff yet the
-   same multi-component core wall persists. It is not another v4.4 patch.
-4. **Learned fine-tear edge descriptor, only if real data requires it** — replace
-   the scalar coincidence with a
-   model on the actual tear-edge profile (turning-angle/curvature sequence, or a
-   small CNN on the resampled edge), trained to discriminate true vs false
-   tear-mates **specifically on fine, frayed edges**, and benchmarked head-to-head
-   against scalar coincidence **on the pieces=16/24 regime**.
-5. **Faster assembly for scale** — numba/C exact-cover + spatial-hash candidate
-   generation, so N≈hundreds–thousands does not hit time limits.
+1. acquisition and segmentation quality;
+2. truth-blind pose hypotheses with observable uncertainty;
+3. placed tear-boundary coincidence, not whole-note appearance identity;
+4. high-confidence core candidates plus bounded whole-assembly gap recovery;
+5. globally consistent exact-cover selection;
+6. serial/OCR anchors when legible, followed by automatic/review routing.
 
-> Honest expectation: v4.3 shifts the simulated wall; it does not remove the
-> need for triage on finely torn near-identical notes.
+Serial numbers are hard anchors and deduplication constraints. They can prevent
+cross-note chimeras, but they do not create missing geometric evidence.
+Appearance may be used for localization or a final tie-break; it is not a
+same-note identity key.
 
-## The single highest-value untaken step
+## Frozen Simulation Evidence
 
-Not more simulation tuning: **tear a few real notes, photograph them, annotate
-the evaluation truth separately, and run `reality-bridge`.** The alpha proxy
-already shows pose recall failing before reconstruction. The fastest way to
-learn something true now is to determine whether real acquisition first breaks
-mask tolerance, pose recall, or uncertainty calibration.
+### v4.3 fine-fragment mechanism audit
 
-## Status of the codebase
+The canonical experiment uses per-note fractal tears with fraying, `N=20`,
+seeds `7/8/9`, fixed state/node budgets, and no serial labels.
 
-- **CORE** (`tearfit`, `locator`, `reality`, `simulate`, `pressure`, `diagnostics`,
-  `compat`, `solver`, `batch`, acquisition/IO, CLI): the supported, runnable system. Installs
-  and runs without torch.
-- **baselines/**: superseded discriminators kept for comparison only.
-- **experimental/** (`v6_to_v10` DL stack, `llm_control`, `policy_compare`):
-  UNVERIFIED, untrained, opt-in. Not part of the supported pipeline. They do not
-  currently beat the deterministic exact-cover and have not been benchmarked on the
-  regime that actually matters (fine fragments).
+| pieces per note | fixed overlap yield / precision | adaptive Etear yield / precision | Etear + gap yield / precision | routed v4.3 yield / precision |
+|---:|---:|---:|---:|---:|
+| 8 | 1.000 / 1.000 | 0.917 / 0.982 | 0.950 / 1.000 | 1.000 / 1.000 |
+| 16 | 1.000 / 1.000 | 0.933 / 0.949 | 0.983 / 1.000 | 1.000 / 1.000 |
+| 24 | 0.533 / 0.846 | 0.767 / 0.817 | **0.917 / 0.981** | **0.917 / 0.981** |
+
+At `p=24`, Etear reduces accepted edges from `881.0` to `628.0` and false
+accepted edges from `82.7` to `22.7`. Gap recovery adds only `57.7` candidates,
+with `2.7` selected, and raises yield/precision from `0.767/0.817` to
+`0.917/0.981`. The fixed-overlap false-edge rate is `0.094`; routed v4.3 is
+`0.036`. Mean manual notes fall from `9.3` to `1.7` at about `2.3x` runtime.
+
+Interpretation: adaptive evidence is mainly a precision/workload filter;
+whole-assembly context supplies the recall gain. This is a simulation result,
+not proof that the simulator reproduces real tear profiles.
+
+### Scale and causal localization
+
+- With workload-normalized compute, routed `p=24` reaches `0.880/0.985`
+  yield/precision at `N=50` over seeds `7/8/9`. The historical fixed budget
+  reaches only `0.300/0.764`.
+- At `N=100`, `p=24`, seed 7, the control reaches oracle candidate recall and
+  exact yield `0.840`, with precision `0.966`. Seeds 8/9 and `N=200` remain
+  unmeasured under this protocol.
+- Oracle deletion of every accepted cross-note edge raises recall only
+  `0.840 -> 0.860`, below the preregistered `+0.050` gate. False edges remain a
+  precision/runtime issue, not the dominant yield limiter.
+- Residual-gap-first proposal returns a NULL result: `0.840 -> 0.840`. It finds
+  2,716 complex regions and emits no viable proposal. The funnel localizes the
+  16 misses to 10 `no_pure_core_base` plus 6
+  `pure_core_base_not_selected` cases.
+
+### v4.4.1 fixed-budget base selection
+
+The single seed-7 intervention keeps the `512/128` complete/partial base
+limits and all normalized budgets fixed. Only the base selector changes.
+
+| selector | oracle candidate recall | exact yield | exact precision | manual notes | runtime |
+|---|---:|---:|---:|---:|---:|
+| global top-K | 0.840 | 0.840 | 0.9655 | 16 | 564.63 s |
+| fragment-disjoint rounds | **0.900** | **0.900** | **1.0000** | **11** | 600.08 s |
+
+The `+0.060` recall/yield gain clears the preregistered `+0.050` gate and
+recovers all six ranking misses. The remaining ten misses have automatic true
+edge graphs split into 2-4 components, with no pure component reaching the
+frozen `0.78` core threshold.
+
+The remaining measured simulation wall is therefore **multi-component pure
+core-base construction**. This is a one-seed localization result, not a
+cross-seed or physical-data conclusion.
+
+### Literature-transfer audit
+
+On the same `N=100`, `p=24`, seed-7 simulator case:
+
+- all-scored same-source query hit rate is `1.0000`;
+- first-positive MRR is `0.9931`, and Hit@1 is `0.9867`;
+- automatic-only query hit rate is `0.9946`, Hit@1 is `0.9846`, and
+  reciprocal-best-buddy precision is `1.0000`;
+- only `90/100` notes form a true automatic component reaching the frozen core
+  threshold;
+- reciprocal-best-buddy predictions cover `741/2983` automatic true scored
+  pairs under a filtered, conditional denominator.
+
+This negative result matters: excellent local first-positive ranking does not
+guarantee assembly-level component coverage. The metrics are same-source
+proxies because the simulator does not annotate the exact pair of physical
+boundary arcs. They are not physical seam-mate recall.
+
+## Historical Stress Boundary
+
+Older v4.2 stress tests establish that scale and fineness are different axes:
+
+| stressor | geometry only | with ideal serial anchors |
+|---|---:|---:|
+| `N=100`, coarse pieces | yield 0.54, precision 0.96 | not measured |
+| `N=200`, coarse pieces | yield 0.055, precision 0.55 | yield 0.26, precision 0.98 |
+| 16 fine pieces per note | yield about 0.10, precision about 0.45 | yield 0.12, precision 1.00 |
+| 24 fine pieces per note | yield about 0.02, precision about 0.20 | yield 0.00, precision 0.00 |
+
+The old coarse-scale collapse was partly an implementation/budget problem and
+was later repaired. Fineness in a large mixed-note pool remains a signal and
+candidate-construction problem. Heavy fraying alone on coarse pieces is not the
+same wall.
+
+## v5 Reality Bridge
+
+The v5 path measures the handoff without changing locator ranking, the fixed
+coarse top-10, routing thresholds, Etear, candidate construction, or exact
+cover. Production observations and evaluation annotations are stored in
+separate files. Gold masks and transforms never select a production pose.
+
+The default proxy tolerance contract derives a `2.008 px` combined translation
+tolerance, `0.974 degree` angular tolerance, and `0.510 mm` minimum effective
+feature from physical segmentation/registration tolerances. External boundary,
+interior-area, component, and hole errors are measured separately.
+
+On one annotated synthetic capture proxy (one note, eight fragments, seed 7):
+
+| proxy | mask ready | top-k / top-1 | automatic | automatic pose precision | first failure |
+|---|---:|---:|---:|---:|---|
+| clean cardinal | 8/8 | 4/8 / 4/8 | 4 | 1.000 | fixed coarse-top-10 ranking |
+| noise 5 + 8% interior dropout | 0/8 | not evaluated | 4 observable routes | 1.000 | segmentation gate |
+| clean free angle | 8/8 | 0/8 / 0/8 | 0 | n/a | transform family |
+
+These are synthetic diagnostics. The 64-fragment/72-scene scanner/phone pilot
+ledger, coordinate freeze, hash checks, repeat aggregation, and zero-false-
+automatic rule are implemented. No qualifying physical captures currently
+exist, so every physical gate remains unmeasured.
+
+## Physical Pilot Gates
+
+Proceed in this order and repair only the first failed stage:
+
+1. **Mask contract:** independent gold masks, calibrated pixel scale, boundary
+   and topology tolerances.
+2. **Pose handoff:** top-K recall, top-1 precision, uncertainty coverage, and
+   zero false automatic observations.
+3. **Failure localization:** candidate graph, component coverage, oracle
+   candidate recall, exact yield/precision, and review queue.
+4. **Conditional component A/B:** only if reliable physical handoff reproduces
+   the multi-component core wall; freeze every other variable and require at
+   least `+0.05` oracle recall or yield with no precision loss or false
+   automatic assembly.
+5. **Conditional learned seam descriptor:** only if the component A/B leaves a
+   retrieval residual. Train on narrow physical boundary sequences/strips with
+   same-position different-note and near-straight hard negatives. Final
+   assembly outcomes, not classification accuracy, decide the gate.
+
+The research-gate diagram is available as
+[SVG](docs/research_gates.svg) and editable
+[Draw.io](docs/research_gates.drawio).
+
+## Closed Routes
+
+Do not reintroduce these as production identity discriminators:
+
+| route | measured failure |
+|---|---|
+| appearance or wear-gain clustering | spatially non-uniform wear destroys the assumed same-note gain identity |
+| boundary-colour continuity | no stable threshold separates true and false seams under stains and wear |
+| contact-count interlock | measures how much masks touch, not whether tear profiles are mates |
+| whole-contour best-subsegment matching | straight paper edges dominate; angle-sorted contours break jagged paths; the naive matcher can invert true/false ordering |
+| generated or inpainted tear geometry | hallucinated boundaries would create unsafe matching evidence |
+
+Appearance and colour may support localization or tie-breaking after geometry;
+they may not become a hidden note-identity key.
+
+## Code Boundaries
+
+- `src/moneyrepair/`: supported deterministic package.
+- `src/moneyrepair/baselines/`: superseded comparison paths only.
+- `src/moneyrepair/experimental/`: unverified v6-v10, LLM, and policy
+  scaffolds. They require explicit opt-in and cannot feed production behavior.
+- `docs/benchmarks/`: committed measurement sources.
+- `docs/figures/`: deterministic plotting scripts and rendered outputs.
+- `runs/`: local generated evidence; do not commit physical/private data.
+
+## Validation Snapshot
+
+The consolidation gate on 2026-09-24 reports:
+
+- `159 passed` in the core pytest suite;
+- `compileall` clean;
+- Ruff clean across `src`, `tests`, and `docs/figures`;
+- targeted mypy clean for the changed CLI and diagram modules;
+- full-package mypy still advisory with 23 pre-existing errors in six unchanged
+  modules (`compat`, `tearfit`, `locator`, `pressure`, `figures`, and
+  `pipeline`).
+
+## Next Action
+
+The single highest-value step is operational, not algorithmic:
+
+> Capture the frozen scanner/phone pilot, create independent evaluation masks
+> and transforms, run `pilot-validate` and `reality-bridge`, and identify the
+> first failed physical gate.
+
+Until that evidence exists, the project is stage-complete and should remain
+frozen.

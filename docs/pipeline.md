@@ -1,208 +1,218 @@
-# Pipeline Notes
+# MoneyRepair Pipeline
 
-MoneyRepair is built around one shared note coordinate frame. Below is the high-level system architecture of the production reconstruction pipeline:
+MoneyRepair has one supported deterministic path and one explicit evidence
+boundary. Raw captures may enter the measurement funnel, but downstream
+assembly is trusted only after mask and pose gates pass. `STATUS.md` defines
+the current capability claim.
 
-![MoneyRepair Production Pipeline Flow](pipeline_diagram.svg)
+![MoneyRepair production pipeline](pipeline_diagram.svg)
 
-### Overall Pipeline Flow
-The system operates as an end-to-end batch processing pipeline:
-1. **Acquisition & Ingestion**: Raw scans or photos of fragments are captured and passed through automated quality gates.
-2. **Auto-Location**: Placements (X, Y, rotation, side) are automatically estimated against reference templates to generate candidate poses.
-3. **Compatibility Matrix Construction**: The supported default path builds pairwise compatibility from spatial overlap and geometry-first evidence. Superseded appearance and contact-count interlock checks remain available only as explicit diagnostic/baseline options; they are not the recommended production discriminator.
-4. **Assembly Solver**: A branch-and-bound DFS solver finds consistent, non-overlapping candidate note assemblies that satisfy serial and coverage requirements.
-5. **Interactive Review Loop**: Candidates are presented to operators who accept or reject them. Accepted fragments are permanently removed from the search pool.
+Editable source: [pipeline_diagram.drawio](pipeline_diagram.drawio). The graph
+spec is [pipeline_diagram.json](pipeline_diagram.json).
 
+## Stage 0: Coordinate And Tolerance Contract
 
-## Data model
+Before physical capture, freeze:
 
-Each fragment has:
+- physical sheet dimensions and reference image hashes;
+- scanner DPI or phone pixel scale and rectification procedure;
+- observation-to-canonical transform convention;
+- segmentation and registration tolerances in millimetres;
+- calibration/evaluation split and repeat aggregation;
+- automatic, review, and insufficient-evidence policies.
 
-- `id`: stable internal id.
-- `label`: physical or input label, usually from a file name or manifest field.
-- `side`: `front` or `back`.
-- `mask`: occupied pixels in note coordinates.
-- `image`: sparse RGB pixels in note coordinates.
-- `meta.affine_to_note`: optional 2x3 transform from local photo pixels to note
-  coordinates.
+The minimum effective feature is derived from the physical tolerance model,
+not hand-tuned against an evaluation case:
 
-## Real input path
+```text
+D_min = r_e * (2 * (T_seg + T_reg) + 0.25 * H) + T_seg + T_reg
+```
 
-The practical first path is a JSON manifest:
+`pilot-init`, `pilot-freeze-coordinate-contract`, and `pilot-validate` create
+and audit this contract. Validation inventories evidence; it never fills a
+missing capture or estimates a favourable threshold.
+
+## Stage 1: Capture, Segmentation, And Labels
+
+One clear scanner or phone frame may contain many separated fragments.
+`segment-scan` extracts connected components, writes RGBA crops and mask PNGs,
+and creates an editable manifest. `label-manifest` can assign stable labels
+from CSV, file names, IDs, or optional Tesseract OCR.
+
+The production manifest stores observations only:
 
 ```json
 {
   "note": {"width": 420, "height": 180},
+  "references": {
+    "front": "references/front.png",
+    "back": "references/back.png"
+  },
   "fragments": [
     {
       "id": "frag-0001",
       "label": "0001",
       "side": "front",
       "image": "fragments/0001.png",
-      "mask": "masks/0001.png",
-      "affine_to_note": [[1, 0, 120], [0, 1, 36]]
+      "mask": "masks/0001.png"
     }
   ]
 }
 ```
 
-If `mask` is omitted, the loader infers foreground from the alpha channel or from
-the corner background color. If `label` is omitted, the image filename stem is
-used.
+Gold masks and crop-to-canonical transforms belong in a separate evaluation
+annotation file. They must not be copied into production fragment metadata.
 
-For one clear scan or photo containing many separated fragments, use
-`segment-scan` first. It thresholds foreground against the corner background
-color, extracts connected components, writes RGBA crops plus mask PNGs, and
-generates an editable manifest. By default it preserves the original scan
-coordinates as a simple translation affine; if the scan is only a staging photo,
-edit the generated `affine_to_note` fields later after manual or automated
-placement.
+![Acquisition and pose handoff](acquisition_flow.svg)
 
-Use `label-manifest` after segmentation when labels need a second pass. It can
-copy labels from a CSV file, derive them from filenames or ids, or call optional
-Tesseract OCR. OCR is intentionally optional because it depends heavily on the
-local executable and scan quality; the manifest format keeps the recognized
-label editable either way.
+Editable source: [acquisition_flow.drawio](acquisition_flow.drawio).
 
-For v5, `segment-scan` records `acquisition.orientation_mode` as `free` by
-default. Once front/back references and optional evaluation annotations have
-been added, audit the upstream handoff before reconstruction:
+## Stage 2: Mask Gate
+
+The mask audit separates error types that have different physical meanings:
+
+- symmetric external-boundary p95 in observation pixels and millimetres;
+- interior missing and extraneous area fractions;
+- disconnected components and isolated extraneous components;
+- internal holes and topology changes;
+- descriptive IoU, which is not the sole release criterion.
+
+An input that fails the calibrated mask contract is recaptured or resegmented.
+It must not be pushed downstream and hidden by a wider tear tolerance.
+
+## Stage 3: Pose Proposal And Uncertainty
+
+The locator proposes front/back, rotation, and translation in the canonical
+note frame. The current v5 alpha measures:
+
+- coarse-lattice population and fixed internal shortlist;
+- returned top-K and top-1 recall when evaluation truth is available;
+- translation and angular residuals in their correct coordinate frames;
+- score margins and observable pose uncertainty;
+- transform-family and ranking-stage miss localization;
+- automatic pose precision and false-automatic count.
+
+`reality-bridge` routes each fragment as `automatic`, `review`, or
+`insufficient-evidence`. Only automatic placements are written to downstream
+handoff datasets. The current clean cardinal proxy reaches only `4/8` top-K
+recall, and no qualifying physical result exists; this stage is therefore a
+measurement gate, not a solved production component.
+
+## Stage 4: Placed Tear Evidence
+
+Once fragments share the canonical frame, `tearfit.py` scores whether two
+placed boundaries represent the two sides of one tear. Adaptive `Etear`
+combines evidence such as contiguous bidirectional support, matched fraction,
+normal opposition, curvature structure, unexplained boundary, overlap, and
+pose uncertainty.
+
+Important boundaries:
+
+- this is placed-coordinate tear evidence, not a generic raw-crop contour
+  matcher over arbitrary transforms;
+- missing tear geometry is never generated or inpainted;
+- appearance and wear clustering are not note-identity keys;
+- contact amount alone is not tear complementarity.
+
+## Stage 5: Candidate Construction
+
+Automatic tear edges form high-confidence core components. Candidate search is
+bounded by deterministic state/node budgets. Whole-assembly gap recovery may
+add a fragment when several partial boundaries jointly explain it, even if no
+single pair is strong enough.
+
+The frozen v4.4.1 selector uses fragment-disjoint rounds at fixed complete and
+partial base limits. This removes the measured global-ranking limiter on one
+`N=100`, `p=24`, seed-7 case. Ten notes still lack a pure automatic component
+that reaches the core threshold; physical data must reproduce that wall before
+another component-construction method is allowed.
+
+## Stage 6: Exact-Cover Selection
+
+The final selector chooses globally consistent candidate notes. It enforces:
+
+- no fragment reuse;
+- overlap and compatibility constraints;
+- coverage requirements;
+- serial/OCR deduplication when labels are legible;
+- deterministic tie-breaking and auditable provenance.
+
+The pairwise compatibility matrix is stored with `numpy.packbits`. A
+20,000-by-20,000 dense Boolean matrix is about 381 MB, while the packed form is
+about 48 MB before `.npz` compression. `estimate-matrix` reports the expected
+memory for a requested size.
+
+![Candidate and exact-cover logic](search_logic.svg)
+
+Editable source: [search_logic.drawio](search_logic.drawio).
+
+## Stage 7: Release Or Review
+
+Automatic confirmation requires the declared evidence gates; otherwise the
+candidate remains in a human queue. `batch-next` writes a visual candidate
+report. `batch-confirm` records an accepted note and removes its fragments from
+future searches; `batch-reject` records a rejected candidate.
+
+![Operator confirmation loop](operator_loop.svg)
+
+Editable source: [operator_loop.drawio](operator_loop.drawio).
+
+## Auditable Run Outputs
+
+`run-pipeline` and related commands write machine-readable artifacts rather
+than relying on console summaries. A run manifest should include:
+
+- input path and SHA256;
+- exact parameters and requested/actual strategy;
+- software/schema version;
+- per-stage timing, including preprocessing versus search;
+- candidate, coverage, quality, and routing counts;
+- output paths and fingerprints;
+- whether a limit or timeout truncated the run.
+
+Generated `runs/` outputs are local evidence and are not committed. Curated,
+non-private benchmark JSON may be copied to `docs/benchmarks/` only with its
+protocol and provenance documented.
+
+## Main Commands
+
+Synthetic smoke test:
+
+```bash
+moneyrepair smoke --output-dir runs/smoke --pieces 18 --coverage 0.98
+```
+
+Raw-crop handoff audit:
 
 ```bash
 moneyrepair reality-bridge \
-  --manifest runs/scan/manifest.json \
-  --annotations runs/scan/annotations.json \
+  --manifest runs/capture/manifest.json \
+  --annotations runs/capture/annotations.json \
   --reference-front references/front.png \
   --reference-back references/back.png \
-  --output-dir runs/scan/reality_audit
+  --output-dir runs/capture/reality_audit
 ```
 
-This command keeps raw crops in local coordinates, measures segmentation and
-pose recall, and writes note-coordinate datasets only for automatically routed
-top-1 poses. Ground-truth masks and complete crop-to-canonical transforms live
-in a separate evaluation file and are stripped from production fragment
-metadata. See [the v5 alpha report](v5_reality_bridge.md) and the
-[real-capture pilot contract](v5_real_capture_pilot.md).
+Pre-aligned production batch:
 
-## Image Quality Gate & Ingestion Flow
+```bash
+moneyrepair run-pipeline \
+  --dataset runs/placed_pool.npz \
+  --output-dir runs/final \
+  --coverage 0.97
+```
 
-Before fragment data is registered into the active pool, it is run through a sequential automated Quality Assessment (QA) Gate:
+Raw crops should go through `reality-bridge` first. Appearance discrimination
+requires fragments already represented in the template coordinate frame; it
+is not a raw-crop auto-location mode.
 
-![Image QA Gating Pipeline](acquisition_flow.svg)
+## Research Gate
 
-### QA Gate Description
-- **Focus Verification**: Computes Laplacian variance on the fragment crop to reject blurred inputs.
-- **Glare/Saturation Detection**: Evaluates luminance channels to flag saturated regions caused by camera flash or bright spots.
-- **Solidity/Foreground Checks**: Measures connected component mask density and contour solidity to ensure clean background extraction.
-- **Color Drift/Tone Fitting**: Assesses pixel statistics relative to reference color profiles to check for staining or illumination changes.
+![Evidence-gated research path](research_gates.svg)
 
-If any gate is violated, the fragment is flagged and routed to a manual quality-review queue, ensuring that only clean and geometrically sound masks enter the active candidate pool.
+Editable source: [research_gates.drawio](research_gates.drawio).
 
-## Compatibility evidence
-
-The current matrix is pairwise same-note compatibility:
-
-- mask overlap above tolerance means two fragments cannot be on the same note;
-- optional reference RGB scoring can remove fragments whose affine placement or
-  side assignment is obviously wrong;
-- contour matching can provide an extra short list for difficult fragments.
-
-For the placed-fragment tear-fit research path, v4.3 adds a stricter evidence
-cascade:
-
-1. `automatic` Etear edges build a high-confidence core graph;
-2. `review` edges may support a fragment only when it fits multiple boundaries
-   of the whole partial assembly;
-3. exact-cover sees only candidates that reach the target coverage;
-4. review candidates remain in the human queue even when geometrically exact in
-   simulation.
-
-See [the v4.3 measured report](v4_3_tear_effectiveness.md). This path assumes
-fragments already share note coordinates; it is not a raw-crop contour matcher.
-
-The stored matrix uses `numpy.packbits`, so a 20,000 by 20,000 boolean matrix is
-about 50 MB before `.npz` compression.
-
-If pairwise comparison has already been recorded, import the two-column pair
-list with `moneyrepair import-pairs`. The search command loads the packed matrix
-directly, so it does not need to expand the full 20,000 by 20,000 matrix into a
-dense boolean array.
-
-`moneyrepair estimate-matrix --fragments 20000` reports about 381 MB for a dense
-boolean matrix versus about 48 MB for the packed representation before `.npz`
-compression.
-
-Use `moneyrepair benchmark-synthetic` for local timing evidence. It runs the
-deterministic synthetic pipeline and reports separate timings for simulation,
-matrix construction, and DFS solving.
-
-## Search
-
-The reconstruction solver finds valid assemblies using a depth-first search (DFS) over the pairwise compatibility matrix:
-
-![DFS Branch and Bound Logic](search_logic.svg)
-
-### DFS Solver Flow & Pruning
-- **Preordering**: Active candidates are prioritized topologically (contiguity-first, where candidates touching the current assembly are searched first to fail fast) and geometrically (descending fragment area, establishing the large structural skeleton early).
-- **Pruning (Bounding)**: At each recursion level, the solver computes the maximum possible coverage of the remaining candidates. If the sum of the current selected area and the remaining candidates' area is less than the target coverage, the entire subtree branch is immediately pruned.
-- **Backtracking**: If a conflict (spatial overlap) is detected or the branch fails the coverage bound, the solver backtracks, undoes the last assignment, and tries the next candidate.
-
-## Batch confirmation loop
-
-Reconstructing a large fragment pool is an iterative, human-in-the-loop audit process:
-
-![Interactive Operator Audit Loop](operator_loop.svg)
-
-### Operator Audit Flow
-1. **Candidate Generation**: The operator runs `batch-next` to search for note candidates among the remaining active fragments.
-2. **Interactive Review**: The operator opens the generated HTML visual report showing reconstruction overlays, coverage levels, and serial/OCR checks.
-3. **Confirmation**:
-   - If the assembly is visually correct, the operator confirms it using `batch-confirm`.
-   - The system registers the confirmed banknote, assigns a stable note ID, and **permanently removes its constituent fragments from the active pool**.
-4. **Rejection**:
-   - If the assembly is incorrect (contains a mismatched piece or a serial duplication error), the operator rejects it using `batch-reject`.
-   - The system logs the rejection reason and records the fragment subset signature in a blacklist to ensure **this specific chimera is never generated or shown again**.
-5. **Iteration**: The operator repeats the process on the remaining fragments. As confirmed fragments disappear, the search pool shrinks, accelerating subsequent solver runs.
-
-## Historical Multi-Note Discrimination (v3.0)
-
-> Historical baseline. Appearance clustering was useful for exposing the
-> chimera failure in friendly simulations, but `STATUS.md` is authoritative:
-> spatially non-uniform wear makes appearance a weak tie-breaker rather than a
-> production discriminator.
-
-When reconstructing fragments from a pool containing multiple banknotes of the same denomination (a multi-note pool), a pure pixel-overlap compatibility matrix is insufficient. Since identical-denomination notes share the same spatial design and templates, fragments from different notes can easily tile a template without overlapping, producing "chimera" (縫合怪) solutions that mix different physical notes (resulting in ~90% chimeras in standard 5-note pools).
-
-To address this, MoneyRepair incorporates **Appearance Fingerprint Discrimination**:
-- **Gain-Fitting**: Each fragment is matched against the reference template to estimate a per-channel brightness/color gain factor:
-  $$observed \approx gain \times template$$
-  This tone transform is invariant to the specific region of the banknote.
-- **Clustering**: Fragments are grouped into clusters using a density-based algorithm (like DBSCAN) on their appearance gain vectors. Each cluster corresponds to a distinct physical note.
-- **Discrimination Matrix**: `compute_compatibility_clustered` restricts compatibility. Two fragments are compatible only if they belong to the same appearance cluster (or share the same serial label in serial-based discrimination) and do not overlap.
-
-## Production-Grade Auto-Locator & Candidate Pose Search (v4.0)
-
-In a real-world scenario, approximate fragment placements are not pre-aligned. Instead, the pipeline automatically estimates multiple candidate poses for each fragment and searches over combinations of these poses.
-
-### 1. Auto-Locator with Coarse-to-Fine Search (`locator.py`)
-To align an input crop against the templates without given placement, the locator performs template matching over the front and back reference images:
-- **Pyramid Downsampling**: The template and the crop are downsampled to Level 1 ($0.5\times$ resolution). The coarse global search scans the template using a step size of 8.
-- **Numba JIT Acceleration**: The matching inner loop is decorated with `@numba.njit` utilizing zero-allocation flat array indexing. This eliminates Python interpreter and array allocation overhead, accelerating the search to **~67ms per fragment**.
-- **Fine Refinement**: The Top-K candidate poses from the coarse search are scaled up to Level 0 ($1.0\times$ resolution), and a local $9\times9$ grid search is run to refine the position to the highest matching score.
-- **Uncertainty Output**: The local score basin now yields `sigma_x`, `sigma_y`,
-  score margin, and basin sample count. Broad peaks reduce downstream tear
-  confidence. `sigma_theta` remains unavailable until continuous-angle
-  refinement is implemented.
-
-The v5 alpha proxy demonstrates that this locator is not yet a production
-registration solution: an eight-fragment clean cardinal proxy reaches only
-`4/8` top-k recall, and a free-angle proxy reaches `0/8`. Increasing returned K
-does not recover the missing poses. Measurement-only coarse-lattice metadata
-shows that all four cardinal misses are grid-reachable but fall below the fixed
-internal top-10; the free-angle misses are outside the current transform family.
-Reconstruction claims therefore stop at the pose handoff until real acquisition
-is measured and registration is repaired.
-
-### 2. Candidate Pose Solver Integration
-- **Virtual Placed Fragments**: Each candidate pose (specifying X, Y, rotation, side, and match score) is represented as a virtual placed fragment with a unique ID format `f{piece_index}_pose{pose_index}`.
-- **Mutual Exclusion Matrix**: When building the compatibility matrix, selecting pose $P_{i,j}$ for fragment $i$ must exclude all other poses of fragment $i$ from the candidate search pool. The matrix builder enforces this constraint by setting compatibility between different poses of the same fragment to `False`.
-- **CLI Support**: The `--auto-locate` command-line argument triggers candidate pose search inside `run-pipeline`, allowing end-to-end reconstruction from raw unaligned fragment crops.
+The order is binding: physical mask contract, physical pose handoff, failure
+localization, then at most one frozen-variable component A/B. A learned seam
+descriptor is conditional on a remaining retrieval residual. If no qualifying
+wall recurs, keep the deterministic core frozen.

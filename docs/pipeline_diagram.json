@@ -1,113 +1,128 @@
 {
   "title": "MoneyRepair production pipeline",
-  "width": 1350.0,
-  "height": 196.0,
+  "width": 824.0,
+  "height": 350.0,
   "nodes": [
     {
-      "id": "acq",
-      "label": "Acquisition QA",
+      "id": "contract",
+      "label": "Frozen capture contract",
       "x": 30.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "terminator"
-    },
-    {
-      "id": "manifest",
-      "label": "Manifest model",
-      "x": 220.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "data"
     },
     {
-      "id": "prune",
-      "label": "Compatibility pruning",
-      "x": 410.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "id": "ingest",
+      "label": "Mask + image ingest",
+      "x": 232.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "process"
     },
     {
-      "id": "search",
-      "label": "DFS search",
-      "x": 600.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "id": "pose",
+      "label": "Pose + uncertainty",
+      "x": 434.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "process"
     },
     {
-      "id": "report",
-      "label": "Candidate report",
-      "x": 790.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
-      "style": "data"
+      "id": "tear",
+      "label": "Placed tear evidence",
+      "x": 636.0,
+      "y": 72.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
     },
     {
-      "id": "review",
-      "label": "Operator review",
-      "x": 980.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "id": "candidates",
+      "label": "Core + gap candidates",
+      "x": 636.0,
+      "y": 188.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
+    },
+    {
+      "id": "cover",
+      "label": "Exact-cover selection",
+      "x": 434.0,
+      "y": 188.0,
+      "width": 158.0,
+      "height": 60.0,
+      "style": "process"
+    },
+    {
+      "id": "route",
+      "label": "Automatic or review?",
+      "x": 232.0,
+      "y": 188.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "decision"
     },
     {
       "id": "confirm",
-      "label": "Confirmed note",
-      "x": 1170.0,
-      "y": 70.0,
-      "width": 150.0,
-      "height": 56.0,
+      "label": "Confirmed assembly",
+      "x": 30.0,
+      "y": 188.0,
+      "width": 158.0,
+      "height": 60.0,
       "style": "terminator"
     }
   ],
   "edges": [
     {
-      "source": "acq",
-      "target": "manifest",
-      "label": "accepted frames",
-      "kind": "flow"
-    },
-    {
-      "source": "manifest",
-      "target": "prune",
+      "source": "contract",
+      "target": "ingest",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "prune",
-      "target": "search",
-      "label": "compatible pairs",
-      "kind": "flow"
-    },
-    {
-      "source": "search",
-      "target": "report",
-      "label": "candidates",
-      "kind": "flow"
-    },
-    {
-      "source": "report",
-      "target": "review",
+      "source": "ingest",
+      "target": "pose",
       "label": "",
       "kind": "flow"
     },
     {
-      "source": "review",
+      "source": "pose",
+      "target": "tear",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "tear",
+      "target": "candidates",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "candidates",
+      "target": "cover",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "cover",
+      "target": "route",
+      "label": "",
+      "kind": "flow"
+    },
+    {
+      "source": "route",
       "target": "confirm",
-      "label": "accept",
+      "label": "",
       "kind": "flow"
     },
     {
-      "source": "review",
-      "target": "search",
-      "label": "reject / retry",
+      "source": "route",
+      "target": "pose",
+      "label": "review / correct",
       "kind": "feedback"
     }
   ]
