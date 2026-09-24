@@ -12,7 +12,7 @@ reopening the spent v4.4.1 seed-7 tuning loop.
 |---|---|---|---|
 | Song et al., *ERL-MPP* (AAAI 2025) | pair, small-group, and global evidence; moves over groups rather than only single pieces | component-level oracle accounting already available through the frozen core graph | actor-critic/evolutionary RL, fixed-grid puzzlets, RGB-semantic global discriminator |
 | Shahar, Elkin, and Ben-Shahar, *The Missing GAP* (CVPR 2026) | validate synthetic shapes against geometry measured from real masks; preserve an explicit mask channel | deterministic fragment-mask distribution summary | treating learned single-fragment shape realism as proof of paired tear realism; ViT/flow solver |
-| Rikaa et al., *A Generic Hybrid Framework for 2D Visual Reconstruction* (2025) | true-neighbour rank, Top-K retrieval, reciprocal best buddies, hard negatives | MRR, recall@K, candidate-graph recall, and reciprocal-best-buddy precision/recall | whole-fragment appearance identity, per-edge min-max confidence, GA, best-of-many-run reporting |
+| Rikaa et al., *A Generic Hybrid Framework for 2D Visual Reconstruction* (2025) | true-neighbour rank, Top-K retrieval, reciprocal best buddies, hard negatives | same-source first-positive MRR/Hit@K, query candidate-hit rate, and reciprocal-best-buddy diagnostics | claiming the proxy is seam-mate retrieval, whole-fragment appearance identity, per-edge min-max confidence, GA, best-of-many-run reporting |
 
 The papers solve materially easier identity settings: square/grid topology,
 small fragment counts, or visually distinct source images. MoneyRepair must
@@ -32,12 +32,15 @@ moneyrepair paper-transfer-audit \
 The command performs no candidate generation and no exact-cover selection. It
 reports three post-hoc measurement groups:
 
-1. `pair_retrieval`: candidate-graph recall, MRR, recall@1/3/5/10, rank
+1. `pair_retrieval`: same-source query candidate-hit rate, first-positive MRR,
+   Hit@1/3/5/10, rank
    histogram, and reciprocal-best-buddy precision/recall, reported separately
    for all scored pairs, review-or-better pairs, and automatic-only pairs.
-   Missing true-source candidates score zero; neither the geometric prefilter
-   nor the evidence gate can silently remove hard queries and leave an inflated
-   conditional rank.
+   A query scores zero when all of its same-source candidates are missing; loss
+   of only some same-source candidates is not measured by this first-positive
+   proxy. RBB predictions are built truth-blind over the complete scored graph;
+   truth eligibility limits only MRR/Hit@K queries. Pairs with unknown truth are
+   counted separately and excluded from the RBB precision denominator.
 2. `fragment_geometry`: area, perimeter, normalized perimeter, bounding-box
    ratios, circularity, compactness, convex solidity, concavity, and hull-vertex
    distributions. Raw pixel quantities are comparable only in a common
@@ -57,7 +60,7 @@ The new command was run at the frozen wall (`N=100`, `p=24`, seed 7) over
 2,400 fragments and 374,773 scored pairs. This is one deterministic simulator
 case, not a replicated or physical-data result.
 
-| scored graph | candidate recall | MRR | recall@1 | reciprocal-best-buddy precision | reciprocal coverage of same-note scored pairs |
+| scored graph | same-source query hit | first-positive MRR | Hit@1 | reciprocal-best-buddy precision | conditional reciprocal coverage of same-note scored pairs |
 |---|---:|---:|---:|---:|---:|
 | all scored | 1.0000 | 0.9931 | 0.9867 | 1.0000 | 0.0916 |
 | review or better | 1.0000 | 0.9931 | 0.9867 | 1.0000 | 0.1914 |
@@ -69,6 +72,12 @@ remaining ten are the already-known multi-component misses. This is the useful
 negative result from the hybrid-framework metrics: excellent nearest-neighbour
 ranking is not equivalent to having enough accepted true edges to construct a
 high-coverage component.
+
+The reciprocal-coverage denominator is local to each filtered layer. Therefore
+`0.0916 -> 0.1914 -> 0.2484` is **not** an end-to-end recall improvement: the
+numerator remains 741 while the denominator shrinks from 8,086 to 3,872 to
+2,983. Whole-fragment RBB also forms disjoint pairs (degree at most one), so it
+cannot by itself represent a multi-piece assembly graph.
 
 The same run establishes a synthetic shape baseline for the future physical
 pilot:
@@ -84,6 +93,14 @@ These values are reference measurements, not realism gates. Thresholds for
 real/synthetic agreement must be preregistered only after independent physical
 calibration masks exist; fitting them to this simulator would repeat the same
 benchmark-overfitting error the v5 freeze is designed to prevent.
+
+The estimators are deliberately recorded rather than presented as exact
+reproductions of The Missing GAP: perimeter is four-neighbour exposed
+pixel-cell edge length; compactness is `P^2/(4*pi*A)`; concavity is
+`1 - area/hull_area`; and hull vertices are not contour-simplified. The paper
+uses different estimators for several of these quantities. Even dimensionless
+values require the same canonical-frame canvas contract: `area_fraction` from
+a tight raw crop is not comparable with the full-note-canvas baseline above.
 
 ## Preregistered decision ladder
 
@@ -140,6 +157,8 @@ insufficient.
 The three papers are exhausted for the current evidence state when:
 
 - rank and reciprocal-best-buddy diagnostics are implemented;
+- reciprocal-best-buddy predictions are generated independently of truth
+  eligibility, with unknown-truth predictions reported separately;
 - simulator mask distributions are exportable for a future real/synthetic
   comparison;
 - component-level coverage is reported without changing reconstruction;

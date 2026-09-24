@@ -177,17 +177,20 @@ constraints; appearance is at most a tie-breaker.
   (Top-K, MRR, reciprocal best buddies), GAP-style mask-geometry distributions,
   and component-level oracle coverage without changing Etear, candidate
   construction, routing, or exact cover. On the existing N=100, p=24, seed-7
-  simulator case, all-scored same-note candidate recall is `1.000`, MRR is
-  `0.9931`, and Top-1 recall is `0.9867`. Even the automatic-only graph retains
-  candidate recall `0.9946`, Top-1 `0.9846`, and reciprocal-best-buddy precision
+  simulator case, the all-scored same-note query hit rate is `1.000`,
+  first-positive MRR is `0.9931`, and Hit@1 is `0.9867`. Even the automatic-only
+  graph retains query hit `0.9946`, Hit@1 `0.9846`, and reciprocal-best-buddy precision
   `1.000`; nevertheless only `90/100` notes form a true automatic component
   reaching the frozen `0.78` core threshold. Reciprocal best buddies cover only
-  `741/2983` automatic true scored pairs. This falsifies using excellent local
-  retrieval as a substitute for assembly-level component coverage. Geometry
+  `741/2983` automatic true scored pairs; this is a within-gate conditional
+  denominator, not an end-to-end recall. RBB predictions are now generated over
+  the complete score graph without truth eligibility filtering. This falsifies
+  using excellent first-positive local retrieval as a substitute for
+  assembly-level component coverage. Geometry
   distributions are now exportable, but no real-mask distribution exists yet,
   so simulator realism remains unvalidated. The literature-derived component
   action and learned descriptor remain conditional on reliable physical handoff
-  and recurrence of the same real failure. All 152 tests pass (3 optional tests
+  and recurrence of the same real failure. All 154 tests pass (3 optional tests
   skipped); `ruff`, `compileall`, and targeted mypy are clean. See
   [the literature-transfer audit](docs/v5_literature_transfer_audit.md).
 

@@ -7,6 +7,12 @@
 - Report same-source pair retrieval separately for all scored,
   review-or-better, and automatic-only graphs using MRR, recall@K, and
   reciprocal-best-buddy metrics.
+- Build reciprocal-best-buddy predictions over the complete scored graph rather
+  than truth-eligible queries, and report evaluable, false, and unknown-truth
+  pairs separately so ground truth cannot improve the prediction set.
+- Record the first-positive/conditional-denominator semantics and the exact mask
+  geometry estimators; these diagnostics are not physical seam-mate recall or a
+  direct reproduction of The Missing GAP feature definitions.
 - Export dimensionless and pixel-scale fragment-mask geometry distributions for
   a future real/synthetic comparison.
 - Confirm on the frozen N=100, p=24, seed-7 case that near-perfect local pair

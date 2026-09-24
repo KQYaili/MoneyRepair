@@ -192,9 +192,10 @@ moneyrepair paper-transfer-audit \
   --output runs/paper_transfer/audit_n20_p24_seed7.json
 ```
 
-This reports ranked same-source retrieval, reciprocal best buddies,
-fragment-mask geometry distributions, and true-component coverage. It is a
-post-hoc simulator diagnostic, not permission to unfreeze the core; see the
+This reports first-positive same-source retrieval, truth-blind reciprocal best
+buddies, explicitly defined fragment-mask geometry distributions, and
+true-component coverage. It is a post-hoc simulator diagnostic, not a
+physical-seam recall result or permission to unfreeze the core; see the
 **[literature-transfer audit](docs/v5_literature_transfer_audit.md)**.
 
 ### 7. Production Batch Pipeline

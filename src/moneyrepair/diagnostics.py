@@ -57,11 +57,8 @@ def diagnose_pair_retrieval(
         neighbours[right][left] = score
 
     ranks: dict[int, int | None] = {}
-    ordered_candidates: dict[int, list[int]] = {}
-    queries_with_candidates = 0
-    queries_with_positive_candidates = 0
-    for index in sorted(eligible):
-        ordered = sorted(
+    ordered_candidates = {
+        index: sorted(
             neighbours[index],
             key=lambda other: (
                 -neighbours[index][other],
@@ -69,7 +66,12 @@ def diagnose_pair_retrieval(
                 other,
             ),
         )
-        ordered_candidates[index] = ordered
+        for index in range(len(fragments))
+    }
+    queries_with_candidates = 0
+    queries_with_positive_candidates = 0
+    for index in sorted(eligible):
+        ordered = ordered_candidates[index]
         if ordered:
             queries_with_candidates += 1
         first_positive = next(
@@ -86,6 +88,8 @@ def diagnose_pair_retrieval(
 
     eligible_queries = len(eligible)
     reciprocal_pairs: set[tuple[int, int]] = set()
+    # Predictions must be truth-blind. Build RBBs over the complete scored graph;
+    # truth eligibility only defines which queries can be scored by MRR/Hit@K.
     best = {
         index: ordered[0]
         for index, ordered in ordered_candidates.items()
@@ -95,8 +99,17 @@ def diagnose_pair_retrieval(
         if best.get(right) == left:
             reciprocal_pairs.add((min(left, right), max(left, right)))
     true_reciprocal_pairs = {
-        pair for pair in reciprocal_pairs if labels[pair[0]] == labels[pair[1]]
+        pair
+        for pair in reciprocal_pairs
+        if labels[pair[0]] is not None and labels[pair[0]] == labels[pair[1]]
     }
+    evaluable_reciprocal_pairs = {
+        pair
+        for pair in reciprocal_pairs
+        if labels[pair[0]] is not None and labels[pair[1]] is not None
+    }
+    false_reciprocal_pairs = evaluable_reciprocal_pairs - true_reciprocal_pairs
+    unknown_reciprocal_pairs = reciprocal_pairs - evaluable_reciprocal_pairs
     true_scored_pairs = {
         pair
         for pair in unique_pairs
@@ -116,6 +129,8 @@ def diagnose_pair_retrieval(
     return {
         "evaluation_truth_only": True,
         "truth_key": truth_key,
+        "positive_relation": "same known truth_key value; first positive per query",
+        "rbb_predictions_truth_blind": True,
         "fragments": len(fragments),
         "eligible_queries": eligible_queries,
         "scored_pairs": len(unique_pairs),
@@ -144,16 +159,22 @@ def diagnose_pair_retrieval(
         },
         "rank_histogram": rank_histogram,
         "reciprocal_best_buddy_pairs": len(reciprocal_pairs),
+        "evaluable_reciprocal_best_buddy_pairs": len(evaluable_reciprocal_pairs),
+        "unknown_truth_reciprocal_best_buddy_pairs": len(unknown_reciprocal_pairs),
         "true_reciprocal_best_buddy_pairs": len(true_reciprocal_pairs),
+        "false_reciprocal_best_buddy_pairs": len(false_reciprocal_pairs),
         "reciprocal_best_buddy_precision": (
-            len(true_reciprocal_pairs) / len(reciprocal_pairs)
-            if reciprocal_pairs
+            len(true_reciprocal_pairs) / len(evaluable_reciprocal_pairs)
+            if evaluable_reciprocal_pairs
             else 0.0
         ),
         "reciprocal_best_buddy_recall_over_scored_truth_pairs": (
             len(true_reciprocal_pairs) / len(true_scored_pairs)
             if true_scored_pairs
             else 0.0
+        ),
+        "reciprocal_best_buddy_recall_denominator": (
+            "same_truth_scored_pairs within this filtered score layer"
         ),
     }
 
@@ -277,7 +298,19 @@ def summarize_fragment_geometry(fragments: Iterable[Fragment]) -> dict:
         }
     return {
         "measurement_only": True,
-        "coordinate_unit": "pixels; compare raw pixel features only at a common canonical scale",
+        "coordinate_unit": (
+            "pixels; compare raw pixel features and area_fraction only in the "
+            "same canonical-frame canvas contract"
+        ),
+        "feature_definitions": {
+            "perimeter_pixels": "four-neighbour exposed pixel-cell edge length",
+            "circularity": "4*pi*area/perimeter^2",
+            "compactness": "perimeter^2/(4*pi*area); inverse circularity",
+            "convex_hull_area_pixels": "convex hull area of foreground pixel-cell corners",
+            "convex_solidity": "area/convex_hull_area",
+            "concavity_ratio": "1-convex_solidity; not a curvature-point count",
+            "convex_hull_vertices": "unsimplified pixel-cell-corner hull vertices",
+        },
         "fragments": len(items),
         "mask_shapes": dict(sorted(shape_counts.items())),
         "features": summaries,

@@ -66,6 +66,51 @@ def test_pair_retrieval_charges_missing_positive_candidates() -> None:
     assert metrics["reciprocal_best_buddy_precision"] == 0.0
 
 
+def test_rbb_predictions_do_not_depend_on_truth_query_eligibility() -> None:
+    fragments = [
+        _fragment("a0", "a"),
+        _fragment("a1", "a"),
+        _fragment("b0", "b"),
+        _fragment("b1", "b"),
+        _fragment("c0", "c"),
+        _fragment("d0", "d"),
+    ]
+    metrics = diagnose_pair_retrieval(
+        fragments,
+        [
+            (0, 1, 0.90),
+            (2, 3, 0.80),
+            (4, 5, 0.70),
+        ],
+    )
+
+    assert metrics["eligible_queries"] == 4
+    assert metrics["mrr"] == 1.0
+    assert metrics["reciprocal_best_buddy_pairs"] == 3
+    assert metrics["evaluable_reciprocal_best_buddy_pairs"] == 3
+    assert metrics["true_reciprocal_best_buddy_pairs"] == 2
+    assert metrics["false_reciprocal_best_buddy_pairs"] == 1
+    assert metrics["reciprocal_best_buddy_precision"] == pytest.approx(2.0 / 3.0)
+
+
+def test_rbb_precision_reports_unknown_truth_pairs_separately() -> None:
+    fragments = [
+        _fragment("a0", "a"),
+        _fragment("a1", "a"),
+        Fragment("unknown", np.ones((2, 2), dtype=bool)),
+        _fragment("b0", "b"),
+    ]
+    metrics = diagnose_pair_retrieval(
+        fragments,
+        [(0, 1, 0.90), (2, 3, 0.80)],
+    )
+
+    assert metrics["reciprocal_best_buddy_pairs"] == 2
+    assert metrics["evaluable_reciprocal_best_buddy_pairs"] == 1
+    assert metrics["unknown_truth_reciprocal_best_buddy_pairs"] == 1
+    assert metrics["reciprocal_best_buddy_precision"] == 1.0
+
+
 def test_mask_geometry_uses_pixel_cells_and_detects_concavity() -> None:
     square = np.ones((2, 2), dtype=bool)
     square_features = mask_geometry_features(square)
