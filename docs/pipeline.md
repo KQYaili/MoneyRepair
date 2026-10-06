@@ -193,6 +193,23 @@ moneyrepair reality-bridge \
   --output-dir runs/capture/reality_audit
 ```
 
+Frozen tear-fit core on a placed handoff:
+
+```bash
+moneyrepair reconstruct \
+  --dataset runs/capture/reality_audit/handoff_front.npz \
+  --max-pieces 10 \
+  --output-dir runs/capture/core
+```
+
+`reconstruct` runs Stages 4-6 with the frozen v4.4.1 preset and reports which
+selected assemblies are automatic and which need review. It reads only locator
+pose uncertainty from fragment metadata, rejects fragments marked with a
+non-observed provenance, and records the input SHA256 in
+`reconstruction_report.json`. Its pixel thresholds were calibrated on 180x90
+simulation canvases, so physical results are diagnostic only. `run-pipeline`
+below is the older overlap-matrix search and does not use the tear-fit core.
+
 Pre-aligned production batch:
 
 ```bash

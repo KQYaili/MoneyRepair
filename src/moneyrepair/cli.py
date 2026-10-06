@@ -76,6 +76,7 @@ from moneyrepair.tearfit import (
     TEARFIT_GAP_ROUTING,
     TEARFIT_SEED_STRATEGIES,
     TEARFIT_V43_FINE_FRACTION,
+    run_tearfit_reconstruction,
     run_tearfit_strategy_comparison,
     run_tearfit_sweep,
     run_tearfit_v43_ablation,
@@ -173,6 +174,21 @@ def _cmd_reality_bridge(args: argparse.Namespace) -> None:
     )
     print(json.dumps(report["funnel"], indent=2))
     print(f"wrote reality-bridge report to {report['outputs']['report']}")
+
+
+def _cmd_reconstruct(args: argparse.Namespace) -> None:
+    report = run_tearfit_reconstruction(
+        args.dataset,
+        args.output_dir,
+        max_pieces=args.max_pieces,
+        expected_notes=args.expected_notes,
+    )
+    routing = report["routing"]
+    print(
+        f"automatic={len(routing['automatic'])} review={len(routing['review'])} "
+        f"unassigned_fragments={len(routing['unassigned_fragment_ids'])}"
+    )
+    print(f"wrote reconstruction report to {report['outputs']['report']}")
 
 
 def _cmd_pilot_init(args: argparse.Namespace) -> None:
@@ -1662,6 +1678,29 @@ def build_parser() -> argparse.ArgumentParser:
     reality.add_argument("--effectiveness-ratio", type=float, default=1.0)
     reality.add_argument("--overlay-height-mm", type=float, default=0.0)
     reality.set_defaults(func=_cmd_reality_bridge)
+
+    reconstruct = sub.add_parser(
+        "reconstruct",
+        help="run the frozen v4.4.1 tear-fit core on fragments already placed in the canonical frame",
+    )
+    reconstruct.add_argument(
+        "--dataset",
+        required=True,
+        help="placed-fragment .npz, for example a reality-bridge handoff",
+    )
+    reconstruct.add_argument("--output-dir", required=True)
+    reconstruct.add_argument(
+        "--max-pieces",
+        type=int,
+        required=True,
+        help="maximum fragments in one assembled note",
+    )
+    reconstruct.add_argument(
+        "--expected-notes",
+        type=int,
+        help="note count for the per-note cover budget; estimated from fragment area when omitted",
+    )
+    reconstruct.set_defaults(func=_cmd_reconstruct)
 
     pilot_init = sub.add_parser(
         "pilot-init",

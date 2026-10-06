@@ -144,6 +144,22 @@ moneyrepair reality-bridge \
   --output-dir runs/capture/reality_audit
 ```
 
+Automatic placements from that audit can then be passed to the frozen v4.4.1
+tear-fit core. It reads only locator pose uncertainty from fragment metadata
+and reports which selected assemblies are automatic, which need review, and
+which fragments stay unassigned:
+
+```bash
+moneyrepair reconstruct \
+  --dataset runs/capture/reality_audit/handoff_front.npz \
+  --max-pieces 10 \
+  --output-dir runs/capture/core
+```
+
+The core's pixel thresholds were calibrated on 180x90 simulation canvases, so
+its output on physical captures is diagnostic only, and the pilot protocol
+allows it only after Gates 1-3 pass.
+
 Read [the physical-pilot protocol](docs/v5_real_capture_pilot.md) before using
 these commands. The pipeline must repair only the first failed stage: mask,
 pose recall, uncertainty routing, or downstream assembly.

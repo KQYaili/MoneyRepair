@@ -4,15 +4,15 @@ import argparse
 from hashlib import sha256
 import json
 from math import ceil
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from itertools import combinations
 from pathlib import Path
 from time import monotonic
-from typing import Iterable
+from typing import AbstractSet, Callable, Iterable
 
 import numpy as np
 
-from moneyrepair.simulate import synthetic_banknote
+from moneyrepair.simulate import load_dataset, synthetic_banknote
 from moneyrepair.types import Fragment
 
 
@@ -48,6 +48,16 @@ TEARFIT_EVIDENCE_LEVELS = ("automatic", "review", "insufficient-evidence")
 TEARFIT_GAP_PROPOSAL_POOLS = ("weak_pair", "boundary_contact")
 TEARFIT_BASE_SELECTION_STRATEGIES = ("global", "disjoint_round_robin")
 TEARFIT_V43_FINE_FRACTION = 0.05
+TEARFIT_OBSERVED_META_KEYS = (
+    "sigma_x",
+    "pose_sigma_x",
+    "sigma_y",
+    "pose_sigma_y",
+    "sigma_theta",
+    "pose_sigma_theta",
+    "sigma_scale",
+    "pose_sigma_scale",
+)
 
 
 @dataclass(frozen=True)
@@ -310,6 +320,205 @@ class TearFitTrialResult:
                     for item in self.diagnostics.confirmed_candidates
                 ],
             },
+        }
+
+
+@dataclass(frozen=True)
+class TearFitCoreConfig:
+    """Decision parameters of the tear-fit core, independent of how fragments arose.
+
+    ``fray_layers`` is the expected boundary fray depth in pixels; only the
+    v4.4 residual-gap-first proposal reads it.
+    """
+
+    algorithm: str = "baseline"
+    route_fragment_fraction_threshold: float = TEARFIT_V43_FINE_FRACTION
+    tolerance: int = 2
+    min_overlap_pixels: int = 14
+    min_effectiveness: float = 1.0
+    automatic_effectiveness: float = 2.0
+    min_contiguous_pixels: int = 3
+    automatic_contiguous_pixels: int = 5
+    core_min_pieces: int = 2
+    min_group_gap_score: float = 0.35
+    automatic_group_gap_score: float = 0.55
+    coverage_threshold: float = 0.93
+    core_raw_coverage_threshold: float | None = None
+    gap_fill_radius: int = 2
+    beam_width: int = 64
+    max_complete_core_candidates: int = 512
+    max_partial_core_candidates: int = 128
+    base_selection_strategy: str = "global"
+    gap_proposal_pool: str = "weak_pair"
+    use_labels: bool = True
+    seed_strategy: str = "anchor_priority"
+    candidate_time_limit_seconds: float | None = 20.0
+    candidate_state_limit: int | None = None
+    candidate_states_per_pair_score: float | None = None
+    partial_gap_time_limit_seconds: float | None = 5.0
+    gap_state_limit: int | None = None
+    gap_states_per_fragment: float | None = None
+    partial_gap_state_limit: int | None = None
+    partial_gap_states_per_fragment: float | None = None
+    cover_time_limit_seconds: float | None = 10.0
+    cover_node_limit: int | None = None
+    cover_nodes_per_note: float | None = None
+    cover_objective: str = "score_then_count"
+    enable_residual_gap_proposals: bool = True
+    gap_routing: str = "complexity"
+    gap_region_max_core_candidates: int = 8
+    gap_proposal_alpha: float = 1.0
+    gap_proposal_gamma: float = 1.0
+    gap_proposal_delta: float = 1.0
+    gap_proposal_eps: float = 1.0
+    gap_proposal_zeta: float = 1.0
+    gap_proposal_min_effectiveness: float = 0.0
+    fray_layers: int = 2
+
+    def __post_init__(self) -> None:
+        if self.algorithm not in TEARFIT_ALGORITHMS:
+            raise ValueError(f"algorithm must be one of: {', '.join(TEARFIT_ALGORITHMS)}")
+        if not (0.0 < self.route_fragment_fraction_threshold < 1.0):
+            raise ValueError("route_fragment_fraction_threshold must be in (0, 1)")
+        if not (0.0 < self.resolved_core_raw_coverage_threshold < self.coverage_threshold):
+            raise ValueError(
+                "core_raw_coverage_threshold must be in (0, coverage_threshold)"
+            )
+        if self.max_complete_core_candidates < 1 or self.max_partial_core_candidates < 1:
+            raise ValueError("core candidate limits must be positive")
+        if self.base_selection_strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
+            raise ValueError(
+                "base_selection_strategy must be one of: "
+                + ", ".join(TEARFIT_BASE_SELECTION_STRATEGIES)
+            )
+        if self.gap_proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
+            raise ValueError(
+                "gap_proposal_pool must be one of: "
+                + ", ".join(TEARFIT_GAP_PROPOSAL_POOLS)
+            )
+        if self.gap_routing not in TEARFIT_GAP_ROUTING:
+            raise ValueError(
+                "gap_routing must be one of: " + ", ".join(TEARFIT_GAP_ROUTING)
+            )
+        if self.seed_strategy not in TEARFIT_SEED_STRATEGIES:
+            raise ValueError(
+                f"seed_strategy must be one of: {', '.join(TEARFIT_SEED_STRATEGIES)}"
+            )
+
+    @property
+    def resolved_core_raw_coverage_threshold(self) -> float:
+        if self.core_raw_coverage_threshold is None:
+            return max(0.05, self.coverage_threshold - 0.15)
+        return self.core_raw_coverage_threshold
+
+    @classmethod
+    def v4_4_1(cls) -> TearFitCoreConfig:
+        """The frozen core: the disjoint-round arm of the v4.4.1 base-selection run."""
+
+        return cls(
+            algorithm="v43_routed",
+            beam_width=32,
+            base_selection_strategy="disjoint_round_robin",
+            use_labels=False,
+            candidate_time_limit_seconds=None,
+            candidate_states_per_pair_score=12.691965985531159,
+            partial_gap_time_limit_seconds=None,
+            gap_states_per_fragment=83.33333333333333,
+            partial_gap_states_per_fragment=20.833333333333332,
+            cover_time_limit_seconds=None,
+            cover_nodes_per_note=25_000.0,
+        )
+
+    def to_dict(self) -> dict:
+        payload = asdict(self)
+        payload["resolved_core_raw_coverage_threshold"] = (
+            self.resolved_core_raw_coverage_threshold
+        )
+        return payload
+
+
+@dataclass(frozen=True)
+class TearFitReconstruction:
+    """Truth-blind output of :func:`reconstruct_placed_fragments`."""
+
+    config: TearFitCoreConfig
+    resolved_algorithm: str
+    median_fragment_fraction: float
+    max_pieces: int
+    expected_notes: int
+    resolved_candidate_state_limit: int | None
+    resolved_gap_state_limit: int | None
+    resolved_partial_gap_state_limit: int | None
+    resolved_cover_node_limit: int | None
+    all_scores: list[TearFitEdge]
+    label_filtered_scores: list[TearFitEdge]
+    core_edges: list[TearFitEdge]
+    generated_candidates: list[AssemblyCandidate]
+    partial_core_candidates: list[AssemblyCandidate]
+    candidates: list[AssemblyCandidate]
+    selected: list[AssemblyCandidate]
+    complete_core_keys: frozenset[tuple[str, ...]]
+    gap_candidate_keys: frozenset[tuple[str, ...]]
+    complete_gap_keys: frozenset[tuple[str, ...]]
+    partial_gap_keys: frozenset[tuple[str, ...]]
+    selected_keys: frozenset[tuple[str, ...]]
+    search_stats: dict[str, dict[str, int | bool]]
+    stage_timings: dict[str, float]
+    edge_decisions: dict[str, int]
+    candidate_decisions: dict[str, int]
+    proposal_efficiency: float
+    selected_solution_fingerprint: str
+    candidate_provenance_fingerprint: str
+    edge_intervention_applied: bool = False
+    intervention_removed_edges: int = 0
+    intervention_removed_core_edges: int = 0
+
+    def candidate_source(self, fragment_ids: Iterable[str]) -> str:
+        return _candidate_source(
+            _candidate_key(fragment_ids),
+            complete_core_keys=self.complete_core_keys,
+            complete_gap_keys=self.complete_gap_keys,
+            partial_gap_keys=self.partial_gap_keys,
+        )
+
+    def to_jsonable(self) -> dict:
+        return {
+            "config": self.config.to_dict(),
+            "resolved_algorithm": self.resolved_algorithm,
+            "median_fragment_fraction": self.median_fragment_fraction,
+            "max_pieces": self.max_pieces,
+            "expected_notes": self.expected_notes,
+            "resolved_budgets": {
+                "candidate_state_limit": self.resolved_candidate_state_limit,
+                "gap_state_limit": self.resolved_gap_state_limit,
+                "partial_gap_state_limit": self.resolved_partial_gap_state_limit,
+                "cover_node_limit": self.resolved_cover_node_limit,
+            },
+            "edge_intervention_applied": self.edge_intervention_applied,
+            "pair_scores": len(self.all_scores),
+            "core_edges": len(self.core_edges),
+            "edge_decisions": dict(self.edge_decisions),
+            "core_candidates": len(self.generated_candidates),
+            "candidates": len(self.candidates),
+            "candidate_decisions": dict(self.candidate_decisions),
+            "selected": [
+                {
+                    "fragment_ids": list(candidate.fragment_ids),
+                    "source": self.candidate_source(candidate.fragment_ids),
+                    "evidence_level": candidate.evidence_level,
+                    "coverage": candidate.coverage,
+                    "raw_coverage": candidate.raw_coverage,
+                    "score": candidate.score,
+                    "evidence_score": candidate.evidence_score,
+                    "gap_steps": candidate.gap_steps,
+                    "labels": list(candidate.labels),
+                }
+                for candidate in self.selected
+            ],
+            "search_stats": self.search_stats,
+            "stage_timings": dict(self.stage_timings),
+            "selected_solution_fingerprint": self.selected_solution_fingerprint,
+            "candidate_provenance_fingerprint": self.candidate_provenance_fingerprint,
         }
 
 
@@ -3210,6 +3419,504 @@ def diagnose_confirmed_candidates(
     )
 
 
+def observed_fragment_view(fragments: Iterable[Fragment]) -> list[Fragment]:
+    """Return fragments as the tear-fit core may see them.
+
+    ``meta`` keeps only the locator pose-uncertainty keys listed in
+    ``TEARFIT_OBSERVED_META_KEYS``; simulator truth such as ``note_id`` and
+    evaluation annotations are dropped. A fragment whose ``meta["provenance"]``
+    is anything other than ``"observed"`` (for example generated or inpainted
+    content) is rejected.
+    """
+
+    observed: list[Fragment] = []
+    for fragment in fragments:
+        provenance = fragment.meta.get("provenance", "observed")
+        if provenance != "observed":
+            raise ValueError(
+                "tear-fit core accepts observed fragments only; "
+                f"{fragment.id} has provenance {provenance!r}"
+            )
+        observed.append(
+            replace(
+                fragment,
+                meta={
+                    key: fragment.meta[key]
+                    for key in TEARFIT_OBSERVED_META_KEYS
+                    if key in fragment.meta
+                },
+            )
+        )
+    return observed
+
+
+def _candidate_source(
+    key: tuple[str, ...],
+    *,
+    complete_core_keys: AbstractSet[tuple[str, ...]],
+    complete_gap_keys: AbstractSet[tuple[str, ...]],
+    partial_gap_keys: AbstractSet[tuple[str, ...]],
+) -> str:
+    if key in partial_gap_keys:
+        return "partial_gap"
+    if key in complete_gap_keys:
+        return "complete_gap"
+    if key in complete_core_keys:
+        return "core"
+    return "other"
+
+
+def reconstruct_placed_fragments(
+    fragments: list[Fragment],
+    config: TearFitCoreConfig,
+    *,
+    max_pieces: int,
+    expected_notes: int,
+    edge_intervention: Callable[[TearFitEdge], bool] | None = None,
+) -> TearFitReconstruction:
+    """Run the tear-fit core on fragments already placed in the canonical frame.
+
+    Pair scoring, candidate construction, and exact cover see only
+    :func:`observed_fragment_view`, so simulator truth and evaluation
+    annotations cannot influence the result. ``max_pieces`` caps the fragments
+    in one assembled note; ``expected_notes`` only normalises
+    ``cover_nodes_per_note``.
+
+    ``edge_intervention`` is a simulation-only counterfactual hook: accepted
+    edges for which it returns ``False`` are removed after pair scoring.
+    Reconstruction of real inputs must leave it unset.
+    """
+
+    if not fragments:
+        raise ValueError("at least one fragment is required")
+    if max_pieces < 1:
+        raise ValueError("max_pieces must be positive")
+    if expected_notes < 1:
+        raise ValueError("expected_notes must be positive")
+    observed = observed_fragment_view(fragments)
+    stage_timings: dict[str, float] = {}
+    median_fragment_fraction = float(
+        np.median([fragment.area for fragment in observed])
+    ) / float(observed[0].mask.size)
+    resolved_algorithm = config.algorithm
+    if config.algorithm == "v43_routed":
+        resolved_algorithm = (
+            "baseline"
+            if median_fragment_fraction >= config.route_fragment_fraction_threshold
+            else "effectiveness_gap"
+        )
+    scoring = "overlap" if resolved_algorithm == "baseline" else "effectiveness"
+    pair_scoring_started = monotonic()
+    all_scores, raw_edges = score_absolute_tear_pairs(
+        observed,
+        tolerance=config.tolerance,
+        min_overlap_pixels=config.min_overlap_pixels,
+        use_labels=False,
+        scoring=scoring,
+        min_effectiveness=config.min_effectiveness,
+        automatic_effectiveness=config.automatic_effectiveness,
+        min_contiguous_pixels=config.min_contiguous_pixels,
+        automatic_contiguous_pixels=config.automatic_contiguous_pixels,
+    )
+    if config.use_labels:
+        label_filtered_scores, edges = score_absolute_tear_pairs(
+            observed,
+            tolerance=config.tolerance,
+            min_overlap_pixels=config.min_overlap_pixels,
+            use_labels=True,
+            scoring=scoring,
+            min_effectiveness=config.min_effectiveness,
+            automatic_effectiveness=config.automatic_effectiveness,
+            min_contiguous_pixels=config.min_contiguous_pixels,
+            automatic_contiguous_pixels=config.automatic_contiguous_pixels,
+        )
+    else:
+        label_filtered_scores = all_scores
+        edges = raw_edges
+    stage_timings["pair_scoring"] = monotonic() - pair_scoring_started
+    intervention_removed_edges = 0
+    intervention_removed_core_edges = 0
+    if edge_intervention is not None:
+        preintervention_core_edges = (
+            edges
+            if resolved_algorithm == "baseline"
+            else [edge for edge in edges if edge.evidence_level == "automatic"]
+        )
+        intervention_removed_edges = sum(
+            not edge_intervention(edge) for edge in edges
+        )
+        intervention_removed_core_edges = sum(
+            not edge_intervention(edge) for edge in preintervention_core_edges
+        )
+        edges = [edge for edge in edges if edge_intervention(edge)]
+        label_filtered_scores = [
+            edge
+            for edge in label_filtered_scores
+            if edge.evidence_level == "insufficient-evidence" or edge_intervention(edge)
+        ]
+    resolved_candidate_state_limit = _resolve_workload_budget(
+        config.candidate_state_limit,
+        len(all_scores),
+        config.candidate_states_per_pair_score,
+        name="candidate_state_limit",
+    )
+    resolved_gap_state_limit = _resolve_workload_budget(
+        config.gap_state_limit,
+        len(observed),
+        config.gap_states_per_fragment,
+        name="gap_state_limit",
+    )
+    resolved_partial_gap_state_limit = _resolve_workload_budget(
+        config.partial_gap_state_limit,
+        len(observed),
+        config.partial_gap_states_per_fragment,
+        name="partial_gap_state_limit",
+    )
+    resolved_cover_node_limit = _resolve_workload_budget(
+        config.cover_node_limit,
+        expected_notes,
+        config.cover_nodes_per_note,
+        name="cover_node_limit",
+    )
+    core_edges = (
+        edges
+        if resolved_algorithm == "baseline"
+        else [edge for edge in edges if edge.evidence_level == "automatic"]
+    )
+    core_search_stats: dict[str, int | bool] = {}
+    core_search_started = monotonic()
+    generated_candidates = generate_assembly_candidates(
+        observed,
+        core_edges,
+        coverage_threshold=config.coverage_threshold,
+        minimum_candidate_raw_coverage=(
+            config.resolved_core_raw_coverage_threshold
+            if resolved_algorithm in ("effectiveness_gap", "v44_gap_first")
+            else None
+        ),
+        gap_fill_radius=config.gap_fill_radius,
+        max_pieces=max_pieces,
+        beam_width=config.beam_width,
+        seed_strategy=config.seed_strategy,
+        time_limit_seconds=config.candidate_time_limit_seconds,
+        max_expanded_states=resolved_candidate_state_limit,
+        search_stats=core_search_stats,
+    )
+    stage_timings["core_search"] = monotonic() - core_search_started
+    complete_core_candidates = [
+        candidate
+        for candidate in generated_candidates
+        if candidate.coverage >= config.coverage_threshold
+    ]
+    partial_core_candidates = [
+        candidate
+        for candidate in generated_candidates
+        if candidate.coverage < config.coverage_threshold
+    ]
+    candidates = complete_core_candidates
+    complete_core_keys = {
+        _candidate_key(candidate.fragment_ids) for candidate in complete_core_candidates
+    }
+    gap_candidate_keys: set[tuple[str, ...]] = set()
+    complete_gap_keys: set[tuple[str, ...]] = set()
+    partial_gap_keys: set[tuple[str, ...]] = set()
+    complete_gap_search_stats: dict[str, int | bool] = {
+        "expanded_states": 0,
+        "state_limit_reached": False,
+        "time_limit_reached": False,
+    }
+    partial_gap_search_stats = dict(complete_gap_search_stats)
+    gap_first_search_stats: dict[str, int | bool] = {}
+    proposal_efficiency = 0.0
+    stage_timings["complete_gap_search"] = 0.0
+    stage_timings["partial_gap_search"] = 0.0
+    if resolved_algorithm in ("effectiveness_gap", "v44_gap_first"):
+        complete_gap_started = monotonic()
+        from_complete = augment_candidates_with_group_gap(
+            observed,
+            complete_core_candidates,
+            label_filtered_scores,
+            tolerance=config.tolerance,
+            coverage_threshold=config.coverage_threshold,
+            gap_fill_radius=config.gap_fill_radius,
+            max_pieces=max_pieces,
+            core_min_pieces=config.core_min_pieces,
+            max_base_candidates=config.max_complete_core_candidates,
+            base_selection_strategy=config.base_selection_strategy,
+            proposal_pool=config.gap_proposal_pool,
+            min_group_gap_score=config.min_group_gap_score,
+            automatic_group_gap_score=config.automatic_group_gap_score,
+            time_limit_seconds=config.candidate_time_limit_seconds,
+            max_expanded_states=resolved_gap_state_limit,
+            search_stats=complete_gap_search_stats,
+        )
+        stage_timings["complete_gap_search"] = monotonic() - complete_gap_started
+        partial_gap_started = monotonic()
+        from_partial = augment_candidates_with_group_gap(
+            observed,
+            partial_core_candidates,
+            label_filtered_scores,
+            tolerance=config.tolerance,
+            coverage_threshold=config.coverage_threshold,
+            gap_fill_radius=config.gap_fill_radius,
+            max_pieces=max_pieces,
+            core_min_pieces=config.core_min_pieces,
+            max_base_candidates=config.max_partial_core_candidates,
+            base_selection_strategy=config.base_selection_strategy,
+            proposal_pool=config.gap_proposal_pool,
+            min_group_gap_score=config.min_group_gap_score,
+            automatic_group_gap_score=config.automatic_group_gap_score,
+            time_limit_seconds=config.partial_gap_time_limit_seconds,
+            max_expanded_states=resolved_partial_gap_state_limit,
+            search_stats=partial_gap_search_stats,
+        )
+        stage_timings["partial_gap_search"] = monotonic() - partial_gap_started
+        merged: dict[tuple[str, ...], AssemblyCandidate] = {}
+        for candidate in (*from_complete, *from_partial):
+            key = _candidate_key(candidate.fragment_ids)
+            previous = merged.get(key)
+            if previous is None or candidate.score > previous.score:
+                merged[key] = candidate
+        candidates = sorted(
+            merged.values(), key=lambda item: (-item.score, item.fragment_ids)
+        )
+        from_complete_keys = {
+            _candidate_key(candidate.fragment_ids) for candidate in from_complete
+        }
+        from_partial_keys = {
+            _candidate_key(candidate.fragment_ids) for candidate in from_partial
+        }
+        gap_candidate_keys = set(merged) - complete_core_keys
+        partial_gap_keys = (
+            from_partial_keys - from_complete_keys - complete_core_keys
+        )
+        complete_gap_keys = gap_candidate_keys - partial_gap_keys
+    if resolved_algorithm == "v44_gap_first" and config.enable_residual_gap_proposals:
+        # Residual-gap-first proposals are layered ON TOP of the v4.3 group-gap
+        # pool: v44 is a strict superset of effectiveness_gap, so getting the
+        # true fragment set into the pool can only raise oracle recall.
+        gap_first_started = monotonic()
+        residual_regions = compute_residual_gap_components(
+            observed,
+            generated_candidates,
+            coverage_threshold=config.coverage_threshold,
+            gap_fill_radius=config.gap_fill_radius,
+            max_core_candidates=config.gap_region_max_core_candidates,
+        )
+        gap_first_candidates = augment_candidates_gap_first(
+            observed,
+            generated_candidates,
+            core_edges,
+            label_filtered_scores,
+            residual_regions,
+            tolerance=config.tolerance,
+            coverage_threshold=config.coverage_threshold,
+            gap_fill_radius=config.gap_fill_radius,
+            max_pieces=max_pieces,
+            core_min_pieces=config.core_min_pieces,
+            max_base_candidates=config.max_complete_core_candidates,
+            proposal_pool="boundary_contact",
+            gap_routing=config.gap_routing,
+            min_group_gap_score=config.min_group_gap_score,
+            automatic_group_gap_score=config.automatic_group_gap_score,
+            fray_layers=config.fray_layers,
+            min_proposal_effectiveness=config.gap_proposal_min_effectiveness,
+            alpha=config.gap_proposal_alpha,
+            gamma=config.gap_proposal_gamma,
+            delta=config.gap_proposal_delta,
+            eps=config.gap_proposal_eps,
+            zeta=config.gap_proposal_zeta,
+            time_limit_seconds=config.candidate_time_limit_seconds,
+            max_expanded_states=resolved_gap_state_limit,
+            search_stats=gap_first_search_stats,
+        )
+        stage_timings["gap_first"] = monotonic() - gap_first_started
+        pool_v44: dict[tuple[str, ...], AssemblyCandidate] = {
+            _candidate_key(candidate.fragment_ids): candidate
+            for candidate in candidates
+        }
+        gap_first_only_keys: set[tuple[str, ...]] = set()
+        for candidate in gap_first_candidates:
+            key = _candidate_key(candidate.fragment_ids)
+            if key not in complete_core_keys:
+                gap_first_only_keys.add(key)
+            previous = pool_v44.get(key)
+            if previous is None or candidate.score > previous.score:
+                pool_v44[key] = candidate
+        candidates = sorted(
+            pool_v44.values(), key=lambda item: (-item.score, item.fragment_ids)
+        )
+        gap_candidate_keys = set(pool_v44) - complete_core_keys
+        complete_gap_keys = gap_candidate_keys - partial_gap_keys
+        expanded = int(gap_first_search_stats.get("expanded_states", 0) or 0)
+        proposals_made = int(
+            gap_first_search_stats.get("gap_proposals_made", 0) or 0
+        )
+        budget_units = expanded if expanded > 0 else proposals_made
+        proposal_efficiency = (
+            len(gap_first_only_keys) / float(budget_units)
+            if budget_units > 0
+            else 0.0
+        )
+    cover_search_stats: dict[str, int | bool] = {}
+    exact_cover_started = monotonic()
+    selected = select_exact_cover_candidates(
+        candidates,
+        time_limit_seconds=config.cover_time_limit_seconds,
+        max_search_nodes=resolved_cover_node_limit,
+        search_stats=cover_search_stats,
+        objective=config.cover_objective,
+    )
+    stage_timings["exact_cover"] = monotonic() - exact_cover_started
+    selected_keys = {
+        _candidate_key(candidate.fragment_ids) for candidate in selected
+    }
+    candidate_provenance_fingerprint = _fingerprint_records(
+        f"{','.join(key)}|{source}|{candidate.evidence_level}|{candidate.gap_steps}"
+        for candidate in candidates
+        for key in (_candidate_key(candidate.fragment_ids),)
+        for source in (
+            _candidate_source(
+                key,
+                complete_core_keys=complete_core_keys,
+                complete_gap_keys=complete_gap_keys,
+                partial_gap_keys=partial_gap_keys,
+            ),
+        )
+    )
+    selected_solution_fingerprint = _fingerprint_records(
+        ",".join(_candidate_key(candidate.fragment_ids)) for candidate in selected
+    )
+    edge_decisions = {
+        level: sum(edge.evidence_level == level for edge in label_filtered_scores)
+        for level in TEARFIT_EVIDENCE_LEVELS
+    }
+    candidate_decisions = {
+        level: sum(candidate.evidence_level == level for candidate in candidates)
+        for level in ("automatic", "review")
+    }
+    return TearFitReconstruction(
+        config=config,
+        resolved_algorithm=resolved_algorithm,
+        median_fragment_fraction=median_fragment_fraction,
+        max_pieces=max_pieces,
+        expected_notes=expected_notes,
+        resolved_candidate_state_limit=resolved_candidate_state_limit,
+        resolved_gap_state_limit=resolved_gap_state_limit,
+        resolved_partial_gap_state_limit=resolved_partial_gap_state_limit,
+        resolved_cover_node_limit=resolved_cover_node_limit,
+        all_scores=all_scores,
+        label_filtered_scores=label_filtered_scores,
+        core_edges=core_edges,
+        generated_candidates=generated_candidates,
+        partial_core_candidates=partial_core_candidates,
+        candidates=candidates,
+        selected=selected,
+        complete_core_keys=frozenset(complete_core_keys),
+        gap_candidate_keys=frozenset(gap_candidate_keys),
+        complete_gap_keys=frozenset(complete_gap_keys),
+        partial_gap_keys=frozenset(partial_gap_keys),
+        selected_keys=frozenset(selected_keys),
+        search_stats={
+            "core": core_search_stats,
+            "complete_gap": complete_gap_search_stats,
+            "partial_gap": partial_gap_search_stats,
+            "gap_first": gap_first_search_stats,
+            "exact_cover": cover_search_stats,
+        },
+        stage_timings=stage_timings,
+        edge_decisions=edge_decisions,
+        candidate_decisions=candidate_decisions,
+        proposal_efficiency=proposal_efficiency,
+        selected_solution_fingerprint=selected_solution_fingerprint,
+        candidate_provenance_fingerprint=candidate_provenance_fingerprint,
+        edge_intervention_applied=edge_intervention is not None,
+        intervention_removed_edges=intervention_removed_edges,
+        intervention_removed_core_edges=intervention_removed_core_edges,
+    )
+
+
+def run_tearfit_reconstruction(
+    dataset_path: str | Path,
+    output_dir: str | Path,
+    *,
+    max_pieces: int,
+    expected_notes: int | None = None,
+) -> dict:
+    """Reconstruct a placed-fragment dataset with the frozen v4.4.1 core.
+
+    The dataset is a ``save_dataset`` archive whose fragments already share the
+    canonical frame, such as a ``reality-bridge`` handoff. When
+    ``expected_notes`` is omitted it is estimated from total fragment area.
+    Writes ``reconstruction_report.json`` and returns the same payload.
+    """
+
+    dataset_path = Path(dataset_path)
+    output_dir = Path(output_dir)
+    _template, fragments = load_dataset(dataset_path)
+    if not fragments:
+        raise ValueError(f"{dataset_path} contains no fragments")
+    if expected_notes is None:
+        canvas_pixels = float(fragments[0].mask.size)
+        expected_notes = max(
+            1, round(sum(fragment.area for fragment in fragments) / canvas_pixels)
+        )
+        expected_notes_source = "estimated_from_fragment_area"
+    else:
+        expected_notes_source = "argument"
+    reconstruction = reconstruct_placed_fragments(
+        fragments,
+        TearFitCoreConfig.v4_4_1(),
+        max_pieces=max_pieces,
+        expected_notes=expected_notes,
+    )
+    assigned = {
+        fragment_id
+        for candidate in reconstruction.selected
+        for fragment_id in candidate.fragment_ids
+    }
+    report_path = output_dir / "reconstruction_report.json"
+    report = {
+        "tool": "moneyrepair",
+        "stage": "tearfit_core_reconstruction",
+        "core_preset": "v4.4.1",
+        "claim_boundary": (
+            "Runs the frozen v4.4.1 tear-fit core on fragments already placed in the "
+            "canonical frame. Its pixel thresholds were calibrated on 180x90 simulation "
+            "canvases and no physical resolution mapping is preregistered, so results on "
+            "physical captures are diagnostic only."
+        ),
+        "inputs": {
+            "dataset": str(dataset_path),
+            "dataset_sha256": sha256(dataset_path.read_bytes()).hexdigest(),
+            "fragments": len(fragments),
+            "canvas_shape": list(fragments[0].mask.shape),
+            "observed_meta_keys": list(TEARFIT_OBSERVED_META_KEYS),
+        },
+        "expected_notes_source": expected_notes_source,
+        "reconstruction": reconstruction.to_jsonable(),
+        "routing": {
+            "automatic": [
+                list(candidate.fragment_ids)
+                for candidate in reconstruction.selected
+                if candidate.evidence_level == "automatic"
+            ],
+            "review": [
+                list(candidate.fragment_ids)
+                for candidate in reconstruction.selected
+                if candidate.evidence_level != "automatic"
+            ],
+            "unassigned_fragment_ids": [
+                fragment.id for fragment in fragments if fragment.id not in assigned
+            ],
+        },
+        "outputs": {"report": str(report_path)},
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
 def run_tearfit_trial(
     config: FractalTearConfig,
     *,
@@ -3263,6 +3970,10 @@ def run_tearfit_trial(
 ) -> TearFitTrialResult:
     """Run one labelled exact-cover tear-fit trial.
 
+    The trial simulates fragments, reconstructs them with
+    :func:`reconstruct_placed_fragments`, and only then scores the result
+    against simulator truth.
+
     ``diagnostic_oracle_drop_false_accepted_edges`` is a simulation-only
     counterfactual. It reads ``note_id`` ground truth after pair scoring and
     removes accepted cross-note edges before candidate generation. It must
@@ -3270,81 +3981,59 @@ def run_tearfit_trial(
     """
 
     trial_started = monotonic()
-    if algorithm not in TEARFIT_ALGORITHMS:
-        raise ValueError(f"algorithm must be one of: {', '.join(TEARFIT_ALGORITHMS)}")
-    if not (0.0 < route_fragment_fraction_threshold < 1.0):
-        raise ValueError("route_fragment_fraction_threshold must be in (0, 1)")
-    if core_raw_coverage_threshold is None:
-        core_raw_coverage_threshold = max(0.05, coverage_threshold - 0.15)
-    if not (0.0 < core_raw_coverage_threshold < coverage_threshold):
-        raise ValueError(
-            "core_raw_coverage_threshold must be in (0, coverage_threshold)"
-        )
-    if max_complete_core_candidates < 1 or max_partial_core_candidates < 1:
-        raise ValueError("core candidate limits must be positive")
-    if base_selection_strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
-        raise ValueError(
-            "base_selection_strategy must be one of: "
-            + ", ".join(TEARFIT_BASE_SELECTION_STRATEGIES)
-        )
-    if gap_proposal_pool not in TEARFIT_GAP_PROPOSAL_POOLS:
-        raise ValueError(
-            "gap_proposal_pool must be one of: "
-            + ", ".join(TEARFIT_GAP_PROPOSAL_POOLS)
-        )
-    if gap_routing not in TEARFIT_GAP_ROUTING:
-        raise ValueError(
-            "gap_routing must be one of: " + ", ".join(TEARFIT_GAP_ROUTING)
-        )
-    seed_strategy = _resolve_seed_strategy(seed_strategy, require_anchor)
+    core_config = TearFitCoreConfig(
+        algorithm=algorithm,
+        route_fragment_fraction_threshold=route_fragment_fraction_threshold,
+        tolerance=tolerance,
+        min_overlap_pixels=min_overlap_pixels,
+        min_effectiveness=min_effectiveness,
+        automatic_effectiveness=automatic_effectiveness,
+        min_contiguous_pixels=min_contiguous_pixels,
+        automatic_contiguous_pixels=automatic_contiguous_pixels,
+        core_min_pieces=core_min_pieces,
+        min_group_gap_score=min_group_gap_score,
+        automatic_group_gap_score=automatic_group_gap_score,
+        coverage_threshold=coverage_threshold,
+        core_raw_coverage_threshold=core_raw_coverage_threshold,
+        gap_fill_radius=gap_fill_radius,
+        beam_width=beam_width,
+        max_complete_core_candidates=max_complete_core_candidates,
+        max_partial_core_candidates=max_partial_core_candidates,
+        base_selection_strategy=base_selection_strategy,
+        gap_proposal_pool=gap_proposal_pool,
+        use_labels=use_labels,
+        seed_strategy="anchor_priority" if require_anchor is not None else seed_strategy,
+        candidate_time_limit_seconds=candidate_time_limit_seconds,
+        candidate_state_limit=candidate_state_limit,
+        candidate_states_per_pair_score=candidate_states_per_pair_score,
+        partial_gap_time_limit_seconds=partial_gap_time_limit_seconds,
+        gap_state_limit=gap_state_limit,
+        gap_states_per_fragment=gap_states_per_fragment,
+        partial_gap_state_limit=partial_gap_state_limit,
+        partial_gap_states_per_fragment=partial_gap_states_per_fragment,
+        cover_time_limit_seconds=cover_time_limit_seconds,
+        cover_node_limit=cover_node_limit,
+        cover_nodes_per_note=cover_nodes_per_note,
+        cover_objective=cover_objective,
+        enable_residual_gap_proposals=enable_residual_gap_proposals,
+        gap_routing=gap_routing,
+        gap_region_max_core_candidates=gap_region_max_core_candidates,
+        gap_proposal_alpha=gap_proposal_alpha,
+        gap_proposal_gamma=gap_proposal_gamma,
+        gap_proposal_delta=gap_proposal_delta,
+        gap_proposal_eps=gap_proposal_eps,
+        gap_proposal_zeta=gap_proposal_zeta,
+        gap_proposal_min_effectiveness=gap_proposal_min_effectiveness,
+        fray_layers=config.fray_layers,
+    )
     if serial_ocr_rate is not None:
         config = FractalTearConfig(
             **{**config.__dict__, "serial_ocr_rate": serial_ocr_rate}
         )
     simulation_started = monotonic()
     _template, fragments = make_fractal_tear_fragments(config)
-    stage_timings = {"simulation": monotonic() - simulation_started}
-    median_fragment_fraction = float(
-        np.median([fragment.area for fragment in fragments])
-    ) / float(fragments[0].mask.size)
-    resolved_algorithm = algorithm
-    if algorithm == "v43_routed":
-        resolved_algorithm = (
-            "baseline"
-            if median_fragment_fraction >= route_fragment_fraction_threshold
-            else "effectiveness_gap"
-    )
-    scoring = "overlap" if resolved_algorithm == "baseline" else "effectiveness"
-    pair_scoring_started = monotonic()
-    all_scores, raw_edges = score_absolute_tear_pairs(
-        fragments,
-        tolerance=tolerance,
-        min_overlap_pixels=min_overlap_pixels,
-        use_labels=False,
-        scoring=scoring,
-        min_effectiveness=min_effectiveness,
-        automatic_effectiveness=automatic_effectiveness,
-        min_contiguous_pixels=min_contiguous_pixels,
-        automatic_contiguous_pixels=automatic_contiguous_pixels,
-    )
-    if use_labels:
-        label_filtered_scores, edges = score_absolute_tear_pairs(
-            fragments,
-            tolerance=tolerance,
-            min_overlap_pixels=min_overlap_pixels,
-            use_labels=True,
-            scoring=scoring,
-            min_effectiveness=min_effectiveness,
-            automatic_effectiveness=automatic_effectiveness,
-            min_contiguous_pixels=min_contiguous_pixels,
-            automatic_contiguous_pixels=automatic_contiguous_pixels,
-        )
-    else:
-        label_filtered_scores = all_scores
-        edges = raw_edges
-    stage_timings["pair_scoring"] = monotonic() - pair_scoring_started
-    diagnostic_removed_false_accepted_edges = 0
-    diagnostic_removed_false_core_edges = 0
+    simulation_seconds = monotonic() - simulation_started
+    edge_intervention: Callable[[TearFitEdge], bool] | None = None
     if diagnostic_oracle_drop_false_accepted_edges:
         missing_note_ids = [
             fragment.id for fragment in fragments if "note_id" not in fragment.meta
@@ -3360,243 +4049,24 @@ def run_tearfit_trial(
                 == fragments[edge.right].meta["note_id"]
             )
 
-        preintervention_core_edges = (
-            edges
-            if resolved_algorithm == "baseline"
-            else [edge for edge in edges if edge.evidence_level == "automatic"]
-        )
-        diagnostic_removed_false_accepted_edges = sum(
-            not is_true_pair(edge) for edge in edges
-        )
-        diagnostic_removed_false_core_edges = sum(
-            not is_true_pair(edge) for edge in preintervention_core_edges
-        )
-        edges = [edge for edge in edges if is_true_pair(edge)]
-        label_filtered_scores = [
-            edge
-            for edge in label_filtered_scores
-            if edge.evidence_level == "insufficient-evidence" or is_true_pair(edge)
-        ]
-    resolved_candidate_state_limit = _resolve_workload_budget(
-        candidate_state_limit,
-        len(all_scores),
-        candidate_states_per_pair_score,
-        name="candidate_state_limit",
-    )
-    resolved_gap_state_limit = _resolve_workload_budget(
-        gap_state_limit,
-        len(fragments),
-        gap_states_per_fragment,
-        name="gap_state_limit",
-    )
-    resolved_partial_gap_state_limit = _resolve_workload_budget(
-        partial_gap_state_limit,
-        len(fragments),
-        partial_gap_states_per_fragment,
-        name="partial_gap_state_limit",
-    )
-    resolved_cover_node_limit = _resolve_workload_budget(
-        cover_node_limit,
-        config.notes,
-        cover_nodes_per_note,
-        name="cover_node_limit",
-    )
-    core_edges = (
-        edges
-        if resolved_algorithm == "baseline"
-        else [edge for edge in edges if edge.evidence_level == "automatic"]
-    )
-    core_search_stats: dict[str, int | bool] = {}
-    core_search_started = monotonic()
-    generated_candidates = generate_assembly_candidates(
+        edge_intervention = is_true_pair
+    reconstruction = reconstruct_placed_fragments(
         fragments,
-        core_edges,
-        coverage_threshold=coverage_threshold,
-        minimum_candidate_raw_coverage=(
-            core_raw_coverage_threshold
-            if resolved_algorithm in ("effectiveness_gap", "v44_gap_first")
-            else None
-        ),
-        gap_fill_radius=gap_fill_radius,
+        core_config,
         max_pieces=max_pieces or config.pieces_per_note + 2,
-        beam_width=beam_width,
-        seed_strategy=seed_strategy,
-        time_limit_seconds=candidate_time_limit_seconds,
-        max_expanded_states=resolved_candidate_state_limit,
-        search_stats=core_search_stats,
+        expected_notes=config.notes,
+        edge_intervention=edge_intervention,
     )
-    stage_timings["core_search"] = monotonic() - core_search_started
-    complete_core_candidates = [
-        candidate
-        for candidate in generated_candidates
-        if candidate.coverage >= coverage_threshold
-    ]
-    partial_core_candidates = [
-        candidate
-        for candidate in generated_candidates
-        if candidate.coverage < coverage_threshold
-    ]
-    candidates = complete_core_candidates
-    complete_core_keys = {
-        _candidate_key(candidate.fragment_ids) for candidate in complete_core_candidates
-    }
-    gap_candidate_count = 0
-    gap_candidate_keys: set[tuple[str, ...]] = set()
-    complete_gap_keys: set[tuple[str, ...]] = set()
-    partial_gap_keys: set[tuple[str, ...]] = set()
-    complete_gap_search_stats: dict[str, int | bool] = {
-        "expanded_states": 0,
-        "state_limit_reached": False,
-        "time_limit_reached": False,
-    }
-    partial_gap_search_stats = dict(complete_gap_search_stats)
-    gap_first_search_stats: dict[str, int | bool] = {}
-    proposal_efficiency = 0.0
-    stage_timings["complete_gap_search"] = 0.0
-    stage_timings["partial_gap_search"] = 0.0
-    if resolved_algorithm in ("effectiveness_gap", "v44_gap_first"):
-        complete_gap_started = monotonic()
-        from_complete = augment_candidates_with_group_gap(
-            fragments,
-            complete_core_candidates,
-            label_filtered_scores,
-            tolerance=tolerance,
-            coverage_threshold=coverage_threshold,
-            gap_fill_radius=gap_fill_radius,
-            max_pieces=max_pieces or config.pieces_per_note + 2,
-            core_min_pieces=core_min_pieces,
-            max_base_candidates=max_complete_core_candidates,
-            base_selection_strategy=base_selection_strategy,
-            proposal_pool=gap_proposal_pool,
-            min_group_gap_score=min_group_gap_score,
-            automatic_group_gap_score=automatic_group_gap_score,
-            time_limit_seconds=candidate_time_limit_seconds,
-            max_expanded_states=resolved_gap_state_limit,
-            search_stats=complete_gap_search_stats,
-        )
-        stage_timings["complete_gap_search"] = monotonic() - complete_gap_started
-        partial_gap_started = monotonic()
-        from_partial = augment_candidates_with_group_gap(
-            fragments,
-            partial_core_candidates,
-            label_filtered_scores,
-            tolerance=tolerance,
-            coverage_threshold=coverage_threshold,
-            gap_fill_radius=gap_fill_radius,
-            max_pieces=max_pieces or config.pieces_per_note + 2,
-            core_min_pieces=core_min_pieces,
-            max_base_candidates=max_partial_core_candidates,
-            base_selection_strategy=base_selection_strategy,
-            proposal_pool=gap_proposal_pool,
-            min_group_gap_score=min_group_gap_score,
-            automatic_group_gap_score=automatic_group_gap_score,
-            time_limit_seconds=partial_gap_time_limit_seconds,
-            max_expanded_states=resolved_partial_gap_state_limit,
-            search_stats=partial_gap_search_stats,
-        )
-        stage_timings["partial_gap_search"] = monotonic() - partial_gap_started
-        merged: dict[tuple[str, ...], AssemblyCandidate] = {}
-        for candidate in (*from_complete, *from_partial):
-            key = _candidate_key(candidate.fragment_ids)
-            previous = merged.get(key)
-            if previous is None or candidate.score > previous.score:
-                merged[key] = candidate
-        candidates = sorted(
-            merged.values(), key=lambda item: (-item.score, item.fragment_ids)
-        )
-        from_complete_keys = {
-            _candidate_key(candidate.fragment_ids) for candidate in from_complete
-        }
-        from_partial_keys = {
-            _candidate_key(candidate.fragment_ids) for candidate in from_partial
-        }
-        gap_candidate_keys = set(merged) - complete_core_keys
-        partial_gap_keys = (
-            from_partial_keys - from_complete_keys - complete_core_keys
-        )
-        complete_gap_keys = gap_candidate_keys - partial_gap_keys
-        gap_candidate_count = len(gap_candidate_keys)
-    if resolved_algorithm == "v44_gap_first" and enable_residual_gap_proposals:
-        # Residual-gap-first proposals are layered ON TOP of the v4.3 group-gap
-        # pool: v44 is a strict superset of effectiveness_gap, so getting the
-        # true fragment set into the pool can only raise oracle recall.
-        gap_first_started = monotonic()
-        residual_regions = compute_residual_gap_components(
-            fragments,
-            generated_candidates,
-            coverage_threshold=coverage_threshold,
-            gap_fill_radius=gap_fill_radius,
-            max_core_candidates=gap_region_max_core_candidates,
-        )
-        gap_first_candidates = augment_candidates_gap_first(
-            fragments,
-            generated_candidates,
-            core_edges,
-            label_filtered_scores,
-            residual_regions,
-            tolerance=tolerance,
-            coverage_threshold=coverage_threshold,
-            gap_fill_radius=gap_fill_radius,
-            max_pieces=max_pieces or config.pieces_per_note + 2,
-            core_min_pieces=core_min_pieces,
-            max_base_candidates=max_complete_core_candidates,
-            proposal_pool="boundary_contact",
-            gap_routing=gap_routing,
-            min_group_gap_score=min_group_gap_score,
-            automatic_group_gap_score=automatic_group_gap_score,
-            fray_layers=config.fray_layers,
-            min_proposal_effectiveness=gap_proposal_min_effectiveness,
-            alpha=gap_proposal_alpha,
-            gamma=gap_proposal_gamma,
-            delta=gap_proposal_delta,
-            eps=gap_proposal_eps,
-            zeta=gap_proposal_zeta,
-            time_limit_seconds=candidate_time_limit_seconds,
-            max_expanded_states=resolved_gap_state_limit,
-            search_stats=gap_first_search_stats,
-        )
-        stage_timings["gap_first"] = monotonic() - gap_first_started
-        pool_v44: dict[tuple[str, ...], AssemblyCandidate] = {
-            _candidate_key(candidate.fragment_ids): candidate
-            for candidate in candidates
-        }
-        gap_first_only_keys: set[tuple[str, ...]] = set()
-        for candidate in gap_first_candidates:
-            key = _candidate_key(candidate.fragment_ids)
-            if key not in complete_core_keys:
-                gap_first_only_keys.add(key)
-            previous = pool_v44.get(key)
-            if previous is None or candidate.score > previous.score:
-                pool_v44[key] = candidate
-        candidates = sorted(
-            pool_v44.values(), key=lambda item: (-item.score, item.fragment_ids)
-        )
-        gap_candidate_keys = set(pool_v44) - complete_core_keys
-        complete_gap_keys = gap_candidate_keys - partial_gap_keys
-        gap_candidate_count = len(gap_candidate_keys)
-        expanded = int(gap_first_search_stats.get("expanded_states", 0) or 0)
-        proposals_made = int(
-            gap_first_search_stats.get("gap_proposals_made", 0) or 0
-        )
-        budget_units = expanded if expanded > 0 else proposals_made
-        proposal_efficiency = (
-            len(gap_first_only_keys) / float(budget_units)
-            if budget_units > 0
-            else 0.0
-        )
-    cover_search_stats: dict[str, int | bool] = {}
-    exact_cover_started = monotonic()
-    selected = select_exact_cover_candidates(
-        candidates,
-        time_limit_seconds=cover_time_limit_seconds,
-        max_search_nodes=resolved_cover_node_limit,
-        search_stats=cover_search_stats,
-        objective=cover_objective,
-    )
-    stage_timings["exact_cover"] = monotonic() - exact_cover_started
-    selected_keys = {
-        _candidate_key(candidate.fragment_ids) for candidate in selected
-    }
+    stage_timings = {"simulation": simulation_seconds, **reconstruction.stage_timings}
+    resolved_algorithm = reconstruction.resolved_algorithm
+    all_scores = reconstruction.all_scores
+    label_filtered_scores = reconstruction.label_filtered_scores
+    core_edges = reconstruction.core_edges
+    generated_candidates = reconstruction.generated_candidates
+    candidates = reconstruction.candidates
+    selected = reconstruction.selected
+    gap_candidate_keys = reconstruction.gap_candidate_keys
+    selected_keys = reconstruction.selected_keys
     diagnostics_started = monotonic()
     diagnostics = diagnose_confirmed_candidates(selected, fragments)
     stage_timings["diagnostics"] = monotonic() - diagnostics_started
@@ -3659,39 +4129,13 @@ def run_tearfit_trial(
     true_gap_keys = gap_candidate_keys & truth_keys
     selected_gap_keys = selected_keys & gap_candidate_keys
     selected_true_gap_keys = selected_gap_keys & truth_keys
-
-    def candidate_source(key: tuple[str, ...]) -> str:
-        if key in partial_gap_keys:
-            return "partial_gap"
-        if key in complete_gap_keys:
-            return "complete_gap"
-        if key in complete_core_keys:
-            return "core"
-        return "other"
-
-    candidate_provenance_fingerprint = _fingerprint_records(
-        f"{','.join(key)}|{candidate_source(key)}|{candidate.evidence_level}|{candidate.gap_steps}"
-        for candidate in candidates
-        for key in (_candidate_key(candidate.fragment_ids),)
-    )
-    selected_solution_fingerprint = _fingerprint_records(
-        ",".join(_candidate_key(candidate.fragment_ids)) for candidate in selected
-    )
-    edge_decisions = {
-        level: sum(edge.evidence_level == level for edge in label_filtered_scores)
-        for level in TEARFIT_EVIDENCE_LEVELS
-    }
-    candidate_decisions = {
-        level: sum(candidate.evidence_level == level for candidate in candidates)
-        for level in ("automatic", "review")
-    }
     stage_timings["total"] = monotonic() - trial_started
     return TearFitTrialResult(
         config={
             **config.__dict__,
             "algorithm": algorithm,
             "resolved_algorithm": resolved_algorithm,
-            "median_fragment_fraction": median_fragment_fraction,
+            "median_fragment_fraction": reconstruction.median_fragment_fraction,
             "route_fragment_fraction_threshold": route_fragment_fraction_threshold,
             "tolerance": tolerance,
             "min_overlap_pixels": min_overlap_pixels,
@@ -3703,7 +4147,7 @@ def run_tearfit_trial(
             "min_group_gap_score": min_group_gap_score,
             "automatic_group_gap_score": automatic_group_gap_score,
             "coverage_threshold": coverage_threshold,
-            "core_raw_coverage_threshold": core_raw_coverage_threshold,
+            "core_raw_coverage_threshold": core_config.resolved_core_raw_coverage_threshold,
             "gap_fill_radius": gap_fill_radius,
             "beam_width": beam_width,
             "max_complete_core_candidates": max_complete_core_candidates,
@@ -3711,22 +4155,22 @@ def run_tearfit_trial(
             "base_selection_strategy": base_selection_strategy,
             "gap_proposal_pool": gap_proposal_pool,
             "use_labels": use_labels,
-            "seed_strategy": seed_strategy,
+            "seed_strategy": core_config.seed_strategy,
             "candidate_time_limit_seconds": candidate_time_limit_seconds,
             "candidate_state_limit": candidate_state_limit,
             "candidate_states_per_pair_score": candidate_states_per_pair_score,
-            "resolved_candidate_state_limit": resolved_candidate_state_limit,
+            "resolved_candidate_state_limit": reconstruction.resolved_candidate_state_limit,
             "partial_gap_time_limit_seconds": partial_gap_time_limit_seconds,
             "gap_state_limit": gap_state_limit,
             "gap_states_per_fragment": gap_states_per_fragment,
-            "resolved_gap_state_limit": resolved_gap_state_limit,
+            "resolved_gap_state_limit": reconstruction.resolved_gap_state_limit,
             "partial_gap_state_limit": partial_gap_state_limit,
             "partial_gap_states_per_fragment": partial_gap_states_per_fragment,
-            "resolved_partial_gap_state_limit": resolved_partial_gap_state_limit,
+            "resolved_partial_gap_state_limit": reconstruction.resolved_partial_gap_state_limit,
             "cover_time_limit_seconds": cover_time_limit_seconds,
             "cover_node_limit": cover_node_limit,
             "cover_nodes_per_note": cover_nodes_per_note,
-            "resolved_cover_node_limit": resolved_cover_node_limit,
+            "resolved_cover_node_limit": reconstruction.resolved_cover_node_limit,
             "cover_objective": cover_objective,
             "diagnostic_oracle_drop_false_accepted_edges": (
                 diagnostic_oracle_drop_false_accepted_edges
@@ -3747,23 +4191,21 @@ def run_tearfit_trial(
         false_edge_median=float(np.median(false_scores)) if false_scores else 0.0,
         candidates=len(candidates),
         diagnostics=diagnostics,
-        edge_decisions=edge_decisions,
-        candidate_decisions=candidate_decisions,
-        search_stats={
-            "core": core_search_stats,
-            "complete_gap": complete_gap_search_stats,
-            "partial_gap": partial_gap_search_stats,
-            "gap_first": gap_first_search_stats,
-            "exact_cover": cover_search_stats,
-        },
+        edge_decisions=reconstruction.edge_decisions,
+        candidate_decisions=reconstruction.candidate_decisions,
+        search_stats=reconstruction.search_stats,
         core_candidates=len(generated_candidates),
-        partial_core_candidates=len(partial_core_candidates),
-        gap_candidates=gap_candidate_count,
-        partial_gap_candidates=len(partial_gap_keys),
-        selected_core_candidates=len(selected_keys & complete_core_keys),
+        partial_core_candidates=len(reconstruction.partial_core_candidates),
+        gap_candidates=len(gap_candidate_keys),
+        partial_gap_candidates=len(reconstruction.partial_gap_keys),
+        selected_core_candidates=len(selected_keys & reconstruction.complete_core_keys),
         selected_gap_candidates=len(selected_keys & gap_candidate_keys),
-        selected_complete_gap_candidates=len(selected_keys & complete_gap_keys),
-        selected_partial_gap_candidates=len(selected_keys & partial_gap_keys),
+        selected_complete_gap_candidates=len(
+            selected_keys & reconstruction.complete_gap_keys
+        ),
+        selected_partial_gap_candidates=len(
+            selected_keys & reconstruction.partial_gap_keys
+        ),
         true_gap_candidates=len(true_gap_keys),
         false_gap_candidates=len(gap_candidate_keys - truth_keys),
         selected_true_gap_candidates=len(selected_true_gap_keys),
@@ -3773,15 +4215,15 @@ def run_tearfit_trial(
             len(oracle_note_ids) / len(truth_keys) if truth_keys else 0.0
         ),
         selected_score_total=float(sum(candidate.score for candidate in selected)),
-        selected_solution_fingerprint=selected_solution_fingerprint,
-        candidate_provenance_fingerprint=candidate_provenance_fingerprint,
+        selected_solution_fingerprint=reconstruction.selected_solution_fingerprint,
+        candidate_provenance_fingerprint=reconstruction.candidate_provenance_fingerprint,
         stage_timings=stage_timings,
         diagnostic_removed_false_accepted_edges=(
-            diagnostic_removed_false_accepted_edges
+            reconstruction.intervention_removed_edges
         ),
-        diagnostic_removed_false_core_edges=diagnostic_removed_false_core_edges,
+        diagnostic_removed_false_core_edges=reconstruction.intervention_removed_core_edges,
         candidate_funnel=candidate_funnel,
-        proposal_efficiency=proposal_efficiency,
+        proposal_efficiency=reconstruction.proposal_efficiency,
     )
 
 
