@@ -1,0 +1,81 @@
+{
+  "schema": "moneyrepair-physical-decision-contract-v1",
+  "date": "2026-10-06",
+  "status": "preregistered_design_not_physical_evidence",
+  "existing_pilot": {"sheets": 8, "pieces_per_sheet": 8, "unchanged": true},
+  "primary": {
+    "sheets": 20,
+    "pieces_per_sheet": 16,
+    "calibration_sheets": 4,
+    "blind_evaluation_sheets": 16,
+    "independent_replacements_per_track": 3,
+    "primary_track": "scanner_cardinal",
+    "diagnostic_tracks": ["phone_cardinal", "phone_free"],
+    "same_template": true,
+    "identity_anchors": false
+  },
+  "material": {
+    "basis_weight_g_m2": 80,
+    "type": "uncoated_white_cellulose_copier_paper",
+    "single_ream": true,
+    "currency_proxy_claim": false
+  },
+  "sheet_size_mm": [156, 77],
+  "acquisition_policy": {
+    "primary_repeat": 1,
+    "stability_only_repeats": [2, 3],
+    "best_of_repeats_allowed": false,
+    "invalidity_decision_before_core": true,
+    "invalid_capture_conditions": ["unreadable_file", "hardware_acquisition_aborted", "required_scale_target_absent"],
+    "maximum_replacements_per_scheduled_capture": 1,
+    "randomize_full_pool_each_repeat": true,
+    "opaque_production_ids": true,
+    "production_may_read_evaluation_sidecar": false
+  },
+  "gates": {
+    "mask_fragment_pass_fraction": 0.9,
+    "mask_repeats_required": 2,
+    "minimum_parent_mask_pass_fraction": 0.75,
+    "maximum_interior_missing_fraction": 0.01,
+    "maximum_interior_extraneous_fraction": 0.01,
+    "pose_primary_k": 3,
+    "pose_diagnostic_k": 10,
+    "pose_top_k_recall": 0.9,
+    "pose_top_1_accuracy": 0.85,
+    "maximum_false_automatic_observations": 0,
+    "automatic_exact_yield_to_expand": 0.8,
+    "maximum_false_automatic_assemblies": 0,
+    "native_seam_verifier_qualification_required": true,
+    "automatic_allowed_after_search_limit_hit": false,
+    "preregistered_ab_tests_per_blind_cohort": 1,
+    "revealed_cohort_becomes_development": true,
+    "ab_minimum_absolute_gain": 0.05,
+    "ab_screening_parent_rescues": 1,
+    "ab_route_pass_parent_rescues": 2,
+    "ab_maximum_parent_regressions": 0,
+    "independent_replication_before_adoption": true,
+    "ab_maximum_runtime_ratio": 1.25
+  },
+  "resolution": {
+    "gold_dpi": 1200,
+    "raw_capture_dpi": 600,
+    "locator_and_candidate_dpi": 300,
+    "raw_seam_verification_dpi": 600,
+    "physical_threshold_unit": "mm",
+    "scale_source": "independently_measured_pixels_per_mm_x_y",
+    "nominal_dpi_is_calibration": false,
+    "gold_optical_resolution_required": true,
+    "minimum_samples_per_feature": 6,
+    "legacy_simulation_shape": [90, 180],
+    "physical_core_auto_confirmation_enabled": false,
+    "upsampling_is_evidence": false
+  },
+  "proxy_tolerance_model": {
+    "scan_dpi": 300,
+    "segmentation_tolerance_mm": 0.085,
+    "registration_tolerance_mm": 0.085,
+    "minimum_fragment_span_mm": 20,
+    "effectiveness_ratio": 1,
+    "overlay_height_mm": 0
+  }
+}

@@ -202,8 +202,10 @@ moneyrepair reconstruct \
   --output-dir runs/capture/core
 ```
 
-`reconstruct` runs Stages 4-6 with the frozen v4.4.1 preset and reports which
-selected assemblies are automatic and which need review. It reads only locator
+`reconstruct` runs Stages 4-6 with the frozen v4.4.1 preset in diagnostic-only
+release mode. All selected assemblies enter review; `shadow_automatic` preserves
+internal evidence labels while `routing.automatic` is empty. Qualification and
+search node/state/time-limit blockers are recorded. It reads only locator
 pose uncertainty from fragment metadata, rejects fragments marked with a
 non-observed provenance, and records the input SHA256 in
 `reconstruction_report.json`. Its pixel thresholds were calibrated on 180x90

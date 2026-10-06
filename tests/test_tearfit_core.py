@@ -17,6 +17,7 @@ from moneyrepair.tearfit import (
     make_fractal_tear_fragments,
     observed_fragment_view,
     reconstruct_placed_fragments,
+    run_tearfit_reconstruction,
     run_tearfit_trial,
 )
 
@@ -228,6 +229,13 @@ def test_reconstruct_cli_writes_truth_blind_report(tmp_path):
         == direct.selected_solution_fingerprint
     )
     routing = report["routing"]
+    assert routing["release_mode"] == "diagnostic_only"
+    assert routing["automatic_confirmation_enabled"] is False
+    assert routing["automatic"] == []
+    assert routing["shadow_automatic"] == [
+        list(candidate.fragment_ids) for candidate in direct.selected
+        if candidate.evidence_level == "automatic"
+    ]
     routed = [
         fragment_id
         for group in routing["automatic"] + routing["review"]
@@ -237,3 +245,33 @@ def test_reconstruct_cli_writes_truth_blind_report(tmp_path):
         fragment.id for fragment in fragments
     )
     assert "note-00" not in report_text
+
+
+@pytest.mark.parametrize(("stage", "flag"), [
+    ("exact_cover", "node_limit_reached"),
+    ("exact_cover", "time_limit_reached"),
+    ("core", "state_limit_reached"),
+])
+def test_reconstruct_report_blocks_truncated_search(tmp_path, monkeypatch, stage, flag):
+    simulation = FractalTearConfig(notes=2, pieces_per_note=4, width=72, height=40, seed=29)
+    template, fragments = make_fractal_tear_fragments(simulation)
+    dataset = tmp_path / "placed.npz"
+    save_dataset(dataset, template, fragments)
+    core = reconstruct_placed_fragments(
+        fragments, TearFitCoreConfig.v4_4_1(), max_pieces=6, expected_notes=2,
+    )
+    assert core.selected
+    core = replace(core, selected=[
+        replace(candidate, evidence_level="automatic") for candidate in core.selected
+    ], search_stats={stage: {flag: True}})
+    monkeypatch.setattr(
+        "moneyrepair.tearfit.reconstruct_placed_fragments", lambda *args, **kwargs: core,
+    )
+
+    report = run_tearfit_reconstruction(dataset, tmp_path / "report", max_pieces=6)
+    routing = report["routing"]
+    assert routing["automatic"] == []
+    assert routing["shadow_automatic"] == routing["review"]
+    assert f"search_truncated:{stage}" in routing["automatic_blockers"]
+    assert "physical_resolution_unqualified" in routing["automatic_blockers"]
+    assert "native_seam_verifier_unqualified" in routing["automatic_blockers"]

@@ -166,6 +166,38 @@ exist, so every physical gate remains unmeasured.
 
 ## Physical Pilot Gates
 
+### Quantified follow-up design (2026-10-06)
+
+The existing 8-sheet x 8-piece pilot is unchanged. A subsequent, separate
+mixed-pool benchmark is preregistered at **20 sheets x 16 pieces**, with 4
+calibration and 16 blind evaluation sheets, on same-ream 80 g/m2 uncoated
+cellulose copier paper. It is not a banknote-material benchmark.
+
+The [decision contract](docs/v5_physical_decision.md) fixes an engineering
+expansion gate of automatic exact yield >= 0.80 (at least 13/16 blind parents)
+with zero false automatic observations/assemblies, after the existing mask and
+pose gates pass. Small-sample success is not a 98% precision certificate.
+Primary yield uses the first valid scheduled acquisition; other repeats measure
+stability, never best-of-3 yield. All repeats must have zero false automatic.
+
+Resolution uses a **mm contract**, with native 1200-DPI independent gold,
+600-DPI raw seam evidence, and 300-DPI locator/candidate targets. The legacy
+180x90 core has **no validated physical pixel mapping**. A physical,
+mm-calibrated resolution-qualified core remains pending; physical core outputs
+are diagnostic/review only. `reconstruct` now separates `shadow_automatic` core
+labels from its empty automatic-release list and reports search-limit blockers.
+The 13/16 automatic gate remains unevaluable until native seam qualification.
+Nominal DPI is planning only; thresholds require independently measured x/y
+pixel scales. Production files/order/IDs must not encode evaluation parent IDs.
+After one preregistered A/B or diagnosis, a revealed cohort is development data.
+The measurement-only sampling/scale audit does not reopen frozen algorithm tuning.
+Its 15 bounded N=3, p=16, seeds 101/102/103 scale replays preserve the exact
+selected sets but change automatic edge counts even with naive length scaling;
+13 runs hit the cover-node limit, so they do not certify global optimality.
+The follow-up A/B gate requires at least two rescued blind parents and no
+regressions/errors; one rescue permits independent confirmation only. All
+physical gates remain unmeasured.
+
 Proceed in this order and repair only the first failed stage:
 
 1. **Mask contract:** independent gold masks, calibrated pixel scale, boundary
@@ -176,8 +208,10 @@ Proceed in this order and repair only the first failed stage:
    candidate recall, exact yield/precision, and review queue.
 4. **Conditional component A/B:** only if reliable physical handoff reproduces
    the multi-component core wall; freeze every other variable and require at
-   least `+0.05` oracle recall or yield with no precision loss or false
-   automatic assembly.
+   least `+0.05` oracle recall or yield on later, larger cohorts with no precision
+   loss or false automatic assembly. The 16-parent screening cohort instead
+   requires two rescued parents, no regressions, <= 1.25x runtime, and an
+   independent replication before adoption.
 5. **Conditional learned seam descriptor:** only if the component A/B leaves a
    retrieval residual. Train on narrow physical boundary sequences/strips with
    same-position different-note and near-straight hard negatives. Final

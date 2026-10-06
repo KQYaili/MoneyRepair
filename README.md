@@ -10,6 +10,10 @@ measurement infrastructure needed to test masks and poses on physical captures;
 it does **not** establish real-banknote reconstruction performance. The next
 valid experiment is the preregistered physical capture pilot.
 
+The [physical decision contract](docs/v5_physical_decision.md) fixes the next
+20x16 paper benchmark, continue/stop rules, and resolution qualification. The
+legacy 180x90 simulation core is not a calibrated physical verifier.
+
 > [!IMPORTANT]
 > [STATUS.md](STATUS.md) is the single source of truth for measured results,
 > limitations, dead ends, and the next allowed experiment. No claim elsewhere
@@ -146,8 +150,9 @@ moneyrepair reality-bridge \
 
 Automatic placements from that audit can then be passed to the frozen v4.4.1
 tear-fit core. It reads only locator pose uncertainty from fragment metadata
-and reports which selected assemblies are automatic, which need review, and
-which fragments stay unassigned:
+and reports selected assemblies for review and fragments left unassigned.
+`shadow_automatic` preserves core evidence labels, not automatic authorization;
+the automatic-release list stays empty until physical qualification:
 
 ```bash
 moneyrepair reconstruct \

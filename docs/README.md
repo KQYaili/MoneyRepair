@@ -12,6 +12,7 @@ the current capability claim.
 | [Pipeline](pipeline.md) | current data contracts, acquisition-to-review flow, supported and diagnostic paths |
 | [v5 Reality Bridge](v5_reality_bridge.md) | truth-isolated raw-crop mask/pose measurement funnel |
 | [Physical Pilot](v5_real_capture_pilot.md) | frozen 64-fragment/72-scene scanner/phone protocol |
+| [Physical Decision Contract](v5_physical_decision.md) | 20x16 follow-up design, numeric stop rules, paper and resolution audit |
 | [Literature Transfer Audit](v5_literature_transfer_audit.md) | three-paper measurement transfer and stage stop rule |
 | [Release Checklist](release.md) | code, document, artifact, and data-safety checks |
 | [GitHub](github.md) | canonical `main` publication and repository maintenance |

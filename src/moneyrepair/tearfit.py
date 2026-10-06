@@ -3849,6 +3849,7 @@ def run_tearfit_reconstruction(
     canonical frame, such as a ``reality-bridge`` handoff. When
     ``expected_notes`` is omitted it is estimated from total fragment area.
     Writes ``reconstruction_report.json`` and returns the same payload.
+    Core evidence labels are shadow diagnostics, never release authorization.
     """
 
     dataset_path = Path(dataset_path)
@@ -3875,6 +3876,15 @@ def run_tearfit_reconstruction(
         for candidate in reconstruction.selected
         for fragment_id in candidate.fragment_ids
     }
+    automatic_blockers = [
+        "physical_resolution_unqualified",
+        "native_seam_verifier_unqualified",
+    ]
+    for stage, stats in reconstruction.search_stats.items():
+        if any(stats.get(flag, False) for flag in (
+            "node_limit_reached", "state_limit_reached", "time_limit_reached",
+        )):
+            automatic_blockers.append(f"search_truncated:{stage}")
     report_path = output_dir / "reconstruction_report.json"
     report = {
         "tool": "moneyrepair",
@@ -3883,8 +3893,9 @@ def run_tearfit_reconstruction(
         "claim_boundary": (
             "Runs the frozen v4.4.1 tear-fit core on fragments already placed in the "
             "canonical frame. Its pixel thresholds were calibrated on 180x90 simulation "
-            "canvases and no physical resolution mapping is preregistered, so results on "
-            "physical captures are diagnostic only."
+            "canvases and no physical resolution mapping is validated, so results are "
+            "diagnostic only. Core automatic evidence labels are shadow classifications, "
+            "not authorization for physical automatic confirmation."
         ),
         "inputs": {
             "dataset": str(dataset_path),
@@ -3896,7 +3907,11 @@ def run_tearfit_reconstruction(
         "expected_notes_source": expected_notes_source,
         "reconstruction": reconstruction.to_jsonable(),
         "routing": {
-            "automatic": [
+            "release_mode": "diagnostic_only",
+            "automatic_confirmation_enabled": False,
+            "automatic_blockers": automatic_blockers,
+            "automatic": [],
+            "shadow_automatic": [
                 list(candidate.fragment_ids)
                 for candidate in reconstruction.selected
                 if candidate.evidence_level == "automatic"
@@ -3904,7 +3919,6 @@ def run_tearfit_reconstruction(
             "review": [
                 list(candidate.fragment_ids)
                 for candidate in reconstruction.selected
-                if candidate.evidence_level != "automatic"
             ],
             "unassigned_fragment_ids": [
                 fragment.id for fragment in fragments if fragment.id not in assigned

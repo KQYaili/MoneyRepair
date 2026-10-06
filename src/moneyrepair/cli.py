@@ -185,7 +185,9 @@ def _cmd_reconstruct(args: argparse.Namespace) -> None:
     )
     routing = report["routing"]
     print(
-        f"automatic={len(routing['automatic'])} review={len(routing['review'])} "
+        f"automatic={len(routing['automatic'])} "
+        f"shadow_automatic={len(routing['shadow_automatic'])} "
+        f"review={len(routing['review'])} "
         f"unassigned_fragments={len(routing['unassigned_fragment_ids'])}"
     )
     print(f"wrote reconstruction report to {report['outputs']['report']}")
