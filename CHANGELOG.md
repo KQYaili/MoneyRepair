@@ -1,5 +1,33 @@
 # Changelog
 
+## v5 core performance and exact-cover audit (simulation only)
+
+- Rework the frozen v4.4.1 tear-fit core's computation without changing any
+  decision. Pair scoring now uses cropped boundary evidence, one compiled
+  overlap and hit pass per fragment, and table-based normal opposition. Gap
+  search scores each state's proposals as a batch, with an exact upper-bound
+  rejection and member-sum overlaps. The beam searches keep sorted-tuple seen
+  states, overlap bitsets and batched coverage counts, and exact cover uses
+  integer bitsets.
+- On one aarch64 machine the committed N=100, p=24, seed-7 arms run in 54.7 s
+  and 54.9 s, down from 931.8 s and 1,032.3 s. Peak memory falls from about
+  1.21 GB to 0.73 GB.
+- Add `docs/experiments/core_equivalence.py`. It compares two core trees item
+  by item, covering scored pairs, edges, candidates and their sources, the
+  selection and objective, fingerprints, search counters and trial metrics,
+  plus a 126-entry direct-call suite. All 12 trial configurations and the
+  suite are identical to `da354f0`. The `core-equivalence.yml` workflow
+  repeats the N=100 arms and the suite on x86 for every pull request that
+  touches the core.
+- Add `core_profile.py`, `core_scaling.py` and `cover_optimality_audit.py`
+  (SciPy, `.[audit]`). Results are in `docs/v5_core_performance_audit.md` and
+  `docs/benchmarks/v5_core_*.json*` / `v5_cover_optimality_audit.json`.
+- Pin every fast path to a direct reference implementation in
+  `tests/test_tearfit_kernels.py`, and test the measurement tools in
+  `tests/test_core_measurement_tools.py`.
+- Clear the 29 full-package mypy errors. Extend the Ruff gate to
+  `docs/figures` and `docs/experiments`, and run the SciPy-backed tests in CI.
+
 ## v5 repository and evidence consolidation
 
 - Fast-forward every completed development line into the canonical `main`

@@ -123,6 +123,30 @@ guarantee assembly-level component coverage. The metrics are same-source
 proxies because the simulator does not annotate the exact pair of physical
 boundary arcs. They are not physical seam-mate recall.
 
+### Core computation and exact-cover audit
+
+This audit is simulation-only and leaves every frozen decision unchanged
+([audit](docs/v5_core_performance_audit.md)).
+
+- **Speed and memory.** An output-identical rewrite of the core's computation
+  runs the N=100, p=24, seed-7 arms in about 55 s instead of 930-1030 s on one
+  aarch64 machine. Peak memory falls from about 1.21 GB to 0.73 GB. The
+  previous tree matches item by item, covering every scored pair, candidate,
+  selection, fingerprint and search counter, in 12 trial configurations and a
+  126-entry direct-call suite.
+- **Pair growth.** About 31.5% of all fragment pairs share a dilated-boundary
+  bounding box at every N. The scored-pair set, its memory, and the core-state
+  budget derived from it therefore grow quadratically by definition.
+- **Gap proposals.** About 90% of whole-assembly gap proposals fail because
+  they overlap the assembly; fewer than 1% are accepted.
+- **Exact-cover optimality.** A MILP re-solve of the final candidate pool
+  proves the depth-first selection optimal at N=50 (seeds 7-9) and N=100 (seed
+  7, both arms). At N=200 (seeds 7-9) the selection is 0.6-4.7% below the
+  optimum, and 100 times the node budget does not close the gap. The
+  score-optimal packing has equal or lower exact yield and lower exact
+  precision, so at that scale the candidate score and objective, not the
+  search budget, limit selection quality.
+
 ## Historical Stress Boundary
 
 Older v4.2 stress tests establish that scale and fineness are different axes:
@@ -248,15 +272,17 @@ they may not become a hidden note-identity key.
 
 ## Validation Snapshot
 
-The consolidation gate on 2026-09-24 reports:
+The gate on 2026-10-12 reports:
 
-- `159 passed` in the core pytest suite;
+- `197 passed` on Python 3.12 with the `reports` and `audit` extras; Python
+  3.10 and 3.13 pass the same suite, with the three matplotlib tests skipped
+  when that extra is absent;
 - `compileall` clean;
-- Ruff clean across `src`, `tests`, and `docs/figures`;
-- targeted mypy clean for the changed CLI and diagram modules;
-- full-package mypy still advisory with 23 pre-existing errors in six unchanged
-  modules (`compat`, `tearfit`, `locator`, `pressure`, `figures`, and
-  `pipeline`).
+- Ruff clean across `src`, `tests`, `docs/figures`, and `docs/experiments`;
+- full-package mypy clean (0 errors), still advisory in CI;
+- `docs/experiments/core_equivalence.py` reports the core identical to
+  `da354f0` in every configuration listed in the
+  [core audit](docs/v5_core_performance_audit.md).
 
 ## Next Action
 

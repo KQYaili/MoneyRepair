@@ -1,0 +1,528 @@
+{
+  "schema": "v5-core-profile",
+  "boundary": "Simulation only: placed fragments from the per-note fractal tear simulator. Measures the computation of the frozen v4.4.1 core; it changes no decision and says nothing about physical tears.",
+  "tool": "docs/experiments/core_profile.py",
+  "note": "Wall times are instrumented and not comparable with uninstrumented runs.",
+  "profiles": [
+    {
+      "case": {
+        "notes": 20,
+        "pieces": 24,
+        "seed": 7,
+        "strategy": "disjoint_round_robin"
+      },
+      "resolved_algorithm": "effectiveness_gap",
+      "wall_seconds_instrumented": 17.377848198637366,
+      "stage_timings_instrumented": {
+        "simulation": 0.5900879595428705,
+        "pair_scoring": 1.328080128878355,
+        "core_search": 4.504622472450137,
+        "complete_gap_search": 7.336601424962282,
+        "partial_gap_search": 3.279370380565524,
+        "exact_cover": 0.22409263625741005,
+        "diagnostics": 0.0004801210016012192,
+        "total": 17.3752907179296
+      },
+      "pair_funnel": {
+        "fragments": 480,
+        "all_pairs": 114960,
+        "bbox_candidate_pairs": 36192,
+        "mask_overlap_dropped": 20434,
+        "scored_pairs": 15758,
+        "scored_pairs_consistent": true,
+        "touching_pairs": 4329,
+        "review_edges": 256,
+        "automatic_edges": 638
+      },
+      "retained_memory": {
+        "fragments_mb": 30.0,
+        "scored_pairs_mb": 5.4,
+        "core_candidates_mb": 14.7,
+        "pool_candidates_mb": 0.1
+      },
+      "core_search": {
+        "expanded_states": 99319,
+        "core_candidates": 28475
+      },
+      "gap_proposals": {
+        "complete_gap": {
+          "rejected_by_overlap_penalty": 244893,
+          "rejected_on_weak_evidence": 25048,
+          "accepted_and_kept": 1051,
+          "accepted_then_pruned_for_union_overlap": 959,
+          "no_reachable_level": 1
+        },
+        "partial_gap": {
+          "rejected_by_overlap_penalty": 113158,
+          "rejected_on_weak_evidence": 12667,
+          "accepted_then_pruned_for_union_overlap": 1245,
+          "accepted_and_kept": 751,
+          "no_reachable_level": 6
+        }
+      },
+      "gap_search_stats": {
+        "complete_gap": {
+          "expanded_states": 1355,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 3877,
+          "proposal_edges": 3877,
+          "proposal_evaluations": 271952,
+          "accepted_proposals": 2010,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 512,
+          "base_selection_rounds": 27
+        },
+        "partial_gap": {
+          "expanded_states": 639,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 3877,
+          "proposal_edges": 3877,
+          "proposal_evaluations": 127827,
+          "accepted_proposals": 1996,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 128,
+          "base_selection_rounds": 7
+        }
+      },
+      "memory": {}
+    },
+    {
+      "case": {
+        "notes": 20,
+        "pieces": 24,
+        "seed": 7,
+        "strategy": "disjoint_round_robin"
+      },
+      "resolved_algorithm": "effectiveness_gap",
+      "wall_seconds_instrumented": 176.46687586046755,
+      "stage_timings_instrumented": {
+        "simulation": 1.0921230912208557,
+        "pair_scoring": 6.147615844383836,
+        "core_search": 113.28426558896899,
+        "complete_gap_search": 33.47171586565673,
+        "partial_gap_search": 15.07307330518961,
+        "exact_cover": 7.139426155015826,
+        "diagnostics": 0.005740202963352203,
+        "total": 176.45975209586322
+      },
+      "pair_funnel": {
+        "fragments": 480,
+        "all_pairs": 114960,
+        "bbox_candidate_pairs": 36192,
+        "mask_overlap_dropped": 20434,
+        "scored_pairs": 15758,
+        "scored_pairs_consistent": true,
+        "touching_pairs": 4329,
+        "review_edges": 256,
+        "automatic_edges": 638
+      },
+      "retained_memory": {
+        "fragments_mb": 30.0,
+        "scored_pairs_mb": 5.4,
+        "core_candidates_mb": 14.7,
+        "pool_candidates_mb": 0.1
+      },
+      "core_search": {
+        "expanded_states": 99319,
+        "core_candidates": 28475
+      },
+      "gap_proposals": {
+        "complete_gap": {
+          "rejected_by_overlap_penalty": 244893,
+          "rejected_on_weak_evidence": 25048,
+          "accepted_and_kept": 1051,
+          "accepted_then_pruned_for_union_overlap": 959,
+          "no_reachable_level": 1
+        },
+        "partial_gap": {
+          "rejected_by_overlap_penalty": 113158,
+          "rejected_on_weak_evidence": 12667,
+          "accepted_then_pruned_for_union_overlap": 1245,
+          "accepted_and_kept": 751,
+          "no_reachable_level": 6
+        }
+      },
+      "gap_search_stats": {
+        "complete_gap": {
+          "expanded_states": 1355,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 3877,
+          "proposal_edges": 3877,
+          "proposal_evaluations": 271952,
+          "accepted_proposals": 2010,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 512,
+          "base_selection_rounds": 27
+        },
+        "partial_gap": {
+          "expanded_states": 639,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 3877,
+          "proposal_edges": 3877,
+          "proposal_evaluations": 127827,
+          "accepted_proposals": 1996,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 128,
+          "base_selection_rounds": 7
+        }
+      },
+      "memory": {
+        "pair_scoring": {
+          "calls": 1,
+          "peak_mb": 73.729753,
+          "before_mb": 31.799049,
+          "after_mb": 57.487183
+        },
+        "core_peak_sites": {
+          "traced_mb": 58.499286,
+          "sites": [
+            {
+              "site": "tearfit.py:732",
+              "mb": 23.396928,
+              "blocks": 1436
+            },
+            {
+              "site": "tearfit.py:691",
+              "mb": 7.82208,
+              "blocks": 960
+            },
+            {
+              "site": "<frozen importlib._bootstrap_external>:753",
+              "mb": 7.19354,
+              "blocks": 51137
+            },
+            {
+              "site": "tearfit.py:1570",
+              "mb": 3.278512,
+              "blocks": 31517
+            },
+            {
+              "site": "<frozen abc>:106",
+              "mb": 3.137961,
+              "blocks": 9226
+            },
+            {
+              "site": "<frozen importlib._bootstrap>:488",
+              "mb": 1.006568,
+              "blocks": 7441
+            },
+            {
+              "site": "tearfit.py:1170",
+              "mb": 0.649833,
+              "blocks": 14
+            },
+            {
+              "site": "templates.py:1184",
+              "mb": 0.576796,
+              "blocks": 2011
+            },
+            {
+              "site": "<frozen abc>:123",
+              "mb": 0.408357,
+              "blocks": 3334
+            },
+            {
+              "site": "<frozen abc>:107",
+              "mb": 0.399504,
+              "blocks": 2764
+            },
+            {
+              "site": "context.py:548",
+              "mb": 0.398112,
+              "blocks": 2552
+            },
+            {
+              "site": "tearfit.py:1576",
+              "mb": 0.378192,
+              "blocks": 15758
+            }
+          ]
+        },
+        "core_search": {
+          "calls": 1,
+          "peak_mb": 97.899276,
+          "before_mb": 57.49261,
+          "after_mb": 76.519361
+        },
+        "gap_search": {
+          "calls": 2,
+          "peak_mb": 94.317165,
+          "before_mb": 89.201727,
+          "after_mb": 89.377235
+        },
+        "exact_cover": {
+          "calls": 1,
+          "peak_mb": 95.913191,
+          "before_mb": 93.007347,
+          "after_mb": 93.061435
+        }
+      }
+    },
+    {
+      "case": {
+        "notes": 50,
+        "pieces": 24,
+        "seed": 7,
+        "strategy": "disjoint_round_robin"
+      },
+      "resolved_algorithm": "effectiveness_gap",
+      "wall_seconds_instrumented": 43.46754685603082,
+      "stage_timings_instrumented": {
+        "simulation": 1.4566558115184307,
+        "pair_scoring": 4.890087179839611,
+        "core_search": 11.383236175402999,
+        "complete_gap_search": 15.326158657670021,
+        "partial_gap_search": 9.463985471054912,
+        "exact_cover": 0.6154954470694065,
+        "diagnostics": 0.0010973606258630753,
+        "total": 43.454938769340515
+      },
+      "pair_funnel": {
+        "fragments": 1200,
+        "all_pairs": 719400,
+        "bbox_candidate_pairs": 226996,
+        "mask_overlap_dropped": 131652,
+        "scored_pairs": 95344,
+        "scored_pairs_consistent": true,
+        "touching_pairs": 23327,
+        "review_edges": 870,
+        "automatic_edges": 1611
+      },
+      "retained_memory": {
+        "fragments_mb": 75.0,
+        "scored_pairs_mb": 32.8,
+        "core_candidates_mb": 34.2,
+        "pool_candidates_mb": 0.2
+      },
+      "core_search": {
+        "expanded_states": 258738,
+        "core_candidates": 66125
+      },
+      "gap_proposals": {
+        "complete_gap": {
+          "rejected_by_overlap_penalty": 501432,
+          "rejected_on_weak_evidence": 52705,
+          "accepted_then_pruned_for_union_overlap": 989,
+          "no_reachable_level": 40,
+          "accepted_and_kept": 610
+        },
+        "partial_gap": {
+          "rejected_by_overlap_penalty": 327267,
+          "rejected_on_weak_evidence": 36216,
+          "accepted_and_kept": 851,
+          "accepted_then_pruned_for_union_overlap": 2661,
+          "no_reachable_level": 53
+        }
+      },
+      "gap_search_stats": {
+        "complete_gap": {
+          "expanded_states": 1068,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 20472,
+          "proposal_edges": 20472,
+          "proposal_evaluations": 555776,
+          "accepted_proposals": 1599,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 512,
+          "base_selection_rounds": 12
+        },
+        "partial_gap": {
+          "expanded_states": 711,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 20472,
+          "proposal_edges": 20472,
+          "proposal_evaluations": 367048,
+          "accepted_proposals": 3512,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 128,
+          "base_selection_rounds": 3
+        }
+      },
+      "memory": {}
+    },
+    {
+      "case": {
+        "notes": 100,
+        "pieces": 24,
+        "seed": 7,
+        "strategy": "disjoint_round_robin"
+      },
+      "resolved_algorithm": "effectiveness_gap",
+      "wall_seconds_instrumented": 99.0195809174329,
+      "stage_timings_instrumented": {
+        "simulation": 2.885216660797596,
+        "pair_scoring": 16.552502565085888,
+        "core_search": 24.799249410629272,
+        "complete_gap_search": 30.198816744610667,
+        "partial_gap_search": 22.39098092727363,
+        "exact_cover": 1.307484958320856,
+        "diagnostics": 0.0023668408393859863,
+        "total": 98.9737975038588
+      },
+      "pair_funnel": {
+        "fragments": 2400,
+        "all_pairs": 2878800,
+        "bbox_candidate_pairs": 906887,
+        "mask_overlap_dropped": 532114,
+        "scored_pairs": 374773,
+        "scored_pairs_consistent": true,
+        "touching_pairs": 87411,
+        "review_edges": 2487,
+        "automatic_edges": 3449
+      },
+      "retained_memory": {
+        "fragments_mb": 149.9,
+        "scored_pairs_mb": 128.8,
+        "core_candidates_mb": 69.6,
+        "pool_candidates_mb": 0.4
+      },
+      "core_search": {
+        "expanded_states": 555117,
+        "core_candidates": 134672
+      },
+      "gap_proposals": {
+        "complete_gap": {
+          "rejected_by_overlap_penalty": 972752,
+          "rejected_on_weak_evidence": 103001,
+          "no_reachable_level": 30,
+          "accepted_and_kept": 578,
+          "accepted_then_pruned_for_union_overlap": 1682
+        },
+        "partial_gap": {
+          "rejected_by_overlap_penalty": 774800,
+          "rejected_on_weak_evidence": 87216,
+          "accepted_and_kept": 966,
+          "accepted_then_pruned_for_union_overlap": 5999,
+          "no_reachable_level": 80
+        }
+      },
+      "gap_search_stats": {
+        "complete_gap": {
+          "expanded_states": 1027,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 1078043,
+          "accepted_proposals": 2260,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 512,
+          "base_selection_rounds": 7
+        },
+        "partial_gap": {
+          "expanded_states": 833,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 76344,
+          "proposal_edges": 76344,
+          "proposal_evaluations": 869061,
+          "accepted_proposals": 6965,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 128,
+          "base_selection_rounds": 2
+        }
+      },
+      "memory": {}
+    },
+    {
+      "case": {
+        "notes": 200,
+        "pieces": 24,
+        "seed": 7,
+        "strategy": "disjoint_round_robin"
+      },
+      "resolved_algorithm": "effectiveness_gap",
+      "wall_seconds_instrumented": 249.7584190927446,
+      "stage_timings_instrumented": {
+        "simulation": 5.997107956558466,
+        "pair_scoring": 60.162344086915255,
+        "core_search": 70.00166307576,
+        "complete_gap_search": 57.65474581345916,
+        "partial_gap_search": 49.3550410810858,
+        "exact_cover": 3.569075647741556,
+        "diagnostics": 0.005704762414097786,
+        "total": 249.58829919621348
+      },
+      "pair_funnel": {
+        "fragments": 4800,
+        "all_pairs": 11517600,
+        "bbox_candidate_pairs": 3633838,
+        "mask_overlap_dropped": 2139465,
+        "scored_pairs": 1494373,
+        "scored_pairs_consistent": true,
+        "touching_pairs": 339067,
+        "review_edges": 8177,
+        "automatic_edges": 7936
+      },
+      "retained_memory": {
+        "fragments_mb": 299.8,
+        "scored_pairs_mb": 511.6,
+        "core_candidates_mb": 184.2,
+        "pool_candidates_mb": 0.9
+      },
+      "core_search": {
+        "expanded_states": 1420951,
+        "core_candidates": 356956
+      },
+      "gap_proposals": {
+        "complete_gap": {
+          "rejected_by_overlap_penalty": 1727799,
+          "rejected_on_weak_evidence": 177852,
+          "accepted_then_pruned_for_union_overlap": 3140,
+          "no_reachable_level": 134,
+          "accepted_and_kept": 454
+        },
+        "partial_gap": {
+          "rejected_on_weak_evidence": 183438,
+          "rejected_by_overlap_penalty": 1724179,
+          "accepted_then_pruned_for_union_overlap": 11888,
+          "accepted_and_kept": 964,
+          "no_reachable_level": 206
+        }
+      },
+      "gap_search_stats": {
+        "complete_gap": {
+          "expanded_states": 905,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 295019,
+          "proposal_edges": 295019,
+          "proposal_evaluations": 1909379,
+          "accepted_proposals": 3594,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 512,
+          "base_selection_rounds": 3
+        },
+        "partial_gap": {
+          "expanded_states": 913,
+          "state_limit_reached": false,
+          "time_limit_reached": false,
+          "weak_pair_edges": 295019,
+          "proposal_edges": 295019,
+          "proposal_evaluations": 1920675,
+          "accepted_proposals": 12852,
+          "no_weak_edge_evaluations": 0,
+          "accepted_no_weak_edge_proposals": 0,
+          "selected_base_candidates": 128,
+          "base_selection_rounds": 1
+        }
+      },
+      "memory": {}
+    }
+  ]
+}
