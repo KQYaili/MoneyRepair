@@ -1,0 +1,39 @@
+name: Import verified MoneyRepair patch bundle
+on:
+  push:
+    branches:
+      - perf/core-speedups
+permissions:
+  contents: write
+jobs:
+  import-patches:
+    if: github.event.head_commit.message == 'chore: import verified patch bundle (temporary)'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify archive and materialize exact patch history
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_base=da354f04648dd12a76060be6d0b8c58ef228c245
+          expected_sha256=6f0b8bfa4926573328daefdfc71dd89b763d168f69092cdbdd27d5d7e272bb2c
+          expected_tree=71de5e9cd37ccee6145a190b3038eb4579fc5b5b
+          branch=perf/core-speedups
+          test "$(git rev-parse HEAD^)" = "$expected_base"
+          test "$(sha256sum .github/import/core-speedups-patches.tar.gz | cut -d ' ' -f 1)" = "$expected_sha256"
+          mkdir -p /tmp/moneyrepair-import
+          tar -xzf .github/import/core-speedups-patches.tar.gz -C /tmp/moneyrepair-import
+          cd /tmp/moneyrepair-import/moneyrepair-perf-core-speedups-56659ae
+          sha256sum -c SHA256SUMS
+          cd "$GITHUB_WORKSPACE"
+          git config user.name 'DalhoverLoveday'
+          git config user.email 'DalhoverLoveday@gmail.com'
+          git checkout --detach "$expected_base"
+          git am --3way /tmp/moneyrepair-import/moneyrepair-perf-core-speedups-56659ae/0001-*.patch /tmp/moneyrepair-import/moneyrepair-perf-core-speedups-56659ae/0002-*.patch /tmp/moneyrepair-import/moneyrepair-perf-core-speedups-56659ae/0003-*.patch /tmp/moneyrepair-import/moneyrepair-perf-core-speedups-56659ae/0004-*.patch
+          test "$(git rev-parse HEAD^{tree})" = "$expected_tree"
+          test "$(git rev-list --count "$expected_base"..HEAD)" = 4
+          git push --force-with-lease="refs/heads/$branch:$GITHUB_SHA" origin "HEAD:refs/heads/$branch"
