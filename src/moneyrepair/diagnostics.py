@@ -286,13 +286,13 @@ def summarize_fragment_geometry(fragments: Iterable[Fragment]) -> dict:
     for name in feature_names:
         values = np.asarray([row[name] for row in rows], dtype=np.float64)
         summaries[name] = {
-            "min": float(values.min()),
+            "min": float(np.min(values)),
             "q05": float(np.quantile(values, 0.05)),
             "q25": float(np.quantile(values, 0.25)),
             "median": float(np.median(values)),
             "q75": float(np.quantile(values, 0.75)),
             "q95": float(np.quantile(values, 0.95)),
-            "max": float(values.max()),
+            "max": float(np.max(values)),
             "mean": float(values.mean()),
             "std": float(values.std()),
         }

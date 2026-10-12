@@ -66,7 +66,7 @@ Optional dependency gates (install only what a task needs):
 ```bash
 python -m pytest -q            # test suite (core path)
 python -m compileall -q src    # syntax gate
-ruff check src tests           # lint gate (enforced in CI)
+ruff check src tests docs/figures docs/experiments   # lint gate (enforced in CI)
 mypy src/moneyrepair --ignore-missing-imports   # type check (advisory; being tightened)
 ```
 

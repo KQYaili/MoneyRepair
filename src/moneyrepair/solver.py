@@ -167,7 +167,7 @@ def solve_covering_sets(
         # Trigger precise check when candidate count is below the threshold
         # or when the scalar bound is close to the target area (within 5% margin)
         if len(candidates) < precise_bound_threshold or (scalar_upper_bound - target_area < target_area * 0.05):
-            combined_candidates_mask = np.logical_or.reduce([fragments[int(idx)].mask for idx in candidates])
+            combined_candidates_mask = np.any(np.stack([fragments[int(idx)].mask for idx in candidates]), axis=0)
             if int((union_mask | combined_candidates_mask).sum()) < target_area:
                 return
 
