@@ -104,6 +104,7 @@ optional:
 ```bash
 pip install -e ".[ocr]"   # optional Tesseract wrapper
 pip install -e ".[ml]"    # experimental research modules only
+pip install -e ".[audit]" # SciPy for the exact-cover optimality audit
 ```
 
 ## Quick Smoke Test

@@ -60,6 +60,7 @@ Optional dependency gates (install only what a task needs):
 - `.[ml]` — torch/torchvision (only for `experimental` v6–v10 tests)
 - `.[ocr]` — pytesseract
 - `.[reports]` — matplotlib
+- `.[audit]` — SciPy, only for the exact-cover optimality audit in `docs/experiments`
 
 ## Checks (run before committing)
 
