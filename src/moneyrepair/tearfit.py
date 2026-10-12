@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left
+import heapq
 from hashlib import sha256
 import json
 from math import ceil
@@ -8,8 +10,9 @@ from dataclasses import asdict, dataclass, field, replace
 from itertools import combinations
 from pathlib import Path
 from time import monotonic
-from typing import AbstractSet, Callable, Iterable
+from typing import AbstractSet, Any, Callable, Collection, Iterable, cast
 
+import numba
 import numpy as np
 
 from moneyrepair.simulate import load_dataset, synthetic_banknote
@@ -90,6 +93,36 @@ class TearBoundaryEvidence:
     dilated_boundary_mask: np.ndarray
     normal_y: np.ndarray
     normal_x: np.ndarray
+
+
+@dataclass(frozen=True)
+class _CroppedBoundary:
+    """Tear-boundary evidence cropped to its dilated-boundary bounding box.
+
+    It holds exactly the pixels of :class:`TearBoundaryEvidence`, so scores
+    computed from it are identical, while memory and per-pair work scale with
+    the fragment rather than the canvas. ``x0, y0, x1, y1`` is the crop in
+    canvas coordinates.
+    """
+
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    boundary: np.ndarray
+    dilated: np.ndarray
+    normal_y: np.ndarray
+    normal_x: np.ndarray
+    boundary_pixels: int
+    dilated_pixels: int
+
+    def crop(
+        self, array: np.ndarray, window: tuple[int, int, int, int]
+    ) -> np.ndarray:
+        """View ``array`` (one of this crop's fields) over a canvas window."""
+
+        x0, y0, x1, y1 = window
+        return array[y0 - self.y0 : y1 - self.y0, x0 - self.x0 : x1 - self.x0]
 
 
 @dataclass(frozen=True)
@@ -770,120 +803,241 @@ def _boundary_normals(
 def _largest_connected_support(mask: np.ndarray) -> int:
     """Return the largest 8-connected component in a sparse support mask."""
 
-    ys, xs = np.nonzero(mask)
-    if len(ys) == 0:
-        return 0
-    y0, y1 = int(ys.min()), int(ys.max()) + 1
-    x0, x1 = int(xs.min()), int(xs.max()) + 1
-    active = mask[y0:y1, x0:x1]
-    visited = np.zeros(active.shape, dtype=bool)
+    return int(_largest_component_size(np.ascontiguousarray(mask, dtype=np.bool_)))
+
+
+@numba.njit(cache=True)
+def _largest_component_size(mask: np.ndarray) -> int:  # pragma: no cover - compiled
+    height, width = mask.shape
+    visited = np.zeros((height, width), dtype=np.bool_)
+    stack = np.empty((height * width, 2), dtype=np.int64)
     best = 0
-    for seed_y, seed_x in np.argwhere(active):
-        sy = int(seed_y)
-        sx = int(seed_x)
-        if visited[sy, sx]:
-            continue
-        visited[sy, sx] = True
-        stack = [(sy, sx)]
-        size = 0
-        while stack:
-            y, x = stack.pop()
-            size += 1
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dy == 0 and dx == 0:
-                        continue
+    for seed_y in range(height):
+        for seed_x in range(width):
+            if not mask[seed_y, seed_x] or visited[seed_y, seed_x]:
+                continue
+            visited[seed_y, seed_x] = True
+            stack[0, 0] = seed_y
+            stack[0, 1] = seed_x
+            top = 1
+            size = 0
+            while top > 0:
+                top -= 1
+                y = stack[top, 0]
+                x = stack[top, 1]
+                size += 1
+                for dy in range(-1, 2):
                     ny = y + dy
-                    nx = x + dx
-                    if (
-                        ny < 0
-                        or nx < 0
-                        or ny >= active.shape[0]
-                        or nx >= active.shape[1]
-                    ):
+                    if ny < 0 or ny >= height:
                         continue
-                    if active[ny, nx] and not visited[ny, nx]:
-                        visited[ny, nx] = True
-                        stack.append((ny, nx))
-        best = max(best, size)
+                    for dx in range(-1, 2):
+                        nx = x + dx
+                        if (dy == 0 and dx == 0) or nx < 0 or nx >= width:
+                            continue
+                        if mask[ny, nx] and not visited[ny, nx]:
+                            visited[ny, nx] = True
+                            stack[top, 0] = ny
+                            stack[top, 1] = nx
+                            top += 1
+            if size > best:
+                best = size
     return best
 
 
+class _NormalTable:
+    """Distinct raster normals of a fragment set and their pairwise opposition.
+
+    Placed-mask normals take only a handful of values, so each boundary pixel
+    stores the index of its normal and ``opposition[i, j]`` holds
+    ``-(ny_i * ny_j + nx_i * nx_j)`` evaluated in float64 exactly as it would
+    be for one pixel pair.
+    """
+
+    def __init__(self, evidence: list[_CroppedBoundary]) -> None:
+        keys = [self._keys(ev) for ev in evidence]
+        flat = [key.ravel() for key in keys if key.size]
+        self.keys = np.unique(np.concatenate(flat)) if flat else np.zeros(1, np.uint64)
+        normal_y = (self.keys >> np.uint64(32)).astype(np.uint32).view(np.float32)
+        normal_x = (self.keys & np.uint64(0xFFFFFFFF)).astype(np.uint32).view(np.float32)
+        vectors = [(float(y), float(x)) for y, x in zip(normal_y, normal_x)]
+        self.is_zero = np.array([y == 0.0 and x == 0.0 for y, x in vectors], dtype=np.bool_)
+        self.opposition = np.array(
+            [[-(ly * ry + lx * rx) for ry, rx in vectors] for ly, lx in vectors],
+            dtype=np.float64,
+        ).reshape(len(vectors), len(vectors))
+        self.codes = [
+            np.searchsorted(self.keys, key).astype(np.int64) for key in keys
+        ]
+
+    @staticmethod
+    def _keys(evidence: _CroppedBoundary) -> np.ndarray:
+        return (evidence.normal_y.view(np.uint32).astype(np.uint64) << np.uint64(32)) | (
+            evidence.normal_x.view(np.uint32).astype(np.uint64)
+        )
+
+
+@numba.njit(cache=True)
+def _best_opposition(
+    ys: np.ndarray,
+    xs: np.ndarray,
+    left_codes: np.ndarray,
+    left_y0: int,
+    left_x0: int,
+    right_codes: np.ndarray,
+    right_boundary: np.ndarray,
+    right_y0: int,
+    right_x0: int,
+    radius: int,
+    opposition: np.ndarray,
+    is_zero: np.ndarray,
+    best: np.ndarray,
+    usable: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    right_y1 = right_y0 + right_boundary.shape[0]
+    right_x1 = right_x0 + right_boundary.shape[1]
+    for point in range(ys.shape[0]):
+        y = ys[point]
+        x = xs[point]
+        usable[point] = False
+        left_code = left_codes[y - left_y0, x - left_x0]
+        if is_zero[left_code]:
+            continue
+        found = False
+        current = 0.0
+        for near_y in range(y - radius, y + radius + 1):
+            if near_y < right_y0 or near_y >= right_y1:
+                continue
+            for near_x in range(x - radius, x + radius + 1):
+                if near_x < right_x0 or near_x >= right_x1:
+                    continue
+                if not right_boundary[near_y - right_y0, near_x - right_x0]:
+                    continue
+                right_code = right_codes[near_y - right_y0, near_x - right_x0]
+                if is_zero[right_code]:
+                    continue
+                value = opposition[left_code, right_code]
+                # Keep the first of equal values, as max() over a list does.
+                if not found or value > current:
+                    current = value
+                    found = True
+        if found:
+            best[point] = current
+            usable[point] = True
+
+
 def _matched_normal_opposition(
-    left: TearBoundaryEvidence,
-    right: TearBoundaryEvidence,
+    table: _NormalTable,
+    left: int,
+    right: int,
+    evidence: list[_CroppedBoundary],
     left_match: np.ndarray,
+    origin: tuple[int, int],
     *,
     tolerance: int,
     sample_limit: int = 128,
 ) -> float:
-    """Measure whether nearby outward normals point in opposite directions."""
+    """Measure whether nearby outward normals point in opposite directions.
+
+    ``left_match`` is a canvas window whose top-left pixel is ``origin``
+    ``(y, x)``. Each sampled matched pixel takes its best-opposed right
+    boundary normal within ``tolerance``, scanning the window row by row;
+    the result is the mean over pixels that found one.
+    """
 
     points = np.argwhere(left_match)
     if len(points) == 0:
         return 0.0
     if len(points) > sample_limit:
         points = points[np.linspace(0, len(points) - 1, sample_limit, dtype=np.int64)]
-    radius = max(0, int(tolerance))
-    height, width = left_match.shape
-    scores: list[float] = []
-    for raw_y, raw_x in points:
-        y = int(raw_y)
-        x = int(raw_x)
-        left_ny = float(left.normal_y[y, x])
-        left_nx = float(left.normal_x[y, x])
-        if left_ny == 0.0 and left_nx == 0.0:
-            continue
-        y0 = max(0, y - radius)
-        y1 = min(height, y + radius + 1)
-        x0 = max(0, x - radius)
-        x1 = min(width, x + radius + 1)
-        local = right.boundary_mask[y0:y1, x0:x1]
-        candidates = np.argwhere(local)
-        if len(candidates) == 0:
-            continue
-        candidate_scores: list[float] = []
-        for local_y, local_x in candidates:
-            ry = y0 + int(local_y)
-            rx = x0 + int(local_x)
-            right_ny = float(right.normal_y[ry, rx])
-            right_nx = float(right.normal_x[ry, rx])
-            if right_ny == 0.0 and right_nx == 0.0:
-                continue
-            candidate_scores.append(-(left_ny * right_ny + left_nx * right_nx))
-        if candidate_scores:
-            scores.append(float(np.clip(max(candidate_scores), 0.0, 1.0)))
-    return float(np.mean(scores)) if scores else 0.0
+    ys = np.ascontiguousarray(points[:, 0] + origin[0], dtype=np.int64)
+    xs = np.ascontiguousarray(points[:, 1] + origin[1], dtype=np.int64)
+    left_ev = evidence[left]
+    right_ev = evidence[right]
+    best = np.empty(len(points), dtype=np.float64)
+    usable = np.empty(len(points), dtype=np.bool_)
+    _best_opposition(
+        ys,
+        xs,
+        table.codes[left],
+        left_ev.y0,
+        left_ev.x0,
+        table.codes[right],
+        right_ev.boundary,
+        right_ev.y0,
+        right_ev.x0,
+        max(0, int(tolerance)),
+        table.opposition,
+        table.is_zero,
+        best,
+        usable,
+    )
+    if not np.any(usable):
+        return 0.0
+    return float(np.mean(np.clip(best[usable], 0.0, 1.0)))
 
 
 def _curvature_entropy(
-    left: TearBoundaryEvidence,
-    right: TearBoundaryEvidence,
-    left_match: np.ndarray,
-    right_match: np.ndarray,
+    windows: Iterable[tuple[np.ndarray, np.ndarray, np.ndarray]],
     *,
     bins: int = 8,
 ) -> float:
-    """Raster curvature proxy from the entropy of matched boundary normals."""
+    """Raster curvature proxy from the entropy of matched boundary normals.
+
+    ``windows`` holds ``(normal_y, normal_x, matched)`` arrays over one canvas
+    window per side, left side first.
+    """
 
     angles: list[np.ndarray] = []
-    for evidence, matched in ((left, left_match), (right, right_match)):
-        valid = matched & ((evidence.normal_y != 0.0) | (evidence.normal_x != 0.0))
+    for normal_y, normal_x, matched in windows:
+        valid = matched & ((normal_y != 0.0) | (normal_x != 0.0))
         if np.any(valid):
             angles.append(
                 np.mod(
-                    np.arctan2(evidence.normal_y[valid], evidence.normal_x[valid]),
+                    np.arctan2(normal_y[valid], normal_x[valid]),
                     2.0 * np.pi,
                 )
             )
     if not angles:
         return 0.0
     values = np.concatenate(angles)
-    counts, _ = np.histogram(values, bins=bins, range=(0.0, 2.0 * np.pi))
+    counts = _uniform_histogram(values, bins, 0.0, 2.0 * np.pi)
     probabilities = counts[counts > 0].astype(np.float64)
     probabilities /= probabilities.sum()
     entropy = -float(np.sum(probabilities * np.log(probabilities)))
     return entropy / float(np.log(bins)) if bins > 1 else 0.0
+
+
+_HISTOGRAM_EDGES: dict[tuple[str, int, float, float], np.ndarray] = {}
+
+
+def _uniform_histogram(
+    values: np.ndarray, bins: int, first: float, last: float
+) -> np.ndarray:
+    """``np.histogram(values, bins, range=(first, last))[0]`` for 1-D input.
+
+    np.histogram places each value in the bin whose computed edges bracket it
+    (the last bin is closed); binary search over the same edges gives the same
+    counts without its per-call overhead.
+    """
+
+    key = (values.dtype.str, bins, first, last)
+    edges = _HISTOGRAM_EDGES.get(key)
+    if edges is None:
+        edges = np.histogram_bin_edges(values[:0], bins=bins, range=(first, last))
+        _HISTOGRAM_EDGES[key] = edges
+    kept = values[(values >= first) & (values <= last)]
+    index = np.searchsorted(edges, kept, side="right") - 1
+    index[index == bins] = bins - 1
+    return np.bincount(index, minlength=bins)
+
+
+def _clip(value: float, low: float, high: float) -> float:
+    """``float(np.clip(value, low, high))`` for one number, without NumPy overhead.
+
+    Like ``np.clip`` it keeps NaN and the sign of a zero that equals ``low``.
+    """
+
+    return float(min(max(value, low), high))
 
 
 def tear_match_effectiveness(
@@ -927,9 +1081,9 @@ def tear_match_effectiveness(
     balance = overlap_pixels / float(max(1, max(left_hits, right_hits)))
     scattered = max(0, overlap_pixels - contiguous_pixels)
     one_sided = abs(left_hits - right_hits)
-    geometry_factor = 0.5 + 0.5 * float(np.clip(normal_opposition, 0.0, 1.0))
-    specificity_factor = 0.75 + 0.5 * float(np.clip(curvature_entropy, 0.0, 1.0))
-    explained_perimeter_factor = float(np.clip(overlap_ratio / 0.30, 0.25, 1.5))
+    geometry_factor = 0.5 + 0.5 * _clip(normal_opposition, 0.0, 1.0)
+    specificity_factor = 0.75 + 0.5 * _clip(curvature_entropy, 0.0, 1.0)
+    explained_perimeter_factor = _clip(overlap_ratio / 0.30, 0.25, 1.5)
     benefit = (
         contiguous_pixels
         * balance
@@ -969,23 +1123,258 @@ def tear_boundary_evidence(
     return evidence
 
 
+def _cropped_boundary_evidence(
+    fragments: list[Fragment], *, tolerance: int = 2
+) -> list[_CroppedBoundary]:
+    """Build :func:`tear_boundary_evidence` per fragment and keep only its crop."""
+
+    evidence: list[_CroppedBoundary] = []
+    for fragment in fragments:
+        boundary = tear_boundary(fragment.mask)
+        dilated = _dilate(boundary, tolerance)
+        normal_y, normal_x = _boundary_normals(fragment.mask, boundary)
+        x0, y0, x1, y1 = _bbox(dilated)
+        evidence.append(
+            _CroppedBoundary(
+                x0=x0,
+                y0=y0,
+                x1=x1,
+                y1=y1,
+                boundary=boundary[y0:y1, x0:x1].copy(),
+                dilated=dilated[y0:y1, x0:x1].copy(),
+                normal_y=normal_y[y0:y1, x0:x1].copy(),
+                normal_x=normal_x[y0:y1, x0:x1].copy(),
+                boundary_pixels=int(np.count_nonzero(boundary)),
+                dilated_pixels=int(np.count_nonzero(dilated)),
+            )
+        )
+    return evidence
+
+
+def _pack_crops(
+    crops: list[tuple[int, int, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Pack ``(y0, x0, crop)`` boolean crops into one flat buffer.
+
+    Returns ``(offsets, shapes, origins, buffer)`` with one ``(height,
+    width)`` and one ``(y0, x0)`` row per crop.
+    """
+
+    sizes = np.array([crop.size for _y0, _x0, crop in crops], dtype=np.int64)
+    offsets = np.zeros(len(crops), dtype=np.int64)
+    if len(crops) > 1:
+        offsets[1:] = np.cumsum(sizes)[:-1]
+    shapes = np.array([crop.shape for _y0, _x0, crop in crops], dtype=np.int64).reshape(-1, 2)
+    origins = np.array([(y0, x0) for y0, x0, _crop in crops], dtype=np.int64).reshape(-1, 2)
+    buffer = (
+        np.concatenate([crop.ravel() for _y0, _x0, crop in crops]).astype(np.bool_)
+        if crops
+        else np.zeros(0, dtype=np.bool_)
+    )
+    return offsets, shapes, origins, buffer
+
+
+def _box_intersection(
+    left: tuple[int, int, int, int], right: tuple[int, int, int, int]
+) -> tuple[int, int, int, int] | None:
+    """Intersect two ``(x0, y0, x1, y1)`` boxes; ``None`` when they are disjoint."""
+
+    x0 = max(left[0], right[0])
+    y0 = max(left[1], right[1])
+    x1 = min(left[2], right[2])
+    y1 = min(left[3], right[3])
+    if x0 >= x1 or y0 >= y1:
+        return None
+    return x0, y0, x1, y1
+
+
+@numba.njit(cache=True)
+def _crop_overlap_count(
+    canvas: np.ndarray, crop: np.ndarray, y0: int, x0: int
+) -> int:  # pragma: no cover - compiled
+    """Count pixels set in ``crop`` and in the window of ``canvas`` at ``(y0, x0)``."""
+
+    total = 0
+    for y in range(crop.shape[0]):
+        for x in range(crop.shape[1]):
+            if crop[y, x] and canvas[y0 + y, x0 + x]:
+                total += 1
+    return total
+
+
+@numba.njit(cache=True)
+def _packed_crop_counts(
+    canvas: np.ndarray,
+    indices: np.ndarray,
+    offsets: np.ndarray,
+    shapes: np.ndarray,
+    origins: np.ndarray,
+    buffer: np.ndarray,
+    out: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """For each fragment in ``indices``, count its packed crop pixels set on ``canvas``."""
+
+    for slot in range(indices.shape[0]):
+        index = indices[slot]
+        height = shapes[index, 0]
+        width = shapes[index, 1]
+        y0 = origins[index, 0]
+        x0 = origins[index, 1]
+        base = offsets[index]
+        total = 0
+        for y in range(height):
+            row = base + y * width
+            for x in range(width):
+                if buffer[row + x] and canvas[y0 + y, x0 + x]:
+                    total += 1
+        out[slot] = total
+
+
+@numba.njit(cache=True)
+def _packed_point_counts(
+    canvas: np.ndarray,
+    indices: np.ndarray,
+    offsets: np.ndarray,
+    lengths: np.ndarray,
+    points: np.ndarray,
+    out: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """For each fragment in ``indices``, count its packed flat pixel positions set on ``canvas``."""
+
+    for slot in range(indices.shape[0]):
+        index = indices[slot]
+        base = offsets[index]
+        total = 0
+        for position in range(base, base + lengths[index]):
+            if canvas[points[position]]:
+                total += 1
+        out[slot] = total
+
+
+@numba.njit(cache=True)
+def _packed_overlap_counts(
+    index: int,
+    others: np.ndarray,
+    offsets: np.ndarray,
+    shapes: np.ndarray,
+    origins: np.ndarray,
+    buffer: np.ndarray,
+    out: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """Count pixels set in both fragment ``index``'s packed crop and each other crop."""
+
+    y0 = origins[index, 0]
+    x0 = origins[index, 1]
+    y1 = y0 + shapes[index, 0]
+    x1 = x0 + shapes[index, 1]
+    for slot in range(others.shape[0]):
+        other = others[slot]
+        oy0 = origins[other, 0]
+        ox0 = origins[other, 1]
+        total = 0
+        for y in range(max(y0, oy0), min(y1, oy0 + shapes[other, 0])):
+            row = offsets[index] + (y - y0) * shapes[index, 1] - x0
+            other_row = offsets[other] + (y - oy0) * shapes[other, 1] - ox0
+            for x in range(max(x0, ox0), min(x1, ox0 + shapes[other, 1])):
+                if buffer[row + x] and buffer[other_row + x]:
+                    total += 1
+        out[slot] = total
+
+
+@numba.njit(cache=True)
+def _packed_cross_counts(
+    index: int,
+    others: np.ndarray,
+    offsets: np.ndarray,
+    shapes: np.ndarray,
+    origins: np.ndarray,
+    first: np.ndarray,
+    second: np.ndarray,
+    forward: np.ndarray,
+    backward: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """``|first_i & second_j|`` and ``|first_j & second_i|`` for each other crop ``j``.
+
+    ``first`` and ``second`` share one packing (the same boxes).
+    """
+
+    y0 = origins[index, 0]
+    x0 = origins[index, 1]
+    y1 = y0 + shapes[index, 0]
+    x1 = x0 + shapes[index, 1]
+    for slot in range(others.shape[0]):
+        other = others[slot]
+        oy0 = origins[other, 0]
+        ox0 = origins[other, 1]
+        there = 0
+        back = 0
+        for y in range(max(y0, oy0), min(y1, oy0 + shapes[other, 0])):
+            row = offsets[index] + (y - y0) * shapes[index, 1] - x0
+            other_row = offsets[other] + (y - oy0) * shapes[other, 1] - ox0
+            for x in range(max(x0, ox0), min(x1, ox0 + shapes[other, 1])):
+                if first[row + x] and second[other_row + x]:
+                    there += 1
+                if first[other_row + x] and second[row + x]:
+                    back += 1
+        forward[slot] = there
+        backward[slot] = back
+
+
+@numba.njit(cache=True)
+def _packed_crops_meet(
+    index: int,
+    others: np.ndarray,
+    offsets: np.ndarray,
+    shapes: np.ndarray,
+    origins: np.ndarray,
+    buffer: np.ndarray,
+    out: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """Whether fragment ``index``'s packed crop shares a set pixel with each other crop."""
+
+    y0 = origins[index, 0]
+    x0 = origins[index, 1]
+    y1 = y0 + shapes[index, 0]
+    x1 = x0 + shapes[index, 1]
+    for slot in range(others.shape[0]):
+        other = others[slot]
+        oy0 = origins[other, 0]
+        ox0 = origins[other, 1]
+        top_y = max(y0, oy0)
+        bottom_y = min(y1, oy0 + shapes[other, 0])
+        left_x = max(x0, ox0)
+        right_x = min(x1, ox0 + shapes[other, 1])
+        found = False
+        for y in range(top_y, bottom_y):
+            row = offsets[index] + (y - y0) * shapes[index, 1]
+            other_row = offsets[other] + (y - oy0) * shapes[other, 1]
+            for x in range(left_x, right_x):
+                if buffer[row + x - x0] and buffer[other_row + x - ox0]:
+                    found = True
+                    break
+            if found:
+                break
+        out[slot] = found
+
+
+@numba.njit(cache=True)
+def _member_overlap_totals(
+    members: np.ndarray,
+    offsets: np.ndarray,
+    partners: np.ndarray,
+    pixels: np.ndarray,
+    out: np.ndarray,
+) -> None:  # pragma: no cover - compiled
+    """Add every member's pairwise mask-overlap row to ``out`` (zeroed by the caller)."""
+
+    for slot in range(members.shape[0]):
+        member = members[slot]
+        for position in range(offsets[member], offsets[member + 1]):
+            out[partners[position]] += pixels[position]
+
+
 def _labels_compatible(left: str | None, right: str | None) -> bool:
     return not left or not right or left == right
-
-
-def _bbox_intersects(
-    left: tuple[int, int, int, int], right: tuple[int, int, int, int]
-) -> bool:
-    return (
-        left[0] < right[2]
-        and left[2] > right[0]
-        and left[1] < right[3]
-        and left[3] > right[1]
-    )
-
-
-def _mask_overlap(left: np.ndarray, right: np.ndarray) -> int:
-    return int(np.count_nonzero(left & right))
 
 
 def score_absolute_tear_pairs(
@@ -1015,34 +1404,87 @@ def score_absolute_tear_pairs(
         raise ValueError("effectiveness thresholds must be ordered and non-negative")
     if min_contiguous_pixels < 1 or automatic_contiguous_pixels < min_contiguous_pixels:
         raise ValueError("contiguous-pixel thresholds must be positive and ordered")
-    evidence = tear_boundary_evidence(fragments, tolerance=tolerance)
+    if any(fragment.mask.shape != fragments[0].mask.shape for fragment in fragments):
+        raise ValueError("all fragment masks must share one coordinate frame")
+    evidence = _cropped_boundary_evidence(fragments, tolerance=tolerance)
+    normals = _NormalTable(evidence) if scoring == "effectiveness" else None
+    boxes = np.array(
+        [(ev.x0, ev.y0, ev.x1, ev.y1) for ev in evidence], dtype=np.int64
+    ).reshape(len(fragments), 4)
+    mask_boxes = [_bbox(fragment.mask) for fragment in fragments]
+    mask_offsets, mask_shapes, mask_origins, mask_buffer = _pack_crops(
+        [
+            (y0, x0, fragment.mask[y0:y1, x0:x1])
+            for fragment, (x0, y0, x1, y1) in zip(fragments, mask_boxes)
+        ]
+    )
+    edge_offsets, edge_shapes, edge_origins, boundary_buffer = _pack_crops(
+        [(ev.y0, ev.x0, ev.boundary) for ev in evidence]
+    )
+    dilated_buffer = _pack_crops([(ev.y0, ev.x0, ev.dilated) for ev in evidence])[3]
+    pose_uncertainties: dict[int, float] = {}
+
+    def pose_uncertainty_of(index: int) -> float:
+        value = pose_uncertainties.get(index)
+        if value is None:
+            value = _normalised_pose_uncertainty(fragments[index], tolerance)
+            pose_uncertainties[index] = value
+        return value
+
     all_scores: list[TearFitEdge] = []
     accepted: list[TearFitEdge] = []
     for i in range(len(fragments)):
         left_ev = evidence[i]
-        for j in range(i + 1, len(fragments)):
-            if use_labels and not _labels_compatible(
-                fragments[i].label, fragments[j].label
-            ):
-                continue
-            mask_overlap = _mask_overlap(fragments[i].mask, fragments[j].mask)
-            if max_pair_overlap_pixels >= 0 and mask_overlap > max_pair_overlap_pixels:
-                continue
+        # Only pairs whose dilated tear boundaries share a bounding box can
+        # touch; this prefilter gives the same pairs, in the same order, as
+        # testing every j > i.
+        rest = boxes[i + 1 :]
+        partners = np.flatnonzero(
+            (boxes[i, 0] < rest[:, 2])
+            & (boxes[i, 2] > rest[:, 0])
+            & (boxes[i, 1] < rest[:, 3])
+            & (boxes[i, 3] > rest[:, 1])
+        ) + (i + 1)
+        if use_labels:
+            partners = partners[
+                np.array(
+                    [
+                        _labels_compatible(fragments[i].label, fragments[j].label)
+                        for j in partners.tolist()
+                    ],
+                    dtype=bool,
+                ).reshape(-1)
+            ]
+        # The label and mask-overlap filters have no side effects, so both
+        # counts for every partner come from one compiled pass each.
+        mask_overlaps = np.empty(len(partners), dtype=np.int64)
+        _packed_overlap_counts(
+            i, partners, mask_offsets, mask_shapes, mask_origins, mask_buffer, mask_overlaps
+        )
+        if max_pair_overlap_pixels >= 0:
+            kept = mask_overlaps <= max_pair_overlap_pixels
+            partners = partners[kept]
+            mask_overlaps = mask_overlaps[kept]
+        hits_forward = np.empty(len(partners), dtype=np.int64)
+        hits_backward = np.empty(len(partners), dtype=np.int64)
+        _packed_cross_counts(
+            i,
+            partners,
+            edge_offsets,
+            edge_shapes,
+            edge_origins,
+            boundary_buffer,
+            dilated_buffer,
+            hits_forward,
+            hits_backward,
+        )
+        for slot, j in enumerate(partners.tolist()):
+            mask_overlap = int(mask_overlaps[slot])
             right_ev = evidence[j]
-            if not _bbox_intersects(left_ev.bbox, right_ev.bbox):
-                continue
-            left_hits = int(
-                np.intersect1d(
-                    left_ev.boundary, right_ev.dilated_boundary, assume_unique=True
-                ).size
-            )
-            right_hits = int(
-                np.intersect1d(
-                    right_ev.boundary, left_ev.dilated_boundary, assume_unique=True
-                ).size
-            )
+            left_hits = int(hits_forward[slot])
+            right_hits = int(hits_backward[slot])
             overlap = min(left_hits, right_hits)
-            denom = max(1, min(len(left_ev.boundary), len(right_ev.boundary)))
+            denom = max(1, min(left_ev.boundary_pixels, right_ev.boundary_pixels))
             contiguous = 0
             continuity_ratio = 0.0
             balance = overlap / float(max(1, max(left_hits, right_hits)))
@@ -1052,33 +1494,52 @@ def score_absolute_tear_pairs(
             pose_uncertainty = 0.0
             effectiveness = 0.0
             evidence_level = "insufficient-evidence"
-            if scoring == "effectiveness" and overlap > 0:
-                left_match = left_ev.boundary_mask & right_ev.dilated_boundary_mask
-                right_match = right_ev.boundary_mask & left_ev.dilated_boundary_mask
+            if normals is not None and overlap > 0:
+                window = _box_intersection(
+                    (left_ev.x0, left_ev.y0, left_ev.x1, left_ev.y1),
+                    (right_ev.x0, right_ev.y0, right_ev.x1, right_ev.y1),
+                )
+                assert window is not None
+                left_match = left_ev.crop(left_ev.boundary, window) & right_ev.crop(
+                    right_ev.dilated, window
+                )
+                right_match = right_ev.crop(right_ev.boundary, window) & left_ev.crop(
+                    left_ev.dilated, window
+                )
                 contiguous = max(
                     _largest_connected_support(left_match),
                     _largest_connected_support(right_match),
                 )
                 continuity_ratio = contiguous / float(max(1, overlap))
                 normal_opposition = _matched_normal_opposition(
-                    left_ev,
-                    right_ev,
+                    normals,
+                    i,
+                    j,
+                    evidence,
                     left_match,
+                    (window[1], window[0]),
                     tolerance=tolerance,
                 )
                 curvature_entropy = _curvature_entropy(
-                    left_ev, right_ev, left_match, right_match
+                    (
+                        (
+                            left_ev.crop(left_ev.normal_y, window),
+                            left_ev.crop(left_ev.normal_x, window),
+                            left_match,
+                        ),
+                        (
+                            right_ev.crop(right_ev.normal_y, window),
+                            right_ev.crop(right_ev.normal_x, window),
+                            right_match,
+                        ),
+                    )
                 )
                 total_pixels = float(fragments[i].mask.size)
                 expected_left = (
-                    len(left_ev.boundary)
-                    * len(right_ev.dilated_boundary)
-                    / total_pixels
+                    left_ev.boundary_pixels * right_ev.dilated_pixels / total_pixels
                 )
                 expected_right = (
-                    len(right_ev.boundary)
-                    * len(left_ev.dilated_boundary)
-                    / total_pixels
+                    right_ev.boundary_pixels * left_ev.dilated_pixels / total_pixels
                 )
                 expected_accidental_hits = 0.5 * (expected_left + expected_right)
                 effectiveness = tear_match_effectiveness(
@@ -1092,10 +1553,7 @@ def score_absolute_tear_pairs(
                     expected_accidental_hits=expected_accidental_hits,
                     mask_overlap_pixels=mask_overlap,
                 )
-                pose_uncertainty = max(
-                    _normalised_pose_uncertainty(fragments[i], tolerance),
-                    _normalised_pose_uncertainty(fragments[j], tolerance),
-                )
+                pose_uncertainty = max(pose_uncertainty_of(i), pose_uncertainty_of(j))
                 effectiveness *= 1.0 - 0.5 * pose_uncertainty
                 if (
                     effectiveness >= automatic_effectiveness
@@ -1193,8 +1651,8 @@ def diagnose_true_core_connectivity(
             components.append(component)
         component_rows = []
         for component in components:
-            union = np.logical_or.reduce(
-                [fragments[index].mask for index in component]
+            union = np.any(
+                np.stack([fragments[index].mask for index in component]), axis=0
             )
             component_rows.append(
                 {
@@ -1231,7 +1689,7 @@ def diagnose_true_core_connectivity(
 
 def _group_labels(fragments: list[Fragment], indices: Iterable[int]) -> tuple[str, ...]:
     return tuple(
-        sorted({fragments[index].label for index in indices if fragments[index].label})
+        sorted({label for index in indices if (label := fragments[index].label)})
     )
 
 
@@ -1429,17 +1887,27 @@ def score_fragment_against_assembly(
     """Score one fragment against the full boundary of a partial assembly."""
 
     fragment = fragments[candidate_index]
-    overlap = int(np.count_nonzero(union_mask & fragment.mask))
-    gap_fill_pixels = max(0, fragment.area - overlap)
-    gap_fill_ratio = gap_fill_pixels / float(max(1, fragment.area))
-
-    assembly_boundary = tear_boundary(union_mask)
     candidate_boundary = boundary_evidence[candidate_index].boundary_mask
-    matched_mask = candidate_boundary & _dilate(assembly_boundary, tolerance)
-    matched_pixels = int(np.count_nonzero(matched_mask))
-    boundary_pixels = int(np.count_nonzero(candidate_boundary))
-    matched_ratio = matched_pixels / float(max(1, boundary_pixels))
-    unmatched_ratio = 1.0 - matched_ratio
+    assembly_boundary = _dilate(tear_boundary(union_mask), tolerance)
+    return _group_gap_evidence(
+        candidate_index,
+        overlap=int(np.count_nonzero(union_mask & fragment.mask)),
+        area=fragment.area,
+        matched_pixels=int(np.count_nonzero(candidate_boundary & assembly_boundary)),
+        boundary_pixels=int(np.count_nonzero(candidate_boundary)),
+        supporting=_supporting_edges(state, candidate_index, edge_lookup),
+        pose_uncertainty=_normalised_pose_uncertainty(fragment, tolerance),
+        min_score=min_score,
+        automatic_score=automatic_score,
+    )
+
+
+def _supporting_edges(
+    state: frozenset[int],
+    candidate_index: int,
+    edge_lookup: dict[tuple[int, int], TearFitEdge],
+) -> list[TearFitEdge]:
+    """Seams from state members to the candidate that can support a gap step."""
 
     supporting: list[TearFitEdge] = []
     for member in state:
@@ -1452,6 +1920,48 @@ def score_fragment_against_assembly(
             and edge.effectiveness > 0.0
         ):
             supporting.append(edge)
+    return supporting
+
+
+def _supporting_from_adjacency(
+    state: frozenset[int], adjacency: dict[int, TearFitEdge]
+) -> list[TearFitEdge]:
+    """:func:`_supporting_edges` from the candidate's row of an edge graph.
+
+    The graph row holds the same edge objects as the lookup it was built
+    with, and members are visited in the same state order.
+    """
+
+    supporting: list[TearFitEdge] = []
+    for member in state:
+        edge = adjacency.get(member)
+        if (
+            edge is not None
+            and edge.contiguous_pixels >= 2
+            and edge.effectiveness > 0.0
+        ):
+            supporting.append(edge)
+    return supporting
+
+
+def _group_gap_evidence(
+    candidate_index: int,
+    *,
+    overlap: int,
+    area: int,
+    matched_pixels: int,
+    boundary_pixels: int,
+    supporting: list[TearFitEdge],
+    pose_uncertainty: float,
+    min_score: float,
+    automatic_score: float,
+) -> GroupGapEvidence:
+    """Whole-assembly gap score from the pixel counts of one placement."""
+
+    gap_fill_pixels = max(0, area - overlap)
+    gap_fill_ratio = gap_fill_pixels / float(max(1, area))
+    matched_ratio = matched_pixels / float(max(1, boundary_pixels))
+    unmatched_ratio = 1.0 - matched_ratio
     seam_count = len(supporting)
     edge_strength = (
         float(
@@ -1463,8 +1973,7 @@ def score_fragment_against_assembly(
         else 0.0
     )
     multi_seam_support = min(1.0, seam_count / 2.0)
-    overlap_ratio = overlap / float(max(1, fragment.area))
-    pose_uncertainty = _normalised_pose_uncertainty(fragment, tolerance)
+    overlap_ratio = overlap / float(max(1, area))
     score = (
         0.15 * gap_fill_ratio
         + 0.25 * multi_seam_support
@@ -1494,10 +2003,421 @@ def score_fragment_against_assembly(
     )
 
 
+class _AssemblyGeometry:
+    """Per-fragment pixel data that the assembly searches reuse across states.
+
+    Everything is derived from the fragment masks alone and computed at most
+    once per fragment, so the searches see exactly the values they would
+    recompute from full-canvas arrays at every step.
+    """
+
+    def __init__(
+        self, fragments: list[Fragment], *, tolerance: int, gap_fill_radius: int
+    ) -> None:
+        self.fragments = fragments
+        self.tolerance = tolerance
+        self.gap_fill_radius = gap_fill_radius
+        self.areas = [fragment.area for fragment in fragments]
+        self._area_array = np.asarray(self.areas, dtype=np.int64)
+        self.mask_boxes = [_bbox(fragment.mask) for fragment in fragments]
+        self._box_array = np.array(self.mask_boxes, dtype=np.int64).reshape(-1, 4)
+        self._overlap_bits: dict[int, int] = {}
+        self._mask_crops: dict[int, np.ndarray] = {}
+        self._boundaries: dict[int, _CroppedBoundary] = {}
+        self._pose_uncertainty: dict[int, float] = {}
+        self._dilated_masks: dict[
+            int, tuple[tuple[int, int, int, int], np.ndarray, int]
+        ] = {}
+        self._masks_packed: tuple[np.ndarray, ...] | None = None
+        self._boundary_points: tuple[np.ndarray, ...] | None = None
+        self._pose_values: np.ndarray | None = None
+        self._pair_overlaps: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+        self._dilated_packed: tuple[np.ndarray, ...] | None = None
+
+    def serves(
+        self, fragments: list[Fragment], *, tolerance: int, gap_fill_radius: int
+    ) -> bool:
+        """Whether these caches were built for exactly these fragments and radii."""
+
+        return (
+            self.fragments is fragments
+            and self.tolerance == tolerance
+            and self.gap_fill_radius == gap_fill_radius
+        )
+
+    def _box_hits(self, index: int) -> np.ndarray:
+        """Other fragments whose mask bounding boxes intersect fragment ``index``'s."""
+
+        x0, y0, x1, y1 = self.mask_boxes[index]
+        boxes = self._box_array
+        hits = np.flatnonzero(
+            (boxes[:, 0] < x1)
+            & (boxes[:, 2] > x0)
+            & (boxes[:, 1] < y1)
+            & (boxes[:, 3] > y0)
+        )
+        return hits[hits != index]
+
+    def _pose_array(self) -> np.ndarray:
+        """:meth:`pose_uncertainty` of every fragment."""
+
+        if self._pose_values is None:
+            self._pose_values = np.array(
+                [self.pose_uncertainty(index) for index in range(len(self.fragments))],
+                dtype=np.float64,
+            )
+        return self._pose_values
+
+    def _pair_overlap_rows(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Nonzero pairwise mask overlaps in CSR form: ``(offsets, partners, pixels)``.
+
+        Row ``i`` lists every other fragment whose mask shares pixels with
+        fragment ``i``, and how many it shares.
+        """
+
+        if self._pair_overlaps is None:
+            offsets, shapes, origins, buffer = self._mask_pack()
+            partner_rows: list[np.ndarray] = []
+            pixel_rows: list[np.ndarray] = []
+            for index in range(len(self.fragments)):
+                hits = self._box_hits(index)
+                pixels = np.empty(len(hits), dtype=np.int64)
+                _packed_overlap_counts(index, hits, offsets, shapes, origins, buffer, pixels)
+                shared = pixels > 0
+                partner_rows.append(hits[shared].astype(np.int32))
+                pixel_rows.append(pixels[shared].astype(np.int32))
+            row_offsets = np.zeros(len(partner_rows) + 1, dtype=np.int64)
+            row_offsets[1:] = np.cumsum([len(row) for row in partner_rows])
+            empty = np.zeros(0, dtype=np.int32)
+            self._pair_overlaps = (
+                row_offsets,
+                np.concatenate(partner_rows) if partner_rows else empty,
+                np.concatenate(pixel_rows) if pixel_rows else empty,
+            )
+        return self._pair_overlaps
+
+    def _pack_boundary_points(self) -> tuple[np.ndarray, ...]:
+        """Every fragment's tear-boundary pixels as flat canvas positions.
+
+        Returns ``(offsets, lengths, points)``; counting a canvas at these
+        positions equals counting it against the boundary crop.
+        """
+
+        if self._boundary_points is None:
+            width = self.fragments[0].mask.shape[1]
+            lists = []
+            for index in range(len(self.fragments)):
+                boundary = self.boundary(index)
+                ys, xs = np.nonzero(boundary.boundary)
+                lists.append((ys + boundary.y0) * width + (xs + boundary.x0))
+            lengths = np.array([len(item) for item in lists], dtype=np.int64)
+            offsets = np.zeros(len(lists), dtype=np.int64)
+            if len(lists) > 1:
+                offsets[1:] = np.cumsum(lengths)[:-1]
+            points = (
+                np.concatenate(lists).astype(np.int64) if lists else np.zeros(0, dtype=np.int64)
+            )
+            self._boundary_points = (offsets, lengths, points)
+        return self._boundary_points
+
+    def _mask_pack(self) -> tuple[np.ndarray, ...]:
+        """Every fragment's mask crop, packed by :func:`_pack_crops`."""
+
+        if self._masks_packed is None:
+            crops = []
+            for index, fragment in enumerate(self.fragments):
+                x0, y0, x1, y1 = self.mask_boxes[index]
+                crops.append((y0, x0, fragment.mask[y0:y1, x0:x1]))
+            self._masks_packed = _pack_crops(crops)
+        return self._masks_packed
+
+    def union_overlap(self, union: np.ndarray, index: int) -> int:
+        """``|union & mask|`` counted inside the fragment's bounding box."""
+
+        crop = self._mask_crops.get(index)
+        x0, y0, x1, y1 = self.mask_boxes[index]
+        if crop is None:
+            crop = np.ascontiguousarray(self.fragments[index].mask[y0:y1, x0:x1])
+            self._mask_crops[index] = crop
+        return int(_crop_overlap_count(union, crop, y0, x0))
+
+    def overlap_bits(self, index: int) -> int:
+        """Fragments whose masks share a pixel with fragment ``index``, as a bitset.
+
+        Bit ``j`` is set when fragment ``j`` overlaps fragment ``index``. The
+        relation is symmetric, so a union of member masks meets fragment ``n``
+        exactly when bit ``n`` is set in the members' combined bitset.
+        """
+
+        bits = self._overlap_bits.get(index)
+        if bits is None:
+            hits = self._box_hits(index)
+            offsets, shapes, origins, buffer = self._mask_pack()
+            meets = np.empty(len(hits), dtype=np.bool_)
+            _packed_crops_meet(index, hits, offsets, shapes, origins, buffer, meets)
+            flags = np.zeros(len(self.fragments), dtype=np.bool_)
+            flags[hits[meets]] = True
+            bits = int.from_bytes(np.packbits(flags, bitorder="little").tobytes(), "little")
+            self._overlap_bits[index] = bits
+        return bits
+
+    def boundary(self, index: int) -> _CroppedBoundary:
+        cached = self._boundaries.get(index)
+        if cached is None:
+            cached = _cropped_boundary_evidence(
+                [self.fragments[index]], tolerance=self.tolerance
+            )[0]
+            self._boundaries[index] = cached
+        return cached
+
+    def pose_uncertainty(self, index: int) -> float:
+        cached = self._pose_uncertainty.get(index)
+        if cached is None:
+            cached = _normalised_pose_uncertainty(self.fragments[index], self.tolerance)
+            self._pose_uncertainty[index] = cached
+        return cached
+
+    def dilated_mask(
+        self, index: int
+    ) -> tuple[tuple[int, int, int, int], np.ndarray, int]:
+        """The fragment's mask dilated by ``gap_fill_radius``: box, crop, count."""
+
+        cached = self._dilated_masks.get(index)
+        if cached is None:
+            dilated = _dilate(self.fragments[index].mask, self.gap_fill_radius)
+            box = _bbox(dilated)
+            x0, y0, x1, y1 = box
+            cached = (box, dilated[y0:y1, x0:x1].copy(), int(np.count_nonzero(dilated)))
+            self._dilated_masks[index] = cached
+        return cached
+
+    def dilated_union(self, info: StateInfo) -> tuple[np.ndarray, int]:
+        """``dilate(union, gap_fill_radius)`` of a state and its pixel count.
+
+        Binary dilation distributes over union, so a child's dilation is its
+        parent's plus the added fragment's own; only search roots dilate the
+        whole canvas.
+        """
+
+        cached = info.dilated_union_cache
+        if cached is not None:
+            return cached
+        if info.parent is None or info.added_index is None:
+            dilated = _dilate(info.union, self.gap_fill_radius)
+            cached = (dilated, int(np.count_nonzero(dilated)))
+        else:
+            parent_dilated, parent_count = self.dilated_union(info.parent)
+            (x0, y0, x1, y1), crop, count = self.dilated_mask(info.added_index)
+            shared = int(_crop_overlap_count(parent_dilated, crop, y0, x0))
+            dilated = parent_dilated.copy()
+            dilated[y0:y1, x0:x1] |= crop
+            cached = (dilated, parent_count + count - shared)
+        info.dilated_union_cache = cached
+        return cached
+
+    def _dilated_pack(self) -> tuple[np.ndarray, ...]:
+        """Every fragment's dilated mask, packed: offsets, shapes, origins, buffer, counts."""
+
+        if self._dilated_packed is None:
+            crops = []
+            counts = np.empty(len(self.fragments), dtype=np.int64)
+            for index in range(len(self.fragments)):
+                (x0, y0, _x1, _y1), crop, count = self.dilated_mask(index)
+                crops.append((y0, x0, crop))
+                counts[index] = count
+            self._dilated_packed = (*_pack_crops(crops), counts)
+        return self._dilated_packed
+
+    def dilated_union_counts(self, parent: StateInfo, indices: list[int]) -> list[int]:
+        """:meth:`dilated_union_pixels` for several fragments added to one state."""
+
+        dilated_union, dilated_count = self.dilated_union(parent)
+        offsets, shapes, origins, buffer, counts = self._dilated_pack()
+        index_array = np.fromiter(indices, dtype=np.int64, count=len(indices))
+        shared = np.empty(len(indices), dtype=np.int64)
+        _packed_crop_counts(dilated_union, index_array, offsets, shapes, origins, buffer, shared)
+        return (dilated_count + counts[index_array] - shared).tolist()
+
+    def dilated_union_pixels(self, parent: StateInfo, index: int) -> int:
+        """``|dilate(parent union | mask)|`` without building the new union."""
+
+        dilated_union, dilated_count = self.dilated_union(parent)
+        (x0, y0, x1, y1), crop, count = self.dilated_mask(index)
+        shared = int(_crop_overlap_count(dilated_union, crop, y0, x0))
+        return dilated_count + count - shared
+
+    def score_against(
+        self,
+        info: StateInfo,
+        candidate_index: int,
+        supporting: list[TearFitEdge],
+        *,
+        min_score: float,
+        automatic_score: float,
+    ) -> GroupGapEvidence | None:
+        """:func:`score_fragment_against_assembly` with cached inputs.
+
+        ``supporting`` is :func:`_supporting_edges` for this state and
+        candidate. Returns ``None`` exactly when the evidence level would be
+        ``insufficient-evidence``. Almost every proposal is rejected, mostly
+        for overlapping the assembly, so the exact score is only built when an
+        upper bound (the strongest seam in place of the mean) can still reach
+        a threshold the placement is eligible for.
+        """
+
+        boundary = self.boundary(candidate_index)
+        assembly = info.assembly_boundary(self.tolerance)
+        matched = int(
+            _crop_overlap_count(assembly, boundary.boundary, boundary.y0, boundary.x0)
+        )
+        seam_count = len(supporting)
+        threshold = float("inf")
+        if seam_count >= 2:
+            threshold = automatic_score
+        if matched >= 2:
+            threshold = min(threshold, min_score)
+        if threshold == float("inf"):
+            return None
+        area = self.areas[candidate_index]
+        overlap = self.union_overlap(info.union, candidate_index)
+        pose_uncertainty = self.pose_uncertainty(candidate_index)
+        matched_ratio = matched / float(max(1, boundary.boundary_pixels))
+        strongest = max(
+            (edge.effectiveness / (1.0 + edge.effectiveness) for edge in supporting),
+            default=0.0,
+        )
+        upper_bound = (
+            0.15 * (max(0, area - overlap) / float(max(1, area)))
+            + 0.25 * min(1.0, seam_count / 2.0)
+            + 0.25 * matched_ratio
+            + 0.25 * strongest
+            - 0.35 * (overlap / float(max(1, area)))
+            - 0.10 * (1.0 - matched_ratio)
+            - 0.15 * pose_uncertainty
+        )
+        if upper_bound < threshold - 1e-9:
+            return None
+        evidence = _group_gap_evidence(
+            candidate_index,
+            overlap=overlap,
+            area=area,
+            matched_pixels=matched,
+            boundary_pixels=boundary.boundary_pixels,
+            supporting=supporting,
+            pose_uncertainty=pose_uncertainty,
+            min_score=min_score,
+            automatic_score=automatic_score,
+        )
+        if evidence.evidence_level == "insufficient-evidence":
+            return None
+        return evidence
+
+    def score_proposals(
+        self,
+        info: StateInfo,
+        proposals: list[int],
+        seams: dict[int, list[TearFitEdge]],
+        strongest: dict[int, float],
+        *,
+        min_score: float,
+        automatic_score: float,
+    ) -> list[tuple[int, GroupGapEvidence]]:
+        """:meth:`score_against` for every proposal of one state at once.
+
+        Both pixel counts come from one compiled pass, and the upper bound is
+        evaluated elementwise with the same operations in the same order as
+        the scalar path; only proposals that survive it are scored exactly.
+        Returns the accepted proposals with their evidence, in input order.
+        """
+
+        if not proposals:
+            return []
+        count = len(proposals)
+        indices = np.fromiter(proposals, dtype=np.int64, count=count)
+        assembly = info.assembly_boundary(self.tolerance)
+        matched = np.empty(count, dtype=np.int64)
+        point_offsets, point_lengths, points = self._pack_boundary_points()
+        _packed_point_counts(
+            np.ascontiguousarray(assembly).reshape(-1),
+            indices,
+            point_offsets,
+            point_lengths,
+            points,
+            matched,
+        )
+        if info.area_sum == info.union_count:
+            # No pixel lies in two members, so a proposal's overlap with the
+            # union is the sum of its pairwise overlaps with the members.
+            row_offsets, partners, pixels = self._pair_overlap_rows()
+            totals = np.zeros(len(self.fragments), dtype=np.int64)
+            members = np.fromiter(info.state, dtype=np.int64, count=len(info.state))
+            _member_overlap_totals(members, row_offsets, partners, pixels, totals)
+            overlap = totals[indices]
+        else:
+            overlap = np.empty(count, dtype=np.int64)
+            offsets, shapes, origins, buffer = self._mask_pack()
+            _packed_crop_counts(info.union, indices, offsets, shapes, origins, buffer, overlap)
+        seam_count = np.fromiter(
+            (len(seams.get(index, ())) for index in proposals), dtype=np.int64, count=count
+        )
+        strength = np.fromiter(
+            (strongest.get(index, 0.0) for index in proposals), dtype=np.float64, count=count
+        )
+        pose = self._pose_array()[indices]
+        area = self._area_array[indices]
+        boundary_pixels = point_lengths[indices]
+        threshold = np.where(seam_count >= 2, automatic_score, np.inf)
+        threshold = np.where(matched >= 2, np.minimum(threshold, min_score), threshold)
+        area_scale = np.maximum(1, area).astype(np.float64)
+        matched_ratio = matched / np.maximum(1, boundary_pixels).astype(np.float64)
+        upper_bound = (
+            0.15 * (np.maximum(0, area - overlap) / area_scale)
+            + 0.25 * np.minimum(1.0, seam_count / 2.0)
+            + 0.25 * matched_ratio
+            + 0.25 * strength
+            - 0.35 * (overlap / area_scale)
+            - 0.10 * (1.0 - matched_ratio)
+            - 0.15 * pose
+        )
+        survivors = np.flatnonzero(
+            np.isfinite(threshold) & ~(upper_bound < threshold - 1e-9)
+        )
+        accepted: list[tuple[int, GroupGapEvidence]] = []
+        for slot in survivors.tolist():
+            index = proposals[slot]
+            evidence = _group_gap_evidence(
+                index,
+                overlap=int(overlap[slot]),
+                area=self.areas[index],
+                matched_pixels=int(matched[slot]),
+                boundary_pixels=self.boundary(index).boundary_pixels,
+                supporting=seams.get(index, []),
+                pose_uncertainty=self.pose_uncertainty(index),
+                min_score=min_score,
+                automatic_score=automatic_score,
+            )
+            if evidence.evidence_level != "insufficient-evidence":
+                accepted.append((index, evidence))
+        return accepted
+
+
 class StateInfo:
+    """One partial assembly in a beam search.
+
+    A state created by adding one fragment to ``parent`` builds its union only
+    when it is expanded; most children are pruned by the beam before that.
+    ``union_count`` is always exact.
+    """
+
     __slots__ = (
         "state",
-        "union",
+        "members",
+        "blocked",
+        "_union",
+        "parent",
+        "added_index",
+        "_added_mask",
+        "union_count",
         "area_sum",
         "labels",
         "support",
@@ -1507,12 +2427,14 @@ class StateInfo:
         "evidence_score",
         "evidence_level",
         "gap_steps",
+        "dilated_union_cache",
+        "_assembly_boundary",
     )
 
     def __init__(
         self,
         state: frozenset[int],
-        union: np.ndarray,
+        union: np.ndarray | None,
         area_sum: int,
         labels: set[str],
         support: int,
@@ -1522,9 +2444,29 @@ class StateInfo:
         evidence_score: float = 1.0,
         evidence_level: str = "automatic",
         gap_steps: int = 0,
+        *,
+        union_count: int | None = None,
+        parent: StateInfo | None = None,
+        added_index: int | None = None,
+        added_mask: np.ndarray | None = None,
+        members: tuple[int, ...] | None = None,
+        blocked: int | None = None,
     ) -> None:
+        if union is None:
+            if parent is None or added_mask is None or union_count is None:
+                raise ValueError(
+                    "a lazy state needs its parent, added mask and union count"
+                )
+        elif union_count is None:
+            union_count = int(np.count_nonzero(union))
         self.state = state
-        self.union = union
+        self.members = members
+        self.blocked = blocked
+        self._union = union
+        self.parent = parent
+        self.added_index = added_index
+        self._added_mask = added_mask
+        self.union_count = int(union_count)
         self.area_sum = area_sum
         self.labels = labels
         self.support = support
@@ -1534,6 +2476,81 @@ class StateInfo:
         self.evidence_score = evidence_score
         self.evidence_level = evidence_level
         self.gap_steps = gap_steps
+        self.dilated_union_cache: tuple[np.ndarray, int] | None = None
+        self._assembly_boundary: tuple[int, np.ndarray] | None = None
+
+    @property
+    def union(self) -> np.ndarray:
+        if self._union is None:
+            assert self.parent is not None and self._added_mask is not None
+            self._union = self.parent.union | self._added_mask
+            self._added_mask = None
+        return self._union
+
+    def assembly_boundary(self, tolerance: int) -> np.ndarray:
+        """Dilated tear boundary of the whole assembly, built once per state."""
+
+        cached = self._assembly_boundary
+        if cached is None or cached[0] != tolerance:
+            cached = (tolerance, _dilate(tear_boundary(self.union), tolerance))
+            self._assembly_boundary = cached
+        return cached[1]
+
+
+class _BeamKey:
+    """Sort key ``(-score, size, sorted members)`` that sorts members only on ties."""
+
+    __slots__ = ("score", "state", "_members")
+
+    def __init__(
+        self,
+        score: float,
+        state: AbstractSet[int] | tuple[int, ...],
+        members: tuple[int, ...] | None = None,
+    ) -> None:
+        self.score = score
+        self.state = state
+        self._members = members
+
+    def sorted_members(self) -> tuple[int, ...]:
+        if self._members is None:
+            self._members = tuple(sorted(self.state))
+        return self._members
+
+    def __lt__(self, other: _BeamKey) -> bool:
+        if self.score != other.score:
+            return -self.score < -other.score
+        if len(self.state) != len(other.state):
+            return len(self.state) < len(other.state)
+        return self.sorted_members() < other.sorted_members()
+
+
+def _beam(states: Collection[StateInfo], width: int) -> list[StateInfo]:
+    """``sorted(states, key=(-score, size, sorted members))[:width]``.
+
+    States are distinct, so the key order is total and ``heapq.nsmallest``
+    returns the same states in the same order without sorting every one.
+    """
+
+    def key(info: StateInfo) -> _BeamKey:
+        return _BeamKey(info.score, info.state)
+
+    if width < 1:
+        return sorted(states, key=key)[:width]
+    return heapq.nsmallest(width, states, key=key)
+
+
+def _beam_records(
+    records: dict[tuple[int, ...], tuple[Any, ...]], width: int
+) -> list[tuple[tuple[int, ...], tuple[Any, ...]]]:
+    """:func:`_beam` over ``sorted members -> (score, ...)`` records."""
+
+    def key(item: tuple[tuple[int, ...], tuple[Any, ...]]) -> _BeamKey:
+        return _BeamKey(item[1][0], item[0], item[0])
+
+    if width < 1:
+        return sorted(records.items(), key=key)[:width]
+    return heapq.nsmallest(width, records.items(), key=key)
 
 
 def generate_assembly_candidates(
@@ -1608,17 +2625,15 @@ def generate_assembly_candidates(
         forbidden_pairs, fragment_id_to_index
     )
     forbidden_candidate_keys = _normalise_candidate_keys(forbidden_candidates)
-    graph, edge_lookup = _edge_graph(edges, len(fragments))
+    graph = _edge_graph(edges, len(fragments))[0]
     eligible_gap_edges = [
         edge
         for edge in (gap_edges or ())
         if edge.contiguous_pixels >= 2 and edge.effectiveness > 0.0
     ]
-    gap_graph, gap_edge_lookup = _edge_graph(eligible_gap_edges, len(fragments))
-    group_boundary_evidence = (
-        tear_boundary_evidence(fragments, tolerance=group_tolerance)
-        if enable_group_gap
-        else []
+    gap_graph = _edge_graph(eligible_gap_edges, len(fragments))[0]
+    geometry = _AssemblyGeometry(
+        fragments, tolerance=group_tolerance, gap_fill_radius=gap_fill_radius
     )
     starts = _seed_order(fragments, seed_strategy)
     if seed_whitelist_set or seed_label_set:
@@ -1655,7 +2670,9 @@ def generate_assembly_candidates(
             return True
         return False
 
-    seen_states: set[frozenset[int]] = set()
+    # Expanded states are remembered by their sorted members: equal tuples are
+    # exactly equal sets, and a tuple takes a fraction of a frozenset's memory.
+    seen_states: set[tuple[int, ...]] = set()
     candidates: dict[tuple[str, ...], AssemblyCandidate] = {}
 
     for start in starts:
@@ -1663,7 +2680,7 @@ def generate_assembly_candidates(
             break
         start_fragment = fragments[start]
         start_union = start_fragment.mask.copy()
-        start_area_sum = start_fragment.area
+        start_area_sum = geometry.areas[start]
         start_labels = {start_fragment.label} if start_fragment.label else set()
         start_support = 0
         start_raw_coverage = start_area_sum / float(total_area)
@@ -1686,48 +2703,69 @@ def generate_assembly_candidates(
             score=start_score,
             raw_coverage=start_raw_coverage,
             coverage=start_coverage,
+            union_count=start_area_sum,
+            members=(start,),
+            blocked=geometry.overlap_bits(start),
         )
 
         frontier: list[StateInfo] = [initial_state]
         for _depth in range(max(1, max_pieces - 1)):
             if budget_exhausted():
                 break
-            next_frontier: dict[frozenset[int], StateInfo] = {}
+            # Children are kept as plain records keyed by sorted members; only
+            # the states that survive the beam become StateInfo objects.
+            next_frontier: dict[tuple[int, ...], tuple[Any, ...]] = {}
             for state_info in frontier:
                 if budget_exhausted():
                     break
                 expanded_states += 1
+                state = state_info.state
+                members = state_info.members
+                assert members is not None
                 neighbours: set[int] = set()
-                for member in state_info.state:
+                for member in state:
                     neighbours.update(graph[member])
-                neighbours.difference_update(state_info.state)
+                neighbours.difference_update(state)
                 gap_options: dict[int, GroupGapEvidence] = {}
-                if enable_group_gap and len(state_info.state) >= core_min_pieces:
+                if enable_group_gap and len(state) >= core_min_pieces:
                     gap_pool: set[int] = set()
-                    for member in state_info.state:
+                    for member in state:
                         gap_pool.update(gap_graph[member])
-                    gap_pool.difference_update(state_info.state)
+                    gap_pool.difference_update(state)
                     gap_pool.difference_update(neighbours)
                     for gap_index in gap_pool:
-                        gap_evidence = score_fragment_against_assembly(
-                            fragments,
-                            state_info.state,
-                            state_info.union,
+                        gap_evidence = geometry.score_against(
+                            state_info,
                             gap_index,
-                            gap_edge_lookup,
-                            group_boundary_evidence,
-                            tolerance=group_tolerance,
+                            _supporting_from_adjacency(state, gap_graph[gap_index]),
                             min_score=min_group_gap_score,
                             automatic_score=automatic_group_gap_score,
                         )
-                        if gap_evidence.evidence_level != "insufficient-evidence":
+                        if gap_evidence is not None:
                             gap_options[gap_index] = gap_evidence
                     neighbours.update(gap_options)
+                # Pass 1 applies the filters, all free of side effects and the
+                # overlap test first, and gathers each passing child's terms.
+                # Pass 2 scores and records the children in the same order,
+                # after one batched count of their dilated coverage.
+                blocked = state_info.blocked
+                assert blocked is not None
+                passed: list[tuple[Any, ...]] = []
+                dilate: list[int] = []
                 for neighbour in neighbours:
-                    new_state_set = frozenset((*state_info.state, neighbour))
-                    if new_state_set in seen_states or len(new_state_set) > max_pieces:
+                    # The union meets the neighbour exactly when its bit is set
+                    # in the members' overlap bitset; the overlap is then at
+                    # least one pixel.
+                    overlapping = (blocked >> neighbour) & 1
+                    if overlapping and max_group_overlap_pixels < 1:
                         continue
-                    if _state_has_forbidden_pair(new_state_set, forbidden_pair_indices):
+                    position = bisect_left(members, neighbour)
+                    child = members[:position] + (neighbour,) + members[position:]
+                    if child in seen_states or len(child) > max_pieces:
+                        continue
+                    if forbidden_pair_indices and _state_has_forbidden_pair(
+                        frozenset(child), forbidden_pair_indices
+                    ):
                         continue
 
                     # Check labels incrementally
@@ -1739,20 +2777,30 @@ def generate_assembly_candidates(
                     else:
                         new_labels = state_info.labels
 
-                    # Check overlap and mask incrementally
-                    new_area_sum = state_info.area_sum + fragments[neighbour].area
-                    new_union = state_info.union | fragments[neighbour].mask
-                    overlap = new_area_sum - int(new_union.sum())
+                    # Check overlap incrementally; |U | M| = |U| + |M| - |U & M|.
+                    shared = (
+                        geometry.union_overlap(state_info.union, neighbour)
+                        if overlapping
+                        else 0
+                    )
+                    neighbour_area = geometry.areas[neighbour]
+                    new_area_sum = state_info.area_sum + neighbour_area
+                    new_union_count = state_info.union_count + neighbour_area - shared
+                    overlap = new_area_sum - new_union_count
                     if overlap > max_group_overlap_pixels:
                         continue
 
                     # Calculate pairwise or whole-assembly support incrementally.
+                    # The neighbour's few graph edges are the same edges a
+                    # lookup per state member finds; the sum, the maximum and
+                    # the any() below are independent of their order.
                     added_support = 0
-                    incident_edges: list[TearFitEdge] = []
-                    for member in state_info.state:
-                        key = (min(member, neighbour), max(member, neighbour))
-                        edge = edge_lookup.get(key)
-                        if edge is not None:
+                    has_incident = False
+                    any_automatic = False
+                    best_adaptive: float | None = None
+                    for member, edge in graph[neighbour].items():
+                        if member in state:
+                            has_incident = True
                             if edge.effectiveness > 0.0:
                                 added_support += int(
                                     round(
@@ -1760,30 +2808,23 @@ def generate_assembly_candidates(
                                         * min(edge.effectiveness, 8.0)
                                     )
                                 )
+                                adaptive = edge.effectiveness / (1.0 + edge.effectiveness)
+                                if best_adaptive is None or adaptive > best_adaptive:
+                                    best_adaptive = adaptive
                             else:
                                 added_support += edge.overlap_pixels
-                            incident_edges.append(edge)
-                    gap_evidence = gap_options.get(neighbour)
-                    if gap_evidence is not None:
-                        added_support = max(added_support, gap_evidence.matched_pixels)
-                        step_score = gap_evidence.score
-                        step_level = gap_evidence.evidence_level
+                            if edge.evidence_level == "automatic":
+                                any_automatic = True
+                    step_gap = gap_options.get(neighbour)
+                    if step_gap is not None:
+                        added_support = max(added_support, step_gap.matched_pixels)
+                        step_score = step_gap.score
+                        step_level = step_gap.evidence_level
                         new_gap_steps = state_info.gap_steps + 1
                     else:
-                        adaptive_scores = [
-                            edge.effectiveness / (1.0 + edge.effectiveness)
-                            for edge in incident_edges
-                            if edge.effectiveness > 0.0
-                        ]
-                        step_score = max(adaptive_scores, default=1.0)
+                        step_score = 1.0 if best_adaptive is None else best_adaptive
                         step_level = (
-                            "automatic"
-                            if not incident_edges
-                            or any(
-                                edge.evidence_level == "automatic"
-                                for edge in incident_edges
-                            )
-                            else "review"
+                            "automatic" if not has_incident or any_automatic else "review"
                         )
                         new_gap_steps = state_info.gap_steps
                     new_support = state_info.support + added_support
@@ -1795,14 +2836,44 @@ def generate_assembly_candidates(
                         else "review"
                     )
 
-                    raw_coverage = int(new_union.sum()) / float(total_area)
+                    raw_coverage = new_union_count / float(total_area)
                     if raw_coverage >= coverage_threshold - 0.15:
-                        coverage = int(
-                            _dilate(new_union, gap_fill_radius).sum()
-                        ) / float(total_area)
-                    else:
-                        coverage = raw_coverage
+                        dilate.append(len(passed))
+                    passed.append(
+                        (
+                            neighbour,
+                            child,
+                            new_labels,
+                            new_area_sum,
+                            new_union_count,
+                            raw_coverage,
+                            new_support,
+                            new_evidence_score,
+                            new_evidence_level,
+                            new_gap_steps,
+                        )
+                    )
 
+                coverages = [entry[5] for entry in passed]
+                if dilate:
+                    dilated = geometry.dilated_union_counts(
+                        state_info, [passed[slot][0] for slot in dilate]
+                    )
+                    for slot, pixels in zip(dilate, dilated):
+                        coverages[slot] = pixels / float(total_area)
+                for entry, coverage in zip(passed, coverages):
+                    (
+                        neighbour,
+                        child,
+                        new_labels,
+                        new_area_sum,
+                        new_union_count,
+                        raw_coverage,
+                        new_support,
+                        new_evidence_score,
+                        new_evidence_level,
+                        new_gap_steps,
+                    ) = entry
                     base_score = (
                         coverage * 10_000.0
                         + new_support
@@ -1810,40 +2881,41 @@ def generate_assembly_candidates(
                         + 250.0 * new_evidence_score
                         - 25.0 * new_gap_steps
                     )
-                    preference_bonus = _pair_preference_bonus(
-                        new_state_set, preferred_pair_indices, preferred_pair_bonus
+                    preference_bonus = (
+                        _pair_preference_bonus(
+                            frozenset(child), preferred_pair_indices, preferred_pair_bonus
+                        )
+                        if preferred_pair_indices
+                        else 0.0
                     )
                     score = base_score + preference_bonus
 
-                    new_info = StateInfo(
-                        state=new_state_set,
-                        union=new_union,
-                        area_sum=new_area_sum,
-                        labels=new_labels,
-                        support=new_support,
-                        score=score,
-                        raw_coverage=raw_coverage,
-                        coverage=coverage,
-                        evidence_score=new_evidence_score,
-                        evidence_level=new_evidence_level,
-                        gap_steps=new_gap_steps,
-                    )
-
-                    existing = next_frontier.get(new_state_set)
-                    if existing is None or new_info.score > existing.score:
-                        next_frontier[new_state_set] = new_info
+                    existing = next_frontier.get(child)
+                    if existing is None or score > existing[0]:
+                        next_frontier[child] = (
+                            score,
+                            state_info,
+                            neighbour,
+                            new_area_sum,
+                            new_labels,
+                            new_support,
+                            raw_coverage,
+                            coverage,
+                            new_evidence_score,
+                            new_evidence_level,
+                            new_gap_steps,
+                            new_union_count,
+                        )
 
                     if (
                         coverage >= coverage_threshold
                         or raw_coverage >= record_raw_threshold
                     ):
-                        ids = tuple(
-                            sorted(fragments[index].id for index in new_state_set)
-                        )
+                        ids = tuple(sorted(fragments[index].id for index in child))
                         if ids in forbidden_candidate_keys:
                             continue
-                        if not _forced_pairs_satisfied(
-                            new_state_set, forced_pair_indices
+                        if forced_pair_indices and not _forced_pairs_satisfied(
+                            frozenset(child), forced_pair_indices
                         ):
                             continue
                         existing_candidate = candidates.get(ids)
@@ -1865,18 +2937,33 @@ def generate_assembly_candidates(
                             or candidate.score > existing_candidate.score
                         ):
                             candidates[ids] = candidate
-                seen_states.add(state_info.state)
+                seen_states.add(members)
             if not next_frontier:
                 break
-            ordered = sorted(
-                next_frontier.values(),
-                key=lambda item: (
-                    -item.score,
-                    len(item.state),
-                    tuple(sorted(item.state)),
-                ),
-            )
-            frontier = ordered[:beam_width]
+            # A survivor's frozenset is built from the parent that won its
+            # record, in the same element order as an eager build would use.
+            frontier = [
+                StateInfo(
+                    state=frozenset((*record[1].state, record[2])),
+                    union=None,
+                    area_sum=record[3],
+                    labels=record[4],
+                    support=record[5],
+                    score=record[0],
+                    raw_coverage=record[6],
+                    coverage=record[7],
+                    evidence_score=record[8],
+                    evidence_level=record[9],
+                    gap_steps=record[10],
+                    union_count=record[11],
+                    parent=record[1],
+                    added_index=record[2],
+                    added_mask=fragments[record[2]].mask,
+                    members=child_members,
+                    blocked=record[1].blocked | geometry.overlap_bits(record[2]),
+                )
+                for child_members, record in _beam_records(next_frontier, beam_width)
+            ]
 
     if search_stats is not None:
         search_stats.update(
@@ -1973,6 +3060,7 @@ def augment_candidates_with_group_gap(
     time_limit_seconds: float | None = 20.0,
     max_expanded_states: int | None = None,
     search_stats: dict[str, int | bool] | None = None,
+    geometry: _AssemblyGeometry | None = None,
 ) -> list[AssemblyCandidate]:
     """Add weak pairwise fragments only after a high-confidence core exists.
 
@@ -1983,7 +3071,9 @@ def augment_candidates_with_group_gap(
     complete core-only solution. ``weak_pair`` preserves the v4.3 proposal
     gate. ``boundary_contact`` lets every non-overlapping boundary-contact pair
     enter the same unchanged whole-assembly scorer, including pairs whose
-    adaptive tear evidence was insufficient.
+    adaptive tear evidence was insufficient. ``geometry`` may carry
+    per-fragment caches from an earlier search over the same ``fragments``
+    list; it is used only when built for ``tolerance`` and ``gap_fill_radius``.
     """
 
     if base_selection_strategy not in TEARFIT_BASE_SELECTION_STRATEGIES:
@@ -2014,14 +3104,19 @@ def augment_candidates_with_group_gap(
         for edge in gap_edges
         if edge.contiguous_pixels >= 2 and edge.effectiveness > 0.0
     ]
-    gap_lookup = _edge_graph(eligible_gap_edges, len(fragments))[1]
+    gap_graph = _edge_graph(eligible_gap_edges, len(fragments))[0]
     proposal_edges = (
         eligible_gap_edges
         if proposal_pool == "weak_pair"
         else [edge for edge in gap_edges if edge.overlap_pixels > 0]
     )
     proposal_graph = _edge_graph(proposal_edges, len(fragments))[0]
-    boundary_evidence = tear_boundary_evidence(fragments, tolerance=tolerance)
+    if geometry is None or not geometry.serves(
+        fragments, tolerance=tolerance, gap_fill_radius=gap_fill_radius
+    ):
+        geometry = _AssemblyGeometry(
+            fragments, tolerance=tolerance, gap_fill_radius=gap_fill_radius
+        )
     total_area = fragments[0].mask.size
     deadline = None if time_limit_seconds is None else monotonic() + time_limit_seconds
     expanded_states = 0
@@ -2075,10 +3170,10 @@ def augment_candidates_with_group_gap(
             continue
         if len(start_state) < core_min_pieces or len(start_state) >= max_pieces:
             continue
-        start_union = np.logical_or.reduce(
-            [fragments[index].mask for index in start_state]
+        start_union = np.any(
+            np.stack([fragments[index].mask for index in start_state]), axis=0
         )
-        start_area_sum = sum(fragments[index].area for index in start_state)
+        start_area_sum = sum(geometry.areas[index] for index in start_state)
         start_labels = set(base.labels)
         frontier = [
             StateInfo(
@@ -2096,6 +3191,7 @@ def augment_candidates_with_group_gap(
             )
         ]
         seen = {start_state}
+        largest_seen = len(start_state)
         for _depth in range(max(0, max_pieces - len(start_state))):
             if budget_exhausted():
                 break
@@ -2104,13 +3200,35 @@ def augment_candidates_with_group_gap(
                 if budget_exhausted():
                     break
                 expanded_states += 1
+                state = state_info.state
                 pool: set[int] = set()
-                for member in state_info.state:
+                for member in state:
                     pool.update(proposal_graph[member])
-                pool.difference_update(state_info.state)
+                pool.difference_update(state)
+                # Seams from the members to every candidate, built once per
+                # state: each list follows state order (the order a scan of
+                # the members gives) and comes with its strongest seam ratio.
+                seams: dict[int, list[TearFitEdge]] = {}
+                strongest: dict[int, float] = {}
+                for member in state:
+                    for other, edge in gap_graph[member].items():
+                        ratio = edge.effectiveness / (1.0 + edge.effectiveness)
+                        found = seams.get(other)
+                        if found is None:
+                            seams[other] = [edge]
+                            strongest[other] = ratio
+                        else:
+                            found.append(edge)
+                            if ratio > strongest[other]:
+                                strongest[other] = ratio
+                # Frontier states share one size and every seen state is no
+                # larger, so a child can only be seen once that changes.
+                child_size = len(state) + 1
+                proposals: list[int] = []
                 for neighbour in pool:
-                    new_state = frozenset((*state_info.state, neighbour))
-                    if new_state in seen:
+                    if child_size <= largest_seen and (
+                        frozenset((*state, neighbour)) in seen
+                    ):
                         continue
                     neighbour_label = fragments[neighbour].label
                     if (
@@ -2119,40 +3237,42 @@ def augment_candidates_with_group_gap(
                         and neighbour_label not in state_info.labels
                     ):
                         continue
-                    proposal_evaluations += 1
-                    has_weak_edge = any(
-                        (min(member, neighbour), max(member, neighbour)) in gap_lookup
-                        for member in state_info.state
-                    )
-                    if not has_weak_edge:
-                        no_weak_edge_evaluations += 1
-                    evidence = score_fragment_against_assembly(
-                        fragments,
-                        state_info.state,
-                        state_info.union,
-                        neighbour,
-                        gap_lookup,
-                        boundary_evidence,
-                        tolerance=tolerance,
-                        min_score=min_group_gap_score,
-                        automatic_score=automatic_group_gap_score,
-                    )
-                    if evidence.evidence_level == "insufficient-evidence":
-                        continue
+                    proposals.append(neighbour)
+                proposal_evaluations += len(proposals)
+                # Every gap_graph edge passes the support filter, so a weak
+                # edge exists exactly when the candidate has a seam list.
+                no_weak_edge_evaluations += sum(
+                    1 for neighbour in proposals if neighbour not in seams
+                )
+                for neighbour, evidence in geometry.score_proposals(
+                    state_info,
+                    proposals,
+                    seams,
+                    strongest,
+                    min_score=min_group_gap_score,
+                    automatic_score=automatic_group_gap_score,
+                ):
+                    neighbour_label = fragments[neighbour].label
+                    new_state = frozenset((*state, neighbour))
                     accepted_proposals += 1
-                    if not has_weak_edge:
+                    if neighbour not in seams:
                         accepted_no_weak_edge_proposals += 1
-                    new_area_sum = state_info.area_sum + fragments[neighbour].area
-                    new_union = state_info.union | fragments[neighbour].mask
-                    overlap = new_area_sum - int(new_union.sum())
+                    # evidence.overlap_pixels is |U & M|, so |U | M| follows.
+                    new_area_sum = state_info.area_sum + geometry.areas[neighbour]
+                    new_union_count = (
+                        state_info.union_count
+                        + geometry.areas[neighbour]
+                        - evidence.overlap_pixels
+                    )
+                    overlap = new_area_sum - new_union_count
                     if overlap > max_group_overlap_pixels:
                         continue
                     new_labels = set(state_info.labels)
                     if neighbour_label:
                         new_labels.add(neighbour_label)
-                    raw_coverage = int(new_union.sum()) / float(total_area)
+                    raw_coverage = new_union_count / float(total_area)
                     coverage = (
-                        int(_dilate(new_union, gap_fill_radius).sum())
+                        geometry.dilated_union_pixels(state_info, neighbour)
                         / float(total_area)
                         if raw_coverage >= coverage_threshold - 0.15
                         else raw_coverage
@@ -2175,7 +3295,7 @@ def augment_candidates_with_group_gap(
                     )
                     info = StateInfo(
                         state=new_state,
-                        union=new_union,
+                        union=None,
                         area_sum=new_area_sum,
                         labels=new_labels,
                         support=support,
@@ -2185,6 +3305,10 @@ def augment_candidates_with_group_gap(
                         evidence_score=evidence_score,
                         evidence_level=evidence_level,
                         gap_steps=gap_steps,
+                        union_count=new_union_count,
+                        parent=state_info,
+                        added_index=neighbour,
+                        added_mask=fragments[neighbour].mask,
                     )
                     existing = next_frontier.get(new_state)
                     if existing is None or info.score > existing.score:
@@ -2206,17 +3330,11 @@ def augment_candidates_with_group_gap(
                         previous = output.get(ids)
                         if previous is None or candidate.score > previous.score:
                             output[ids] = candidate
-                seen.add(state_info.state)
+                seen.add(state)
+                largest_seen = max(largest_seen, len(state))
             if not next_frontier:
                 break
-            frontier = sorted(
-                next_frontier.values(),
-                key=lambda item: (
-                    -item.score,
-                    len(item.state),
-                    tuple(sorted(item.state)),
-                ),
-            )[:beam_width]
+            frontier = _beam(next_frontier.values(), beam_width)
     if search_stats is not None:
         search_stats.update(
             expanded_states=expanded_states,
@@ -2250,6 +3368,7 @@ def _connected_components(
         raise ValueError("connectivity must be 4 or 8")
     height, width = mask.shape
     visited = np.zeros(mask.shape, dtype=bool)
+    offsets: tuple[tuple[int, int], ...]
     if connectivity == 8:
         offsets = (
             (-1, -1), (-1, 0), (-1, 1), (0, -1),
@@ -2898,8 +4017,9 @@ def augment_candidates_gap_first(
                 ids = tuple(sorted(fragments[index].id for index in combined))
                 labels = set(base.labels)
                 for index in combo:
-                    if fragments[index].label:
-                        labels.add(fragments[index].label)
+                    combo_label = fragments[index].label
+                    if combo_label:
+                        labels.add(combo_label)
                 gap_steps = base.gap_steps + len(combo)
                 score = (
                     evaluation.coverage * 10_000.0
@@ -3045,15 +4165,15 @@ def diagnose_gap_candidate_funnel(
         ("partial", base_order(partial_cores)),
     ):
         for rank, candidate in enumerate(candidates, start=1):
-            note_id = candidate_note(candidate)
-            if note_id is not None:
-                all_pure_bases.setdefault(note_id, []).append(
+            pure_note = candidate_note(candidate)
+            if pure_note is not None:
+                all_pure_bases.setdefault(pure_note, []).append(
                     (source, rank, candidate)
                 )
     for source, rank, candidate in selected_bases:
-        note_id = candidate_note(candidate)
-        if note_id is not None:
-            selected_pure_bases.setdefault(note_id, []).append(
+        pure_note = candidate_note(candidate)
+        if pure_note is not None:
+            selected_pure_bases.setdefault(pure_note, []).append(
                 (source, rank, candidate)
             )
 
@@ -3266,7 +4386,6 @@ def select_exact_cover_candidates(
     locked_count = len(locked)
     best_count = locked_count
     best_score = locked_score
-    best_choice: tuple[int, ...] = ()
 
     def better(count: int, score: float) -> bool:
         if objective == "count_then_score":
@@ -3277,16 +4396,35 @@ def select_exact_cover_candidates(
     # the candidate count, so large pools (N=200+) overflowed Python's recursion
     # limit and crashed mid-search instead of returning the best packing found so
     # far. An explicit LIFO stack keeps the identical include-first DFS order and
-    # both pruning bounds, with no depth limit. Per-candidate frozensets/scores
-    # are precomputed once instead of rebuilt at every visited node.
+    # both pruning bounds, with no depth limit. Fragment ids and serial labels
+    # are interned as bits of Python ints, so a conflict test is one AND and a
+    # child's used set one OR; chosen positions form a shared linked chain
+    # instead of a tuple copied at every node.
     remaining_count = len(remaining)
-    item_ids_list = [frozenset(item.fragment_ids) for item in remaining]
-    item_labels_list = [frozenset(item.labels) for item in remaining]
+    id_bits: dict[str, int] = {}
+    label_bits: dict[str, int] = {}
+
+    def as_bits(values: Iterable[str], table: dict[str, int]) -> int:
+        mask = 0
+        for value in values:
+            bit = table.get(value)
+            if bit is None:
+                bit = 1 << len(table)
+                table[value] = bit
+            mask |= bit
+        return mask
+
+    locked_id_bits = as_bits(used_locked_ids, id_bits)
+    locked_label_bits = as_bits(used_locked_labels, label_bits)
+    item_id_bits = [as_bits(item.fragment_ids, id_bits) for item in remaining]
+    item_label_bits = [as_bits(item.labels, label_bits) for item in remaining]
     item_scores = [adjusted_score(item) for item in remaining]
 
-    stack: list[tuple[int, frozenset[str], frozenset[str], tuple[int, ...], float]] = [
-        (0, frozenset(used_locked_ids), frozenset(used_locked_labels), (), locked_score)
+    # (position, used id bits, used label bits, chosen chain, chosen count, score)
+    stack: list[tuple[int, int, int, Any, int, float]] = [
+        (0, locked_id_bits, locked_label_bits, None, 0, locked_score)
     ]
+    best_chain: Any = None
     search_nodes = 0
     node_limit_reached = False
     time_limit_reached = False
@@ -3297,38 +4435,42 @@ def select_exact_cover_candidates(
         if deadline is not None and monotonic() >= deadline:
             time_limit_reached = True
             break
-        pos, used_ids, used_labels, chosen, score = stack.pop()
+        pos, used_ids, used_labels, chosen, chosen_count, score = stack.pop()
         search_nodes += 1
         if (
             objective == "count_then_score"
-            and locked_count + len(chosen) + (remaining_count - pos) < best_count
+            and locked_count + chosen_count + (remaining_count - pos) < best_count
         ):
             continue
         if objective == "score_then_count" and score + suffix_score[pos] < best_score:
             continue
         if pos >= remaining_count:
-            count = locked_count + len(chosen)
+            count = locked_count + chosen_count
             if better(count, score):
                 best_count = count
                 best_score = score
-                best_choice = chosen
+                best_chain = chosen
             continue
 
         # Push skip-branch first so the include-branch is popped first, matching
         # the recursive preorder (a good packing found early tightens the bound).
-        stack.append((pos + 1, used_ids, used_labels, chosen, score))
-        item_ids = item_ids_list[pos]
-        item_labels = item_labels_list[pos]
-        if not (item_ids & used_ids) and not (item_labels & used_labels):
+        stack.append((pos + 1, used_ids, used_labels, chosen, chosen_count, score))
+        if not (item_id_bits[pos] & used_ids) and not (item_label_bits[pos] & used_labels):
             stack.append(
                 (
                     pos + 1,
-                    used_ids | item_ids,
-                    used_labels | item_labels,
-                    chosen + (pos,),
+                    used_ids | item_id_bits[pos],
+                    used_labels | item_label_bits[pos],
+                    (pos, chosen),
+                    chosen_count + 1,
                     score + item_scores[pos],
                 )
             )
+    chosen_positions: list[int] = []
+    while best_chain is not None:
+        chosen_positions.append(best_chain[0])
+        best_chain = best_chain[1]
+    best_choice = tuple(reversed(chosen_positions))
     selected_out = locked + [remaining[index] for index in best_choice]
     final_out = []
     for candidate in selected_out:
@@ -3384,7 +4526,7 @@ def diagnose_confirmed_candidates(
             continue
         if len(notes) == 1:
             pure += 1
-            note_id = next(iter(notes))
+            note_id = cast(str, next(iter(notes)))
             if ids == true_notes.get(note_id, set()):
                 exact += 1
                 if candidate.evidence_level == "automatic":
@@ -3519,17 +4661,18 @@ def reconstruct_placed_fragments(
         automatic_contiguous_pixels=config.automatic_contiguous_pixels,
     )
     if config.use_labels:
-        label_filtered_scores, edges = score_absolute_tear_pairs(
-            observed,
-            tolerance=config.tolerance,
-            min_overlap_pixels=config.min_overlap_pixels,
-            use_labels=True,
-            scoring=scoring,
-            min_effectiveness=config.min_effectiveness,
-            automatic_effectiveness=config.automatic_effectiveness,
-            min_contiguous_pixels=config.min_contiguous_pixels,
-            automatic_contiguous_pixels=config.automatic_contiguous_pixels,
-        )
+        # Each pair score is independent of the others, so the label-aware
+        # pass is exactly the label-compatible subset of the unfiltered one.
+        label_filtered_scores = [
+            edge
+            for edge in all_scores
+            if _labels_compatible(observed[edge.left].label, observed[edge.right].label)
+        ]
+        edges = [
+            edge
+            for edge in label_filtered_scores
+            if edge.evidence_level != "insufficient-evidence"
+        ]
     else:
         label_filtered_scores = all_scores
         edges = raw_edges
@@ -3632,6 +4775,10 @@ def reconstruct_placed_fragments(
     stage_timings["partial_gap_search"] = 0.0
     if resolved_algorithm in ("effectiveness_gap", "v44_gap_first"):
         complete_gap_started = monotonic()
+        # Both gap searches read the same per-fragment pixel caches.
+        geometry = _AssemblyGeometry(
+            observed, tolerance=config.tolerance, gap_fill_radius=config.gap_fill_radius
+        )
         from_complete = augment_candidates_with_group_gap(
             observed,
             complete_core_candidates,
@@ -3649,6 +4796,7 @@ def reconstruct_placed_fragments(
             time_limit_seconds=config.candidate_time_limit_seconds,
             max_expanded_states=resolved_gap_state_limit,
             search_stats=complete_gap_search_stats,
+            geometry=geometry,
         )
         stage_timings["complete_gap_search"] = monotonic() - complete_gap_started
         partial_gap_started = monotonic()
@@ -3669,6 +4817,7 @@ def reconstruct_placed_fragments(
             time_limit_seconds=config.partial_gap_time_limit_seconds,
             max_expanded_states=resolved_partial_gap_state_limit,
             search_stats=partial_gap_search_stats,
+            geometry=geometry,
         )
         stage_timings["partial_gap_search"] = monotonic() - partial_gap_started
         merged: dict[tuple[str, ...], AssemblyCandidate] = {}
@@ -4411,7 +5560,7 @@ def run_tearfit_strategy_comparison(
     }
     for row in rows:
         by_strategy[(row["seed_strategy"], row["cover_objective"])].append(row)
-    summary = []
+    summary: list[dict[str, Any]] = []
     for (strategy, objective), strategy_rows in by_strategy.items():
         score = _strategy_score(strategy_rows)
         summary.append(
