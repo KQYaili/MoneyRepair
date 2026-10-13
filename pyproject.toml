@@ -43,6 +43,9 @@ ocr = [
 reports = [
     "matplotlib>=3.8",
 ]
+audit = [
+    "scipy>=1.11",
+]
 llm = []
 
 [project.urls]

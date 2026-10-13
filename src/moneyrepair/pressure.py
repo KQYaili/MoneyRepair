@@ -264,8 +264,8 @@ def aggregate_pressure_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if key not in fixed_keys and isinstance(value, (int, float, np.integer, np.floating))
             }
         )
-        for key in numeric_keys:
-            out[key] = float(np.mean([float(item[key]) for item in items if key in item]))
+        for metric in numeric_keys:
+            out[metric] = float(np.mean([float(item[metric]) for item in items if metric in item]))
         summary.append(out)
     return summary
 

@@ -5,6 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -130,7 +131,7 @@ def render_report_figure(
             record["sha256"] = _sha256(source_path)
         provenance[name] = record
 
-    manifest = {
+    manifest: dict[str, Any] = {
         "title": title,
         "claim": claim,
         "palette": REPORT_PALETTE,

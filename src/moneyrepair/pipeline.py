@@ -8,7 +8,11 @@ from time import perf_counter
 
 import numpy as np
 
-from moneyrepair.compat import compute_compatibility_fast
+from moneyrepair.compat import (
+    CompatibilityMatrix,
+    PackedCompatibilityMatrix,
+    compute_compatibility_fast,
+)
 from moneyrepair.quality import QualityThresholds, assess_fragments, summarize_quality
 from moneyrepair.simulate import load_dataset
 from moneyrepair.solver import solve_covering_sets
@@ -187,6 +191,8 @@ def run_production_pipeline(
             
             # Place fragment
             for p in poses:
+                # locate_fragment_poses returns no poses for image-less fragments.
+                assert fragment.image is not None
                 raw_crop_img, raw_crop_mask = _crop_foreground(fragment.image, fragment.mask)
                 crop_img, crop_mask = _rotate_image_and_mask(raw_crop_img, raw_crop_mask, p.angle)
                 
@@ -232,7 +238,7 @@ def run_production_pipeline(
             from moneyrepair.baselines.fingerprint import cluster_fragments_by_appearance
             groups = cluster_fragments_by_appearance(active, template, tolerance=discriminate_tolerance)
 
-        matrix = build_pose_compatibility_matrix(
+        matrix: CompatibilityMatrix | PackedCompatibilityMatrix = build_pose_compatibility_matrix(
             active_search,
             cell=cell,
             groups=groups,
@@ -250,7 +256,6 @@ def run_production_pipeline(
         )
     interlock_stats = None
     if include_interlock:
-        from moneyrepair.compat import CompatibilityMatrix, PackedCompatibilityMatrix
         if isinstance(matrix, CompatibilityMatrix):
             matrix = PackedCompatibilityMatrix.from_dense(matrix)
         from moneyrepair.baselines.interlock import apply_interlock_constraints_with_stats

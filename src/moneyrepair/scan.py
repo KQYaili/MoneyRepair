@@ -65,7 +65,7 @@ def connected_components(mask: np.ndarray, min_area: int = 50, connectivity: int
             continue
         ys = np.array(pixels_y, dtype=np.int32)
         xs = np.array(pixels_x, dtype=np.int32)
-        bbox = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+        bbox = (int(np.min(xs)), int(np.min(ys)), int(np.max(xs)) + 1, int(np.max(ys)) + 1)
         components.append(ScanComponent(len(components), bbox, area, ys, xs))
 
     components.sort(key=lambda item: (item.bbox[1], item.bbox[0], item.bbox[3], item.bbox[2]))

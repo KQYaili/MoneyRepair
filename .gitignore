@@ -7,3 +7,8 @@ runs/
 dist/
 build/
 *.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/

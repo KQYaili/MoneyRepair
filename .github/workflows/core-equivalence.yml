@@ -1,0 +1,63 @@
+name: Core equivalence
+
+# Item-by-item equivalence of the frozen tear-fit core with the pull request's
+# base, on x86 runners: the N=100, p=24, seed-7 benchmark arms and the
+# direct-call suite. Measurement only; see docs/experiments/core_equivalence.py.
+on:
+  pull_request:
+    paths:
+      - "src/moneyrepair/tearfit.py"
+      - "src/moneyrepair/simulate.py"
+      - "src/moneyrepair/types.py"
+      - "docs/experiments/core_equivalence.py"
+      - ".github/workflows/core-equivalence.yml"
+  workflow_dispatch:
+    inputs:
+      reference:
+        description: "Git ref of the reference core"
+        required: true
+        default: "origin/main"
+
+jobs:
+  equivalence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: n100-global
+            args: --case 100:24:7:global
+          - name: n100-disjoint
+            args: --case 100:24:7:disjoint_round_robin
+          - name: direct-suite
+            args: --direct-suite
+    name: equivalence (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install core dependencies
+        # Not the package itself: each worker imports the tree it measures.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy>=1.24" "pillow>=10.0" "numba>=0.59"
+      - name: Compare with the reference core
+        env:
+          REFERENCE: ${{ github.event.pull_request.base.sha || inputs.reference }}
+        run: >
+          python docs/experiments/core_equivalence.py
+          --reference-ref "$REFERENCE"
+          ${{ matrix.args }}
+          --output-dir runs/core_equivalence
+          --report runs/core_equivalence/report.json
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-equivalence-${{ matrix.name }}
+          path: runs/core_equivalence/report.json
+          if-no-files-found: ignore

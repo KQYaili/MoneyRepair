@@ -70,6 +70,7 @@ claims.
 | [v4.4 residual-gap proposal](v4_4_residual_gap_proposal.md) | residual-gap-first implementation and measurement design |
 | [v4.4 empirical validation](v4_4_empirical_validation.md) | NULL result; wall relocates upstream of gap proposal |
 | [v4.4.1 base selection](v4_4_1_base_selection.md) | fixed-budget disjoint selection clears the seed-7 rescue gate |
+| [v5 core performance audit](v5_core_performance_audit.md) | output-identical speedup; quadratic scored-pair set; exact cover optimal through N=100, objective-limited at N=200 |
 
 The machine-readable sources are in [benchmarks](benchmarks/). Supplemental
 N=10 results in [v4.3 A/B benchmark](v4_3_ab_benchmark.md) are retained for

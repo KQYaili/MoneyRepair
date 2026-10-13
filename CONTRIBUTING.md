@@ -33,7 +33,7 @@ force-push `main`.
 ```bash
 python -m pytest -q
 python -m compileall -q src
-ruff check src tests docs/figures
+ruff check src tests docs/figures docs/experiments
 mypy src/moneyrepair --ignore-missing-imports
 ```
 

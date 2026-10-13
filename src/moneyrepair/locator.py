@@ -629,9 +629,13 @@ def build_pose_compatibility_matrix(
             for j in range(i + 1, n):
                 if matrix.compatible[i, j]:
                     # Check boundary continuity
+                    image_i = placed_fragments[i].image
+                    image_j = placed_fragments[j].image
+                    if image_i is None or image_j is None:
+                        raise ValueError("boundary continuity requires fragment images")
                     if not numba_boundary_continuity(
-                        placed_fragments[i].image, placed_fragments[i].mask,
-                        placed_fragments[j].image, placed_fragments[j].mask,
+                        image_i, placed_fragments[i].mask,
+                        image_j, placed_fragments[j].mask,
                         max_boundary_diff,
                     ):
                         matrix.compatible[i, j] = False

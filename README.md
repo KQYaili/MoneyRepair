@@ -104,6 +104,7 @@ optional:
 ```bash
 pip install -e ".[ocr]"   # optional Tesseract wrapper
 pip install -e ".[ml]"    # experimental research modules only
+pip install -e ".[audit]" # SciPy for the exact-cover optimality audit
 ```
 
 ## Quick Smoke Test
@@ -229,7 +230,7 @@ and [research history](docs/research_history.md).
 ```bash
 python -m pytest -q
 python -m compileall -q src
-ruff check src tests docs/figures
+ruff check src tests docs/figures docs/experiments
 mypy src/moneyrepair --ignore-missing-imports
 ```
 

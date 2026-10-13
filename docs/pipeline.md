@@ -225,6 +225,33 @@ Raw crops should go through `reality-bridge` first. Appearance discrimination
 requires fragments already represented in the template coordinate frame; it
 is not a raw-crop auto-location mode.
 
+## Core Performance Audits (Simulation Only)
+
+These scripts measure the frozen v4.4.1 core on simulated pools and never
+change its decisions. Wall-clock limits stay off, so every run depends only on
+the preset's fixed, workload-normalised state and node budgets.
+
+```bash
+# Item-by-item equivalence of two core trees; run before merging a core speedup.
+python docs/experiments/core_equivalence.py --reference-ref da354f0
+
+# Where the work goes: pair-scoring funnel, overlap checks, gap-proposal fates.
+python docs/experiments/core_profile.py --notes 100 --pieces 24 --seed 7
+
+# Runtime, peak RSS, candidates, truncation and oracle recall over a grid.
+python docs/experiments/core_scaling.py --notes 20,50,100,200 --pieces 16,24 --seeds 7,8,9
+
+# Bounded exact-cover incumbent versus the proven optimum of the same pool.
+pip install -e ".[audit]"
+python docs/experiments/cover_optimality_audit.py --notes 100 --pieces 24 --seed 7
+```
+
+`core_equivalence.py` compares every scored pair, accepted edge, candidate and
+source, the selection and its objective, fingerprints and search counters, not
+only yield or the selected-set fingerprint. It reports wall time and peak RSS
+for both trees without comparing them. A depth-first exact cover that stops at
+its node budget returns an incumbent; only the MILP audit proves optimality.
+
 ## Research Gate
 
 ![Evidence-gated research path](research_gates.svg)
